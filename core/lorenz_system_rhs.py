@@ -1,6 +1,6 @@
 import numpy as np
 
-def lorenz_rhs(t, state, sigma=10.0, rho=28.0, beta=8.0/3.0):
+def lorenz_rhs(_t, state, sigma=10.0, rho=28.0, beta=8.0/3.0):
     """
     Right-hand side of the 3D Lorenz system.
 

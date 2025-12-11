@@ -129,7 +129,7 @@ def integrate_system_rk4(rhs, t_span, y0, t_step=0.01, max_steps=None):
         ti = t[i - 1]
         yi = y[:, i - 1]
 
-        # Αν έχουμε ήδη φτάσει/ξεπεράσει το tf, σταματάμε
+        # if we have reached or exceeded tf, stop
         if ti >= tf:
             t = t[:i]
             y = y[:, :i]

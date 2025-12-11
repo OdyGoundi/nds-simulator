@@ -1,6 +1,6 @@
 import numpy as np
 
-def memristive_rhs(t, y, a=0.0, b=0.1, c=0.0):
+def memristive_rhs(_t, y, a=0.0, b=0.1, c=0.0):
     """
     Right side of the 3D memristive system equation.
     Returns dy/dt as a numpy array of size 3.
