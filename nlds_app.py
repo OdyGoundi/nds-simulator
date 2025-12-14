@@ -123,6 +123,17 @@ def plot_phase_3d(y: np.ndarray, i: int, j: int, k: int, title: str, labels: Tup
     ax.set_zlabel(labels[2])
     return fig
 
+def plot_time_series(t: np.ndarray, y: np.ndarray, indices: List[int], var_names: List[str], title: str):
+    fig, ax = plt.subplots(figsize=(9, 4))
+    for i in indices:
+        ax.plot(t, y[i, :], linewidth=0.9, label=var_names[i])
+    ax.set_title(title)
+    ax.set_xlabel("t")
+    ax.set_ylabel("value")
+    ax.grid(True, linewidth=0.3)
+    ax.legend(loc="best")
+    return fig
+
 def build_csv_bytes(t: np.ndarray, y: np.ndarray, var_names: List[str]) -> bytes:
     buf = io.StringIO()
     header = "t," + ",".join(var_names)
@@ -395,8 +406,28 @@ with colB:
 
         # --- Tab 2: Time series (placeholder for now) ---
         with tabs[1]:
-            st.info("Time series plots will be added here (placeholder).")
-            st.empty()
+            st.markdown("**Time series (post-transient)**")
+            # Variable selection
+            default_sel = [0] if len(var_names) > 0 else []
+            selected_names = st.multiselect(
+            "Select variable(s)",
+            options=var_names,
+            default=[var_names[i] for i in default_sel] if default_sel else [],
+            )
+
+            if not selected_names:
+                st.info("Select at least one variable to plot.")
+            else:
+                selected_indices = [var_names.index(name) for name in selected_names]
+
+                fig_ts = plot_time_series(
+                    t=t_plot,
+                    y=y_plot,
+                    indices=selected_indices,
+                    var_names=var_names,
+                    title=f"{system_label} – time series",
+                )   
+                st.pyplot(fig_ts, clear_figure=True)
 
         # --- Tab 3: Bifurcation diagram (placeholder) ---
         with tabs[2]:
