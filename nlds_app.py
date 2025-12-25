@@ -14,8 +14,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.lorenz_system_rhs import lorenz_rhs
-from core.memristive_rhs import memristive_rhs
+from core.rossler_system_rhs import rossler_rhs
 from core.solver import integrate_system
+# from core.symplectic_solver import integrate_system_symplectic_fr
 
 
 # ----------------------------
@@ -103,24 +104,71 @@ def build_custom_rhs(var_names: List[str], eq_lines: List[str], params: Dict[str
 
     return rhs
 
+def slider_with_input(label: str, min_value: float, max_value: float,
+                      value: float, step: float, key: str, fmt: str = "%.6f") -> float:
+    """
+    Slider + number_input with true two-way synchronization.
+    Both widgets stay synchronized at all times.
+    """
+    if key not in st.session_state:
+        st.session_state[key] = float(value)
+
+    def sync_to_main(widget_key: str):
+        """Callback: sync widget value to main session_state key"""
+        val = st.session_state[widget_key]
+        val = max(min_value, min(max_value, float(val)))
+        st.session_state[key] = val
+
+    c1, c2 = st.columns([2, 1], gap="small")
+
+    with c1:
+        st.slider(
+            label,
+            min_value=min_value,
+            max_value=max_value,
+            value=float(st.session_state[key]),
+            step=step,
+            key=f"{key}_slider",
+            on_change=sync_to_main,
+            args=(f"{key}_slider",),
+        )
+
+    with c2:
+        st.number_input(
+            " ",
+            min_value=min_value,
+            max_value=max_value,
+            value=float(st.session_state[key]),
+            step=step,
+            format=fmt,
+            key=f"{key}_input",
+            on_change=sync_to_main,
+            args=(f"{key}_input",),
+        )
+
+    return float(st.session_state[key])
+
+
 def plot_phase_2d(y: np.ndarray, i: int, j: int, title: str, xlabel: str, ylabel: str):
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.plot(y[i, :], y[j, :], linewidth=0.8)
-    ax.set_title(title)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
+    fig, ax = plt.subplots(figsize=(3.5, 3.5))
+    ax.plot(y[i, :], y[j, :], linewidth=0.7)
+    ax.set_title(title, fontsize=10)
+    ax.set_xlabel(xlabel, fontsize=9)
+    ax.set_ylabel(ylabel, fontsize=9)
+    ax.tick_params(labelsize=8)
     ax.grid(True, linewidth=0.3)
     ax.set_aspect("equal", adjustable="box")
     return fig
 
 def plot_phase_3d(y: np.ndarray, i: int, j: int, k: int, title: str, labels: Tuple[str, str, str]):
-    fig = plt.figure(figsize=(6, 5))
+    fig = plt.figure(figsize=(3.5, 3.5))
     ax = fig.add_subplot(111, projection="3d")
     ax.plot(y[i, :], y[j, :], y[k, :], linewidth=0.7)
-    ax.set_title(title)
-    ax.set_xlabel(labels[0])
-    ax.set_ylabel(labels[1])
-    ax.set_zlabel(labels[2])
+    ax.set_title(title, fontsize=10)
+    ax.set_xlabel(labels[0], fontsize=9)
+    ax.set_ylabel(labels[1], fontsize=9)
+    ax.set_zlabel(labels[2], fontsize=9)
+    ax.tick_params(labelsize=8)
     return fig
 
 def plot_time_series(t: np.ndarray, y: np.ndarray, indices: List[int], var_names: List[str], title: str):
@@ -152,8 +200,8 @@ def solve_cached(system_key: str,
                  y0_tuple: Tuple[float, ...],
                  # Lorenz:
                  sigma: float, rho: float, beta: float,
-                 # Memristive:
-                 mem_a: float, mem_b: float, mem_c: float,
+                 # Rossler:
+                 ross_a: float, ross_b: float, ross_c: float,
                  # Custom:
                  var_names_tuple: Tuple[str, ...],
                  eq_lines_tuple: Tuple[str, ...],
@@ -169,9 +217,9 @@ def solve_cached(system_key: str,
         def rhs(t, y):
             return lorenz_rhs(t, y, sigma=sigma, rho=rho, beta=beta)
 
-    elif system_key == "memristive":
+    elif system_key == "rossler":
         def rhs(t, y):
-            return memristive_rhs(t, y, a=mem_a, b=mem_b, c=mem_c)
+            return rossler_rhs(t, y, a=ross_a, b=ross_b, c=ross_c)
 
     elif system_key == "custom":
         var_names = list(var_names_tuple)
@@ -202,15 +250,15 @@ with st.sidebar:
 
     system_label = st.selectbox(
         "Choose system",
-        ["Lorenz (3D)", "Memristive (3D)", "Custom (nD)"],
+        ["Lorenz (3D)", "Rossler (3D)", "Custom (nD)"],
         index=0
     )
 
     if system_label.startswith("Lorenz"):
         system_key = "lorenz"
         n_vars = 3
-    elif system_label.startswith("Memristive"):
-        system_key = "memristive"
+    elif system_label.startswith("Rossler"):
+        system_key = "rossler"
         n_vars = 3
     else:
         system_key = "custom"
@@ -219,9 +267,9 @@ with st.sidebar:
     st.divider()
     st.header("Integration")
 
-    t0 = st.number_input("t0", value=0.0, step=1.0)
-    tf = st.number_input("tf", value=50.0, step=1.0)
-    dt = st.number_input("dt", value=0.01, step=0.01, format="%.5f")
+    t0 = st.number_input("initial time", value=0.0, step=1.0)
+    tf = st.number_input("final time", value=50.0, step=1.0)
+    dt = st.number_input("time step", value=0.01, step=0.01, format="%.5f")
 
     st.divider()
     st.header("Initial conditions")
@@ -255,7 +303,7 @@ params_text: str = ""
 var_names_text: str = ""
 
 # Variable names
-if system_key in ("lorenz", "memristive"):
+if system_key in ("lorenz", "rossler"):
     var_names = ["x", "y", "z"]
 else:
     with st.sidebar:
@@ -331,17 +379,17 @@ with colA:
 
     # Default values
     sigma = rho = beta = 0.0
-    mem_a = mem_b = mem_c = 0.0
+    ross_a = ross_b = ross_c = 0.0
 
     if system_key == "lorenz":
-        sigma = st.slider("sigma", 0.1, 50.0, 10.0, 0.1)
-        rho   = st.slider("rho",   0.0, 80.0, 28.0, 0.5)
-        beta  = st.slider("beta",  0.1, 10.0, float(8.0/3.0), 0.05)
+        sigma = slider_with_input("sigma", 0.1, 50.0, 10.0, 0.1, key="sigma", fmt="%.3f")
+        rho   = slider_with_input("rho",   0.0, 80.0, 28.0, 0.5, key="rho",   fmt="%.3f")
+        beta  = slider_with_input("beta",  0.1, 10.0, float(8.0/3.0), 0.05, key="beta", fmt="%.4f")
 
-    elif system_key == "memristive":
-        mem_a = st.slider("a", -5.0, 5.0, 0.0, 0.1)
-        mem_b = st.slider("b", -5.0, 5.0, 0.1, 0.1)
-        mem_c = st.slider("c", -5.0, 5.0, 0.0, 0.1)
+    elif system_key == "rossler":
+        ross_a = slider_with_input("a", 0.0, 1.0, 0.2, 0.01, key="ross_a", fmt="%.4f")
+        ross_b = slider_with_input("b", 0.0, 1.0, 0.2, 0.01, key="ross_b", fmt="%.4f")
+        ross_c = slider_with_input("c", 0.0, 10.0, 5.7, 0.1, key="ross_c", fmt="%.3f")
 
     else:
         st.caption("Custom: parameters are defined in the sidebar.")
@@ -361,7 +409,7 @@ with colB:
             t0=float(t0), tf=float(tf), dt=float(dt),
             y0_tuple=tuple(float(v) for v in y0),
             sigma=float(sigma), rho=float(rho), beta=float(beta),
-            mem_a=float(mem_a), mem_b=float(mem_b), mem_c=float(mem_c),
+            ross_a=float(ross_a), ross_b=float(ross_b), ross_c=float(ross_c),
             var_names_tuple=tuple(var_names),
             eq_lines_tuple=tuple(eq_lines),
             params_text=params_text,
@@ -404,30 +452,46 @@ with colB:
                 f"n_vars: {y.shape[0]} | t in [{t[0]:.2f}, {t[-1]:.2f}]"
             )
 
-        # --- Tab 2: Time series (placeholder for now) ---
+        # --- Tab 2: Time series (one plot per variable)
         with tabs[1]:
-            st.markdown("**Time series (post-transient)**")
-            # Variable selection
-            default_sel = [0] if len(var_names) > 0 else []
+            st.markdown("**Time series (post-transient) – One plot per variable**")
+
+            # Allow user to select which variables to display
             selected_names = st.multiselect(
-            "Select variable(s)",
-            options=var_names,
-            default=[var_names[i] for i in default_sel] if default_sel else [],
+                "Select variable(s) to display (one plot per variable)",
+                options=var_names,
+                default=[],
             )
 
-            if not selected_names:
-                st.info("Select at least one variable to plot.")
+            if selected_names:
+                plot_indices = [var_names.index(name) for name in selected_names]
             else:
-                selected_indices = [var_names.index(name) for name in selected_names]
+                # Default: show all variables
+                plot_indices = list(range(len(var_names)))
+            # Render one plot per chosen variable
+            COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
+            for plot_pos, var_idx in enumerate(plot_indices):
+                fig, ax = plt.subplots(figsize=(9, 3))
+                color = COLORS[plot_pos % len(COLORS)]
 
-                fig_ts = plot_time_series(
-                    t=t_plot,
-                    y=y_plot,
-                    indices=selected_indices,
-                    var_names=var_names,
-                    title=f"{system_label} – time series",
-                )   
-                st.pyplot(fig_ts, clear_figure=True)
+                ax.plot(
+                    t_plot,
+                    y_plot[var_idx, :],
+                    linewidth=0.9,
+                    label=var_names[var_idx],
+                    color=color,
+                )
+                ax.set_title(
+                    f"{system_label} – {var_names[var_idx]} vs time",
+                    fontsize=10,
+                )
+                ax.set_xlabel("t", fontsize=9)
+                ax.set_ylabel(var_names[var_idx], fontsize=9)
+                ax.tick_params(labelsize=8)
+                ax.grid(True, linewidth=0.3)
+                ax.legend(loc="best")
+
+                st.pyplot(fig, clear_figure=True)
 
         # --- Tab 3: Bifurcation diagram (placeholder) ---
         with tabs[2]:
