@@ -8,6 +8,7 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import sympy as sp
 
+
 # Ensure project root import works
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -17,6 +18,14 @@ from core.lorenz_system_rhs import lorenz_rhs
 from core.rossler_system_rhs import rossler_rhs
 from core.solver import integrate_system
 # from core.symplectic_solver import integrate_system_symplectic_fr
+#Poincaré sweep
+from core.poincare_sweep import (
+    poincare_section,
+    sweep_poincare,
+    sweep_poincare_events_ivp,
+    PoincareConfig,
+    SweepConfig,
+)
 
 
 # ----------------------------
@@ -171,6 +180,17 @@ def plot_phase_3d(y: np.ndarray, i: int, j: int, k: int, title: str, labels: Tup
     ax.tick_params(labelsize=8)
     return fig
 
+def plot_time_seiries_functional(t: np.ndarray, y: np.ndarray, indices: List[int], var_names: List[str], title: str):
+    fig, ax = plt.subplots(figsize=(9, 4))
+    for i in indices:
+        ax.plot(t, y[i, :], linewidth=0.9, label=var_names[i])
+    ax.set_title(title)
+    ax.set_xlabel("t")
+    ax.set_ylabel("value")
+    ax.grid(True, linewidth=0.3)
+    ax.legend(loc="best")
+    return fig
+
 def plot_time_series(t: np.ndarray, y: np.ndarray, indices: List[int], var_names: List[str], title: str):
     fig, ax = plt.subplots(figsize=(9, 4))
     for i in indices:
@@ -181,6 +201,7 @@ def plot_time_series(t: np.ndarray, y: np.ndarray, indices: List[int], var_names
     ax.grid(True, linewidth=0.3)
     ax.legend(loc="best")
     return fig
+
 
 def build_csv_bytes(t: np.ndarray, y: np.ndarray, var_names: List[str]) -> bytes:
     buf = io.StringIO()
@@ -235,6 +256,173 @@ def solve_cached(system_key: str,
         raise RuntimeError(sol.message)
 
     return sol.t, sol.y
+
+@st.cache_data(show_spinner=False)
+def sweep_cached(
+    system_key: str,
+    t0: float, tf: float, dt: float,
+    y0_tuple: Tuple[float, ...],
+    # built-in params
+    sigma: float, rho: float, beta: float,
+    ross_a: float, ross_b: float, ross_c: float,
+    # custom definitions
+    var_names_tuple: Tuple[str, ...],
+    eq_lines_tuple: Tuple[str, ...],
+    params_text: str,
+    # sweep + poincare settings
+    sweep_param: str, sweep_start: float, sweep_stop: float, sweep_step: float,
+    section_index: int, section_value: float, direction: int,
+    method: str, tol: float, transient_steps: int,
+    # output selection
+    output_index: int,
+    solver_kind: str = "ivp",
+    warm_start: bool = False,
+    max_hits: int = 100,
+    early_stop: bool = True,
+    chunk_time: float = 2.0,
+):
+    import pandas as pd
+
+    y0 = np.array(y0_tuple, dtype=float)
+
+    # Build base rhs + base_params (everything except swept param)
+    if system_key == "lorenz":
+        rhs_fn = lorenz_rhs
+        base_params = {"sigma": float(sigma), "rho": float(rho), "beta": float(beta)}
+    elif system_key == "rossler":
+        rhs_fn = rossler_rhs
+        base_params = {"a": float(ross_a), "b": float(ross_b), "c": float(ross_c)}
+    elif system_key == "custom":
+        var_names = list(var_names_tuple)
+        eq_lines = list(eq_lines_tuple)
+        params = parse_params(params_text)
+        rhs_user = build_custom_rhs(var_names, eq_lines, params)
+
+        # Για custom rhs που είναι ήδη rhs(t,y) (χωρίς kwargs),
+        # we make wrapper that ignores params .
+        # So base_params will be the params dict.
+        rhs_fn = None  # handled below
+        base_params = dict(params)
+    else:
+        raise ValueError(f"Unknown system_key: {system_key}")
+
+    sweep = SweepConfig(param_name=str(sweep_param), start=float(sweep_start),
+                        stop=float(sweep_stop), step=float(sweep_step))
+
+    poincare = PoincareConfig(
+        section_index=int(section_index),
+        section_value=float(section_value),
+        direction=int(direction),
+        method=str(method),
+        tol=float(tol),
+        transient_steps=int(transient_steps_sweep),
+    )
+
+    # -----------------------
+    # EARLY RETURN: custom
+    # -----------------------
+    if system_key == "custom":
+        var_names = list(var_names_tuple)
+        eq_lines = list(eq_lines_tuple)
+        base_params = parse_params(params_text)
+
+        # Generate inclusive sweep values (safe for floats)
+        if sweep.step <= 0:
+            raise ValueError("Sweep step must be > 0.")
+        n = int(np.floor((sweep.stop - sweep.start) / sweep.step + 1e-12)) + 1
+        param_vals = sweep.start + sweep.step * np.arange(n, dtype=float)
+        param_vals = param_vals[param_vals <= sweep.stop + 1e-12]
+
+        rows = []
+        ycol = f"y{int(output_index)}"
+
+        for pv in param_vals:
+            params2 = dict(base_params)
+            params2[sweep.param_name] = float(pv)
+
+            rhs2 = build_custom_rhs(var_names, eq_lines, params2)
+
+            sol = integrate_system(rhs2, t_span=(t0, tf), y0=y0, t_step=dt)
+            
+            if not sol.success:
+                continue
+
+            t_hits, y_hits = poincare_section(sol.t, sol.y, poincare)
+            
+            # Keep only last K Poincaré hits (bibliography-style)
+            MAX_HITS = 100   
+
+            if t_hits.size > MAX_HITS:
+                t_hits = t_hits[-MAX_HITS:]
+                y_hits = y_hits[:, -MAX_HITS:]
+                
+            if t_hits.size == 0:
+                continue
+
+            for j in range(t_hits.size):
+                rows.append({
+                    sweep.param_name: float(pv),
+                    "t_hit": float(t_hits[j]),
+                    ycol: float(y_hits[int(output_index), j]),
+                })
+
+        return pd.DataFrame(rows)
+
+    # -----------------------
+    # Non-custom: use sweep_poincare
+    # -----------------------
+    if system_key == "lorenz":
+        rhs_fn = lorenz_rhs
+        base_params = {"sigma": float(sigma), "rho": float(rho), "beta": float(beta)}
+    elif system_key == "rossler":
+        rhs_fn = rossler_rhs
+        base_params = {"a": float(ross_a), "b": float(ross_b), "c": float(ross_c)}
+    else:
+        raise ValueError(f"Unknown system_key: {system_key}")
+    
+    solve_options = {
+    "rtol": 3e-4,
+    "atol": 1e-6,
+    }
+
+    # Event-based fast path (only for ivp + crossing)
+    if str(solver_kind).lower() == "ivp" and str(method).lower() == "crossing":
+        df = sweep_poincare_events_ivp(
+            rhs=rhs_fn,
+            y0=tuple(y0),
+            t_span=(float(t0), float(tf)),
+            base_params=base_params,
+            sweep=sweep,
+            poincare=poincare,
+            t_step=float(dt),
+            solve_options=solve_options,
+            output_indices=[int(output_index)],
+            include_all_state=False,
+            warm_start=bool(warm_start),
+            max_hits=int(max_hits),
+            early_stop=bool(early_stop),     
+            chunk_time=float(chunk_time),    
+        )
+
+    else:
+        # Fallback: existing implementation
+        df = sweep_poincare(
+            rhs=rhs_fn,
+            y0=tuple(y0),
+            t_span=(float(t0), float(tf)),
+            base_params=base_params,
+            sweep=sweep,
+            poincare=poincare,
+            solver_kind=str(solver_kind),
+            t_step=float(dt),
+            solve_options=solve_options,
+            output_indices=[int(output_index)],
+            include_all_state=False,
+            warm_start=bool(warm_start),
+        )
+
+    return df
+
 
 
 # ----------------------------
@@ -454,7 +642,29 @@ with colB:
 
         # --- Tab 2: Time series (one plot per variable)
         with tabs[1]:
-            st.markdown("**Time series (post-transient) – One plot per variable**")
+            st.markdown("**Time series (post-transient)**")
+
+            # Variable selection
+            default_sel = [0] if len(var_names) > 0 else []
+            selected_names = st.multiselect(
+            "Select variable(s)",
+            options=var_names,
+            default=[var_names[i] for i in default_sel] if default_sel else [],
+            )
+
+            if not selected_names:
+                st.info("Select at least one variable to plot.")
+            else:
+                selected_indices = [var_names.index(name) for name in selected_names]
+
+                fig_ts = plot_time_seiries_functional(
+                    t=t_plot,
+                    y=y_plot,
+                    indices=selected_indices,
+                    var_names=var_names,
+                    title=f"{system_label} – time series",
+                )   
+                st.pyplot(fig_ts, clear_figure=True)
 
             # Allow user to select which variables to display
             selected_names = st.multiselect(
@@ -493,11 +703,238 @@ with colB:
 
                 st.pyplot(fig, clear_figure=True)
 
-        # --- Tab 3: Bifurcation diagram (placeholder) ---
+        # --- Tab 3: Bifurcation diagram  ---
         with tabs[2]:
-            st.info("Bifurcation diagrams will be added here.")
-            st.empty()
-        
+            st.markdown("**Bifurcation / Poincaré sweep**")
+
+            # --- Sweep controls ---
+            c1, c2, c3, c4 = st.columns([1, 1, 1, 1], gap="small")
+
+            # Choose sweep parameter
+            if system_key == "lorenz":
+                sweep_choices = ["sigma", "rho", "beta"]
+            elif system_key == "rossler":
+                sweep_choices = ["a", "b", "c"]
+            else:
+                try:
+                    sweep_choices = list(parse_params(params_text).keys())
+                except Exception:
+                    sweep_choices = []
+
+            if not sweep_choices:
+                st.warning("No sweep parameters available (check parameters).")
+                st.stop()
+
+            with c1:
+                sweep_param = st.selectbox("Sweep param", sweep_choices, index=0)
+
+            with c2:
+                sweep_start = st.number_input("start", value=0.0, step=0.1, format="%.6f", key="sw_start")
+            with c3:
+                sweep_stop = st.number_input("stop", value=50.0, step=0.1, format="%.6f", key="sw_stop")
+            with c4:
+                sweep_step = st.number_input("step", value=0.1, step=0.01, format="%.6f", key="sw_step")
+
+            st.divider()
+
+            # --- Poincaré section controls ---
+            d1, d2, d3, d4, d5 = st.columns([1, 1, 1, 1, 1], gap="small")
+
+            with d1:
+                section_var = st.selectbox("Section var", var_names, index=0)
+                section_index = var_names.index(section_var)
+
+            with d2:
+                section_value = st.number_input("Section value", value=0.0, step=0.1, format="%.6f", key="sec_val")
+
+            with d3:
+                direction_label = st.selectbox("Direction", ["+1 (up)", "-1 (down)", "0 (both)"], index=0)
+                direction = +1 if direction_label.startswith("+1") else (-1 if direction_label.startswith("-1") else 0)
+
+            with d4:
+                method = st.selectbox("Method", ["crossing", "slab"], index=0)
+
+            with d5:
+                tol = st.number_input("tol (slab only)", value=1e-3, step=1e-3, format="%.6f", key="sec_tol")
+            # output variable (what to plot on y-axis)
+            out_var = st.selectbox("Output var (plotted)", var_names, index=min(2, len(var_names)-1))
+            output_index = var_names.index(out_var)
+
+            # use same transient as global
+            st.caption("Uses the same transient cut (steps) as in the Integration panel.")
+
+            SWEEP_SOLVER = "ivp"
+
+            st.divider()
+            st.markdown("**Sweep performance settings**")
+
+            # -------- Row 1: time & mode --------
+            r1c1, r1c2, r1c3 = st.columns([1, 1, 1], gap="small")
+
+            with r1c1:
+                dt_sweep = st.number_input(
+                    "dt (sweep)",
+                    min_value=1e-6,
+                    value=max(float(dt), 0.1),
+                    step=0.01,
+                    format="%.6f",
+                    key="dt_sweep_tab3",
+                    help="Time step used ONLY for sweep."
+                )
+
+            with r1c2:
+                tf_sweep = st.number_input(
+                    "final time (sweep)",
+                    min_value=float(t0) + 1e-6,
+                    value=min(float(tf), 80.0),
+                    step=5.0,
+                    format="%.3f",
+                    key="tf_sweep_tab3",
+                    help="Final integration time for sweep."
+                )
+
+            with r1c3:
+                sweep_mode = st.selectbox(
+                    "Sweep mode",
+                    ["Bifurcation (reset ICs)", "Continuation (warm start)"],
+                    index=0,
+                    key="sweep_mode_tab3",
+                    help="Reset ICs = bibliography-style. Warm start = faster continuation."
+                )
+
+            warm_start = sweep_mode.startswith("Continuation")
+            
+            # -------- Row 2: events & early-stop --------
+            r2c1, r2c2, r2c3 = st.columns([1, 1, 1], gap="small")
+
+            with r2c1:
+                early_stop = st.checkbox(
+                    "Early stop (events)",
+                    value=True,
+                    key="early_stop_tab3",
+                    help="Stop each run after collecting enough Poincaré hits."
+                )
+
+            with r2c2:
+                max_hits = st.number_input(
+                    "Max hits kept",
+                    min_value=10,
+                    max_value=2000,
+                    value=200,
+                    step=10,
+                    key="max_hits_tab3",
+                    disabled=not early_stop,
+                    help="Maximum number of Poincaré crossings kept per parameter value."
+                )
+
+            with r2c3:
+                chunk_time = st.number_input(
+                    "Chunk time",
+                    min_value=0.1,
+                    value=2.0,
+                    step=0.5,
+                    format="%.2f",
+                    key="chunk_time_tab3",
+                    disabled=not early_stop,
+                    help="Integration time window for event detection. Larger = fewer solver calls."
+                )
+
+
+            st.markdown("**Transient removal (sweep only)**")
+            tc1, tc2 = st.columns([1, 1], gap="small")
+
+            with tc1:
+                transient_frac = st.slider(
+                    "Transient fraction",
+                    min_value=0.0,
+                    max_value=0.95,
+                    value=0.80,
+                    step=0.05,
+                    key="sw_transient_frac_tab3",
+                    help="Fraction of sweep integration steps to discard before computing crossings."
+                )
+
+            with tc2:
+                n_steps_est = int(max(1.0, (float(tf_sweep) - float(t0)) / float(dt_sweep)))
+                transient_steps_sweep = int(transient_frac * n_steps_est)
+                st.metric("Transient steps (estimated)", transient_steps_sweep)
+
+            run_sweep = st.button("Generate Bifurcation Diagram", type="primary", key="run_sweep_tab3")
+
+            
+            df = None
+            if run_sweep:
+                with st.spinner("Running sweep..."):
+                    df = sweep_cached(
+                        system_key=system_key,
+                        t0=float(t0), tf=float(tf_sweep), dt=float(dt_sweep),
+                        y0_tuple=tuple(float(v) for v in y0),
+                        sigma=float(sigma), rho=float(rho), beta=float(beta),
+                        ross_a=float(ross_a), ross_b=float(ross_b), ross_c=float(ross_c),
+                        var_names_tuple=tuple(var_names),
+                        eq_lines_tuple=tuple(eq_lines),
+                        params_text=params_text,
+                        sweep_param=str(sweep_param),
+                        sweep_start=float(sweep_start), sweep_stop=float(sweep_stop), sweep_step=float(sweep_step),
+                        section_index=int(section_index), section_value=float(section_value),
+                        direction=int(direction),
+                        method=str(method), tol=float(tol),
+                        transient_steps=int(transient_steps_sweep),
+                        output_index=int(output_index),
+                        solver_kind=SWEEP_SOLVER,
+                        warm_start=bool(warm_start),
+                        max_hits=int(max_hits),
+                        chunk_time=float(chunk_time),
+                        early_stop=bool(early_stop),
+                    )
+
+                if df is None or len(df) == 0:
+                    st.warning("No Poincaré hits found for these settings.")
+                else:
+                    import pandas as pd
+                    if not isinstance(df, pd.DataFrame):
+                        df = pd.DataFrame(df)
+
+                    ycol = f"y{int(output_index)}"
+                    fig, ax = plt.subplots(figsize=(7.5, 4.0))
+                    ax.scatter(
+                        df[sweep_param].to_numpy(),
+                        df[ycol].to_numpy(),
+                        s=2,                 
+                        c="black",           
+                        marker=".",
+                        linewidths=0,
+                        alpha=0.8,
+                    )
+
+
+                    ax.set_xlabel(sweep_param)
+                    ax.set_ylabel(f"{out_var} on section ({section_var}={section_value})")
+
+   
+                    ax.set_xlim(float(sweep_start), float(sweep_stop))
+
+                    ax.grid(True, linewidth=0.3)
+                    st.pyplot(fig, clear_figure=True)
+
+
+            # CSV export
+            if df is not None:
+                import pandas as pd
+                if not isinstance(df, pd.DataFrame):
+                    df = pd.DataFrame(df)
+                csv_bytes = df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="Download sweep CSV",
+                    data=csv_bytes,
+                    file_name=f"{system_key}_poincare_sweep.csv",
+                    mime="text/csv",
+                )
+
+                st.caption(f"Rows: {len(df)} | Columns: {', '.join(df.columns)}")
+
+            
+
         # --- Tab 4: Lyapunov Exponents (placeholder) ---
         with tabs[3]:
             st.info("Lyapunov exponents will be added here.")
