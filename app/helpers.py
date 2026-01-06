@@ -30,6 +30,8 @@ def parse_params(text: str) -> Dict[str, float]:
         name, val = line.split("=", 1)
         name = name.strip()
         val = val.strip()
+        if name.lower() == "t":
+            raise ValueError("Parameter name 't' is reserved for the independent variable; use other symbols for constants.")
         params[name] = float(val)
     return params
 
@@ -51,7 +53,8 @@ def parse_list_of_floats(text: str, n: int, label: str) -> np.ndarray:
 
 def build_custom_rhs(var_names: List[str], eq_lines: List[str], params: Dict[str, float]):
     """
-    Build rhs(t,y) from user equations using sympy.
+    Build rhs(t,y) from user equations using sympy. Supports time-dependent
+    terms via the symbol `t`.
 
     Equations are expressions in var_names and parameters, e.g.:
       sigma*(y - x)
@@ -62,11 +65,13 @@ def build_custom_rhs(var_names: List[str], eq_lines: List[str], params: Dict[str
     if len(eq_lines) != n:
         raise ValueError(f"Need exactly {n} equations (one per variable). Got {len(eq_lines)}.")
 
+    t_sym = sp.Symbol("t")
     var_syms = sp.symbols(var_names)
     param_syms = {k: sp.Symbol(k) for k in params.keys()}
 
     locals_dict = {
         **SAFE_FUNCS,
+        "t": t_sym,
         **{name: sym for name, sym in zip(var_names, var_syms)},
         **param_syms,
     }
@@ -79,12 +84,12 @@ def build_custom_rhs(var_names: List[str], eq_lines: List[str], params: Dict[str
         expr = sp.sympify(s, locals=locals_dict)
         exprs.append(expr)
 
-    args = list(var_syms) + [param_syms[k] for k in params.keys()]
+    args = [t_sym] + list(var_syms) + [param_syms[k] for k in params.keys()]
     f = sp.lambdify(args, exprs, modules=["numpy"])
     param_values = [float(params[k]) for k in params.keys()]
 
     def rhs(t, y):
-        vals = list(y) + param_values
+        vals = [t] + list(y) + param_values
         out = f(*vals)
         return np.array(out, dtype=float)
 
