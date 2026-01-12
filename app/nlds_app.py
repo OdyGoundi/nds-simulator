@@ -12,7 +12,13 @@ import numpy as np
 import streamlit as st
 
 from app.cache import solve_cached
-from app.helpers import build_csv_bytes, parse_list_of_floats, slider_with_input
+from app.helpers import (
+    build_csv_bytes,
+    build_custom_rhs,
+    parse_list_of_floats,
+    parse_params,
+    slider_with_input,
+)
 from app.plots import (
     plot_phase_2d,
     plot_phase_3d,
@@ -20,6 +26,79 @@ from app.plots import (
     plot_time_series,
 )
 from app.tab_bifurcation import render_bifurcation_tab
+from core.lorenz_system_rhs import lorenz_rhs
+from core.rossler_system_rhs import rossler_rhs
+from core.lyapunov import compute_lyapunov_spectrum
+
+
+@st.cache_data(show_spinner=False)
+def compute_lyapunov_cached(
+    system_key: str,
+    y0_tuple: tuple,
+    t0: float,
+    tf: float,
+    dt: float,
+    transient_steps: int,
+    sigma: float,
+    rho: float,
+    beta: float,
+    ross_a: float,
+    ross_b: float,
+    ross_c: float,
+    var_names_tuple: tuple,
+    eq_lines_tuple: tuple,
+    params_text: str,
+    solve_options: dict,
+) -> np.ndarray:
+    solve_options = dict(solve_options or {})
+    y0 = np.array(y0_tuple, dtype=float)
+
+    if system_key == "lorenz":
+        def rhs_lorenz(tt, xx):
+            return lorenz_rhs(tt, xx, sigma=sigma, rho=rho, beta=beta)
+
+        rhs = rhs_lorenz
+
+    elif system_key == "rossler":
+        def rhs_rossler(tt, xx):
+            return rossler_rhs(tt, xx, a=ross_a, b=ross_b, c=ross_c)
+
+        rhs = rhs_rossler
+
+    elif system_key == "custom":
+        var_names = list(var_names_tuple)
+        eq_lines = list(eq_lines_tuple)
+        params = parse_params(params_text)
+        rhs_custom_func = build_custom_rhs(var_names, eq_lines, params)
+
+        def rhs_custom_wrapper(tt, xx):
+            return rhs_custom_func(tt, xx)
+
+        rhs = rhs_custom_wrapper
+
+    else:
+        raise ValueError(f"Unknown system_key: {system_key}")
+
+    t_transient = float(transient_steps) * float(dt)
+    total_time = float(tf) - float(t0)
+    t_measure = total_time - t_transient
+    if t_measure <= 0.0:
+        raise ValueError("Not enough time for Lyapunov measurement. Increase tf or reduce transient cut.")
+
+    target_chunk = max(0.05, float(dt))
+    qr_every_steps = max(1, int(round(target_chunk / float(dt))))
+
+    result = compute_lyapunov_spectrum(
+        rhs=rhs,
+        x0=y0,
+        t0=float(t0),
+        dt=float(dt),
+        t_transient=float(t_transient),
+        t_measure=float(t_measure),
+        qr_every_steps=qr_every_steps,
+        solve_options=solve_options,
+    )
+    return result.lambdas
 
 st.set_page_config(page_title="Non Linear Dynamics Simulator", layout="wide")
 st.title("Non Linear Dynamics Simulator (NLDS)")
@@ -110,7 +189,7 @@ ross_a = ross_b = ross_c = 0.0
 # -------- Main layout: outputs only --------
 st.subheader("Outputs")
 
-tabs = st.tabs(["Phase portrait", "Time series", "Bifurcation Diagram", "Lyapunov Exponents", "Export"])
+tabs = st.tabs(["Phase portrait", "Time series", "Bifurcation Diagram", "Export"])
 
 # Solve once, then all outputs derive from (t, y)
 try:
@@ -180,6 +259,26 @@ try:
                     format_func=lambda i: axis_options[i][0],
                     index=2 if len(idx_list) > 2 else 0,
                 )
+            
+            st.divider()
+            st.header("Solver tolerances")
+            rtol = st.number_input(
+                "relative tolerance (rtol)",
+                min_value=0.0,
+                value=1e-6,
+                step=1e-6,
+                format="%.1e",
+                key="rtol",
+            )
+            atol = st.number_input(
+                "absolute tolerance (atol)",
+                min_value=0.0,
+                value=1e-8,
+                step=1e-8,
+                format="%.1e",
+                key="atol",
+            )
+            solve_options = {"rtol": float(rtol), "atol": float(atol)}
 
     y0 = parse_list_of_floats(y0_text, int(n_vars), label="y0")
 
@@ -192,6 +291,7 @@ try:
         var_names_tuple=tuple(var_names),
         eq_lines_tuple=tuple(eq_lines),
         params_text=params_text,
+        solve_options=solve_options,
     )
 
     # Apply transient cut safely (keep >= 2 samples)
@@ -230,6 +330,43 @@ try:
             f"Total steps: {len(t)} | plotted: {len(t_plot)} | transient cut: {N} | "
             f"n_vars: {y.shape[0]} | t in [{t[0]:.2f}, {t[-1]:.2f}]"
         )
+
+        st.divider()
+        st.markdown("**Lyapunov exponents**")
+        t_transient_lya = float(transient_steps) * float(dt)
+        total_time_lya = float(tf) - float(t0)
+        t_measure_lya = total_time_lya - t_transient_lya
+        if t_measure_lya <= 0.0:
+            st.warning("Not enough time for Lyapunov measurement. Increase tf or reduce transient cut.")
+        else:
+            try:
+                with st.spinner("Computing Lyapunov spectrum..."):
+                    lambdas = compute_lyapunov_cached(
+                        system_key=system_key,
+                        y0_tuple=tuple(float(v) for v in y0),
+                        t0=float(t0),
+                        tf=float(tf),
+                        dt=float(dt),
+                        transient_steps=int(transient_steps),
+                        sigma=float(sigma),
+                        rho=float(rho),
+                        beta=float(beta),
+                        ross_a=float(ross_a),
+                        ross_b=float(ross_b),
+                        ross_c=float(ross_c),
+                        var_names_tuple=tuple(var_names),
+                        eq_lines_tuple=tuple(eq_lines),
+                        params_text=params_text,
+                        solve_options=solve_options,
+                    )
+                formatted = ", ".join(f"{val:.5f}" for val in lambdas)
+                st.write(f"lambda = [{formatted}]")
+                st.caption(
+                    f"n={len(lambdas)} | t_transient={t_transient_lya:.3f} | "
+                    f"t_measure={t_measure_lya:.3f}"
+                )
+            except Exception as exc:
+                st.warning(f"Lyapunov computation failed: {exc}")
 
     # --- Tab 2: Time series (one plot per variable)
     with tabs[1]:
@@ -316,21 +453,18 @@ try:
             params_text=params_text,
         )
 
-        # --- Tab 4: Lyapunov Exponents (placeholder) ---
+        # --- Tab 4: Export (CSV functional) ---
         with tabs[3]:
-            st.info("Lyapunov exponents will be added here.")
-            st.empty()
-
-        # --- Tab 5: Export (CSV functional) ---
-        with tabs[4]:
             st.markdown("**Export results**")
 
             csv_bytes = build_csv_bytes(t_plot, y_plot, var_names)
+            rtol_tag = f"{float(rtol):.0e}"
+            atol_tag = f"{float(atol):.0e}"
 
             st.download_button(
                 label="Download CSV (post-transient)",
                 data=csv_bytes,
-                file_name=f"{system_key}_trajectory.csv",
+                file_name=f"{system_key}_trajectory_rtol{rtol_tag}_atol{atol_tag}.csv",
                 mime="text/csv",
             )
 
@@ -357,7 +491,14 @@ try:
                 a = meta.get("sweep_start", 0.0)
                 b = meta.get("sweep_stop", 0.0)
                 stp = meta.get("sweep_step", 0.0)
-                fname = f"{sys_key}_sweep_{sp}_{a:g}_{b:g}_step{stp:g}.csv"
+                rtol_meta = meta.get("rtol", rtol)
+                atol_meta = meta.get("atol", atol)
+                rtol_tag = f"{float(rtol_meta):.0e}"
+                atol_tag = f"{float(atol_meta):.0e}"
+                fname = (
+                    f"{sys_key}_sweep_{sp}_{a:g}_{b:g}_step{stp:g}"
+                    f"_rtol{rtol_tag}_atol{atol_tag}.csv"
+                )
 
                 st.download_button(
                     label="Download sweep CSV",

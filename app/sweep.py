@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -14,7 +14,6 @@ from core.poincare_sweep import (
 from core.solver import integrate_system
 from app.helpers import parse_params, build_custom_rhs
 
-DEFAULT_SOLVE_OPTIONS = {"rtol": 3e-4, "atol": 1e-6}
 DEFAULT_MAX_KEEP = 100
 
 def run_sweep_chunk(
@@ -35,10 +34,14 @@ def run_sweep_chunk(
     max_hits: int,
     early_stop: bool,
     chunk_time: float,
+    solve_options: Optional[Dict[str, float]] = None,
 ):
     import pandas as pd
 
     # build rhs_fn + base_params
+    if solve_options is None:
+        solve_options = {}
+
     if system_key == "lorenz":
         rhs_fn = lorenz_rhs
         base_params = {"sigma": float(sigma), "rho": float(rho), "beta": float(beta)}
@@ -74,7 +77,13 @@ def run_sweep_chunk(
 
             rhs2 = build_custom_rhs(var_names, eq_lines, params2)
 
-            sol = integrate_system(rhs2, t_span=(float(t0), float(tf)), y0=y0, t_step=float(dt))
+            sol = integrate_system(
+                rhs2,
+                t_span=(float(t0), float(tf)),
+                y0=y0,
+                t_step=float(dt),
+                **solve_options,
+            )
             if not sol.success:
                 continue
 
@@ -114,8 +123,6 @@ def run_sweep_chunk(
         stop=float(sweep_stop),
         step=float(sweep_step),
     )
-
-    solve_options = DEFAULT_SOLVE_OPTIONS
 
     # use fast events only for ivp+crossing
     if str(method).lower() == "crossing":

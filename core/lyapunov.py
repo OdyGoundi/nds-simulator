@@ -125,9 +125,6 @@ def _integrate_chunk_ivp(
         raise RuntimeError("scipy is required (solve_ivp not available).")
 
     opts = dict(solve_options or {})
-    # Sensible defaults; caller can override.
-    opts.setdefault("rtol", 3e-4)
-    opts.setdefault("atol", 1e-6)
 
     sol = solve_ivp(
         rhs_aug,

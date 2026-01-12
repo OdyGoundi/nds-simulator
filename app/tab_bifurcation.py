@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import math
 import numpy as np
@@ -42,6 +42,8 @@ def _sweep_settings_fingerprint(
     early_stop: bool,
     chunk_time: float,
     warm_start: bool,
+    rtol: Optional[float],
+    atol: Optional[float],
 ) -> Dict[str, object]:
     return {
         "system_key": system_key,
@@ -60,6 +62,8 @@ def _sweep_settings_fingerprint(
         "early_stop": bool(early_stop),
         "chunk_time": float(chunk_time),
         "warm_start": bool(warm_start),
+        "rtol": rtol,
+        "atol": atol,
     }
 
 
@@ -209,6 +213,29 @@ def render_bifurcation_tab(
                     help="Integration time window for event detection."
                 )
 
+            st.markdown("**Sweep solver tolerances**")
+            t1c1, t1c2 = st.columns([1, 1], gap="small")
+            with t1c1:
+                rtol_sweep = st.number_input(
+                    "relative tolerance (sweep)",
+                    min_value=0.0,
+                    value=3e-4,
+                    step=1e-4,
+                    format="%.1e",
+                    key="rtol_sweep_tab3",
+                )
+            with t1c2:
+                atol_sweep = st.number_input(
+                    "absolute tolerance (sweep)",
+                    min_value=0.0,
+                    value=1e-6,
+                    step=1e-6,
+                    format="%.1e",
+                    key="atol_sweep_tab3",
+                )
+
+            solve_options_sweep = {"rtol": float(rtol_sweep), "atol": float(atol_sweep)}
+
             st.markdown("**Transient removal (sweep only)**")
             tc1, tc2 = st.columns([1, 1], gap="small")
             with tc1:
@@ -276,6 +303,8 @@ def render_bifurcation_tab(
             early_stop=early_stop,
             chunk_time=chunk_time,
             warm_start=warm_start,
+            rtol=float(rtol_sweep),
+            atol=float(atol_sweep),
         )
 
         if run_new:
@@ -311,6 +340,7 @@ def render_bifurcation_tab(
                     max_hits=int(max_hits),
                     early_stop=bool(early_stop),
                     chunk_time=float(chunk_time),
+                    solve_options=solve_options_sweep,
                 )
 
             df_chunk = pd.DataFrame(df_chunk) if not isinstance(df_chunk, pd.DataFrame) else df_chunk
@@ -388,6 +418,7 @@ def render_bifurcation_tab(
                                 max_hits=int(max_hits),
                                 early_stop=bool(early_stop),
                                 chunk_time=float(chunk_time),
+                                solve_options=solve_options_sweep,
                             )
 
                         df_chunk = pd.DataFrame(df_chunk) if not isinstance(df_chunk, pd.DataFrame) else df_chunk

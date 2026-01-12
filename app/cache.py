@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import streamlit as st
@@ -27,13 +27,15 @@ def solve_cached(system_key: str,
                  # Custom:
                  var_names_tuple: Tuple[str, ...],
                  eq_lines_tuple: Tuple[str, ...],
-                 params_text: str) -> Tuple[np.ndarray, np.ndarray]:
+                 params_text: str,
+                 solve_options: Optional[Dict[str, float]]) -> Tuple[np.ndarray, np.ndarray]:
     """
     Returns (t, y):
       t: shape (n_steps,)
       y: shape (n_vars, n_steps)
     """
     y0 = np.array(y0_tuple, dtype=float)
+    solve_options = dict(solve_options or {})
 
     if system_key == "lorenz":
         def rhs(t, y):
@@ -52,7 +54,8 @@ def solve_cached(system_key: str,
     else:
         raise ValueError(f"Unknown system_key: {system_key}")
 
-    sol = integrate_system(rhs, t_span=(t0, tf), y0=y0, t_step=dt)
+    opts = dict(solve_options or {})
+    sol = integrate_system(rhs, t_span=(t0, tf), y0=y0, t_step=dt, **opts)
     if not sol.success:
         raise RuntimeError(sol.message)
 
@@ -77,6 +80,7 @@ def sweep_cached(
     method: str, tol: float, transient_steps: int,
     # output selection
     output_index: int,
+    solve_options: Optional[Dict[str, float]],
     solver_kind: str = "ivp",
     warm_start: bool = False,
     max_hits: int = 100,
@@ -142,7 +146,7 @@ def sweep_cached(
 
             rhs2 = build_custom_rhs(var_names, eq_lines, params2)
 
-            sol = integrate_system(rhs2, t_span=(t0, tf), y0=y0, t_step=dt)
+            sol = integrate_system(rhs2, t_span=(t0, tf), y0=y0, t_step=dt, **solve_options)
 
             if not sol.success:
                 continue
@@ -179,11 +183,6 @@ def sweep_cached(
         base_params = {"a": float(ross_a), "b": float(ross_b), "c": float(ross_c)}
     else:
         raise ValueError(f"Unknown system_key: {system_key}")
-
-    solve_options = {
-        "rtol": 3e-4,
-        "atol": 1e-6,
-    }
 
     # Event-based fast path (only for ivp + crossing)
     if str(solver_kind).lower() == "ivp" and str(method).lower() == "crossing":
