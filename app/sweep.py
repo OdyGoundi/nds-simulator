@@ -14,6 +14,8 @@ from core.poincare_sweep import (
 from core.solver import integrate_system
 from app.helpers import parse_params, build_custom_rhs
 
+DEFAULT_SOLVE_OPTIONS = {"rtol": 3e-4, "atol": 1e-6}
+DEFAULT_MAX_KEEP = 100
 
 def run_sweep_chunk(
     system_key: str,
@@ -64,7 +66,7 @@ def run_sweep_chunk(
 
         rows = []
         ycol = f"y{int(output_index)}"
-        max_keep = int(max_hits) if max_hits is not None else 100
+        max_keep = int(max_hits) if max_hits is not None else DEFAULT_MAX_KEEP
 
         for pv in param_vals:
             params2 = dict(base_params)
@@ -113,7 +115,7 @@ def run_sweep_chunk(
         step=float(sweep_step),
     )
 
-    solve_options = {"rtol": 3e-4, "atol": 1e-6}
+    solve_options = DEFAULT_SOLVE_OPTIONS
 
     # use fast events only for ivp+crossing
     if str(method).lower() == "crossing":

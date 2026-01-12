@@ -25,7 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
 st.set_page_config(page_title="Non Linear Dynamics Simulator", layout="wide")
 st.title("Non Linear Dynamics Simulator (NLDS)")
 
-# -------- Sidebar: system + integration + initial conditions --------
+# -------- Sidebar: system + initial conditions --------
 with st.sidebar:
     st.header("System")
 
@@ -46,13 +46,6 @@ with st.sidebar:
         n_vars = st.number_input("Number of equations (n)", min_value=1, max_value=12, value=3, step=1)
 
     st.divider()
-    st.header("Integration")
-
-    t0 = st.number_input("initial time", value=0.0, step=1.0)
-    tf = st.number_input("final time", value=50.0, step=1.0)
-    dt = st.number_input("time step", value=0.01, step=0.01, format="%.5f")
-
-    st.divider()
     st.header("Initial conditions")
 
     y0_default = "1, 1, 1" if int(n_vars) == 3 else "\n".join(["0"] * int(n_vars))
@@ -60,18 +53,6 @@ with st.sidebar:
         "y0 values (comma/space/newline separated)",
         value=y0_default,
         height=90,
-    )
-
-    st.divider()
-    st.header("Plot settings")
-    plot_mode = st.selectbox("Plot mode", ["2D phase plane", "3D phase plot"], index=0)
-
-    transient_steps = st.number_input(
-        "Transient cut (steps to skip)",
-        min_value=0,
-        value=0,
-        step=100,
-        help="Ignores the first N integration samples before plotting/export."
     )
 
     ## Optional "run" button (Streamlit reruns anyway)
@@ -121,27 +102,10 @@ else:
     eq_lines = (eq_lines + ["0"] * int(n_vars))[:int(n_vars)]
 
 
-# -------- Sidebar additions: axes + system parameters --------
+# -------- System parameters defaults --------
 # Default values
 sigma = rho = beta = 0.0
 ross_a = ross_b = ross_c = 0.0
-
-with st.sidebar:
-    st.divider()
-    st.header("System parameters")
-
-    if system_key == "lorenz":
-        sigma = slider_with_input("sigma", 0.1, 50.0, 10.0, 0.1, key="sigma", fmt="%.3f")
-        rho   = slider_with_input("rho",   0.0, 80.0, 28.0, 0.5, key="rho",   fmt="%.3f")
-        beta  = slider_with_input("beta",  0.1, 10.0, float(8.0/3.0), 0.05, key="beta", fmt="%.4f")
-
-    elif system_key == "rossler":
-        ross_a = slider_with_input("a", 0.0, 1.0, 0.2, 0.01, key="ross_a", fmt="%.4f")
-        ross_b = slider_with_input("b", 0.0, 1.0, 0.2, 0.01, key="ross_b", fmt="%.4f")
-        ross_c = slider_with_input("c", 0.0, 10.0, 5.7, 0.1, key="ross_c", fmt="%.3f")
-
-    else:
-        st.caption("Custom: parameters are defined above.")
 
 
 # -------- Main layout: outputs only --------
@@ -151,30 +115,45 @@ tabs = st.tabs(["Phase portrait", "Time series", "Bifurcation Diagram", "Lyapuno
 
 # Solve once, then all outputs derive from (t, y)
 try:
-    y0 = parse_list_of_floats(y0_text, int(n_vars), label="y0")
-
-    t, y = solve_cached(
-        system_key=system_key,
-        t0=float(t0), tf=float(tf), dt=float(dt),
-        y0_tuple=tuple(float(v) for v in y0),
-        sigma=float(sigma), rho=float(rho), beta=float(beta),
-        ross_a=float(ross_a), ross_b=float(ross_b), ross_c=float(ross_c),
-        var_names_tuple=tuple(var_names),
-        eq_lines_tuple=tuple(eq_lines),
-        params_text=params_text,
-    )
-
-    # Apply transient cut safely (keep >= 2 samples)
-    N = int(transient_steps)
-    N = max(0, min(N, y.shape[1] - 2))
-    t_plot = t[N:]
-    y_plot = y[:, N:]
-
-    # --- Tab 1: Phase portrait (functional) ---
+    # --- Tab 1: Phase portrait (controls) ---
     with tabs[0]:
         phase_col_controls, phase_col_plot = st.columns([1, 2], gap="large")
 
         with phase_col_controls:
+            st.header("Integration")
+            t0 = st.number_input("initial time", value=0.0, step=1.0)
+            tf = st.number_input("final time", value=50.0, step=1.0)
+            dt = st.number_input("time step", value=0.01, step=0.01, format="%.5f")
+
+            st.divider()
+            st.header("System parameters")
+
+            if system_key == "lorenz":
+                sigma = slider_with_input("sigma", 0.1, 50.0, 10.0, 0.1, key="sigma", fmt="%.3f")
+                rho   = slider_with_input("rho",   0.0, 80.0, 28.0, 0.5, key="rho",   fmt="%.3f")
+                beta  = slider_with_input("beta",  0.1, 10.0, float(8.0/3.0), 0.05, key="beta", fmt="%.4f")
+
+            elif system_key == "rossler":
+                ross_a = slider_with_input("a", 0.0, 1.0, 0.2, 0.01, key="ross_a", fmt="%.4f")
+                ross_b = slider_with_input("b", 0.0, 1.0, 0.2, 0.01, key="ross_b", fmt="%.4f")
+                ross_c = slider_with_input("c", 0.0, 10.0, 5.7, 0.1, key="ross_c", fmt="%.3f")
+
+            else:
+                st.caption("Custom: parameters are defined above.")
+
+            st.divider()
+            st.header("Plot settings")
+            plot_mode = st.selectbox("Plot mode", ["2D phase plane", "3D phase plot"], index=0)
+
+            transient_steps = st.number_input(
+                "Transient cut (steps to skip)",
+                min_value=0,
+                value=0,
+                step=100,
+                help="Ignores the first N integration samples before plotting/export."
+            )
+
+            st.divider()
             st.markdown("**Axis selection**")
             axis_options = [(f"{name} (index {i})", i) for i, name in enumerate(var_names)]
             idx_list = [o[1] for o in axis_options]
@@ -203,35 +182,55 @@ try:
                     index=2 if len(idx_list) > 2 else 0,
                 )
 
-        with phase_col_plot:
-            if plot_mode == "2D phase plane":
-                title = f"{system_label} – {var_names[int(y_idx)]} vs {var_names[int(x_idx)]}"
-                fig = plot_phase_2d(
-                    y=y_plot,
-                    i=int(x_idx),
-                    j=int(y_idx),
-                    title=title,
-                    xlabel=var_names[int(x_idx)],
-                    ylabel=var_names[int(y_idx)],
-                )
-                st.pyplot(fig, clear_figure=True)
+    y0 = parse_list_of_floats(y0_text, int(n_vars), label="y0")
 
-            else:
-                title = f"{system_label} – 3D phase ({var_names[int(x_idx)]}, {var_names[int(y_idx)]}, {var_names[int(z_idx)]})"
-                fig = plot_phase_3d(
-                    y=y_plot,
-                    i=int(x_idx),
-                    j=int(y_idx),
-                    k=int(z_idx),
-                    title=title,
-                    labels=(var_names[int(x_idx)], var_names[int(y_idx)], var_names[int(z_idx)]),
-                )
-                st.pyplot(fig, clear_figure=True)
+    t, y = solve_cached(
+        system_key=system_key,
+        t0=float(t0), tf=float(tf), dt=float(dt),
+        y0_tuple=tuple(float(v) for v in y0),
+        sigma=float(sigma), rho=float(rho), beta=float(beta),
+        ross_a=float(ross_a), ross_b=float(ross_b), ross_c=float(ross_c),
+        var_names_tuple=tuple(var_names),
+        eq_lines_tuple=tuple(eq_lines),
+        params_text=params_text,
+    )
 
-            st.caption(
-                f"Total steps: {len(t)} | plotted: {len(t_plot)} | transient cut: {N} | "
-                f"n_vars: {y.shape[0]} | t in [{t[0]:.2f}, {t[-1]:.2f}]"
+    # Apply transient cut safely (keep >= 2 samples)
+    N = int(transient_steps)
+    N = max(0, min(N, y.shape[1] - 2))
+    t_plot = t[N:]
+    y_plot = y[:, N:]
+
+    # --- Tab 1: Phase portrait (plot) ---
+    with phase_col_plot:
+        if plot_mode == "2D phase plane":
+            title = f"{system_label} – {var_names[int(y_idx)]} vs {var_names[int(x_idx)]}"
+            fig = plot_phase_2d(
+                y=y_plot,
+                i=int(x_idx),
+                j=int(y_idx),
+                title=title,
+                xlabel=var_names[int(x_idx)],
+                ylabel=var_names[int(y_idx)],
             )
+            st.pyplot(fig, clear_figure=True)
+
+        else:
+            title = f"{system_label} – 3D phase ({var_names[int(x_idx)]}, {var_names[int(y_idx)]}, {var_names[int(z_idx)]})"
+            fig = plot_phase_3d(
+                y=y_plot,
+                i=int(x_idx),
+                j=int(y_idx),
+                k=int(z_idx),
+                title=title,
+                labels=(var_names[int(x_idx)], var_names[int(y_idx)], var_names[int(z_idx)]),
+            )
+            st.pyplot(fig, clear_figure=True)
+
+        st.caption(
+            f"Total steps: {len(t)} | plotted: {len(t_plot)} | transient cut: {N} | "
+            f"n_vars: {y.shape[0]} | t in [{t[0]:.2f}, {t[-1]:.2f}]"
+        )
 
     # --- Tab 2: Time series (one plot per variable)
     with tabs[1]:
