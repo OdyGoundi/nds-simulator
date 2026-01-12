@@ -13,7 +13,7 @@ Minimal steps to get value from the Streamlit app.
 
 ## Quick start
 
-1) Launch: `streamlit run nlds_app.py`.  
+1) Launch: `streamlit run app/nlds_app.py`.  
 2) Pick system + integration settings in the sidebar.  
 3) Adjust system parameters (sidebar) and axes (Tab 1 controls).  
 4) Explore tabs: Phase portrait, Time series, Bifurcation.  

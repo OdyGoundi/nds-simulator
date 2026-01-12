@@ -2,6 +2,11 @@ import sys
 from pathlib import Path
 from typing import List
 
+# Ensure project root import works
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
@@ -15,12 +20,6 @@ from app.plots import (
     plot_time_series,
 )
 from app.tab_bifurcation import render_bifurcation_tab
-
-
-# Ensure project root import works
-PROJECT_ROOT = Path(__file__).resolve().parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 st.set_page_config(page_title="Non Linear Dynamics Simulator", layout="wide")
 st.title("Non Linear Dynamics Simulator (NLDS)")

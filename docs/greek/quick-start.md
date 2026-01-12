@@ -6,7 +6,7 @@
 
 ## Βήματα
 
-1) Εκτέλεσε: `streamlit run nlds_app.py`.  
+1) Εκτέλεσε: `streamlit run app/nlds_app.py`.  
 2) Διάλεξε σύστημα (Lorenz/Rossler/Custom) και ρυθμίσεις ολοκλήρωσης από το sidebar.  
 3) Ρύθμισε παραμέτρους συστήματος (sidebar) και άξονες στο Tab 1.  
 4) Εξερεύνησε τα tabs: Phase portrait, Time series, Bifurcation.  

@@ -1,8 +1,13 @@
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 
-SYM_FILE = "henon_heiles_trajectory.csv"
-RK_FILE  = "rk45Henon.csv"
+# Resolve data files from project root
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+SYM_FILE = PROJECT_ROOT / "henon_heiles_trajectory.csv"
+RK_FILE  = PROJECT_ROOT / "rk45Henon.csv"
 
 def load_csv_5cols(path):
     """

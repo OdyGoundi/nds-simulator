@@ -7,7 +7,7 @@ Minimal Streamlit app for nonlinear dynamics: simulate Lorenz/Rossler/custom sys
 ## Run
 
 ```bash
-streamlit run nlds_app.py
+streamlit run app/nlds_app.py
 ```
 
 ## Doc map
