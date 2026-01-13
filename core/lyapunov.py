@@ -1,4 +1,4 @@
-# core/lyapunov.py
+
 """
 Lyapunov spectrum for nD continuous-time ODEs using:
   - variational equations (tangent dynamics)
@@ -46,6 +46,7 @@ class LyapunovResult:
     sums_log: np.ndarray       # (n,) accumulated sum of ln|R_ii|
     t_meas: float              # effective measurement time
     n_qr: int                  # number of QR updates performed
+    x_final: np.ndarray        # (n,) final state after measurement
 
 
 # ----------------------------
@@ -290,4 +291,5 @@ def compute_lyapunov_spectrum(
         sums_log=sums_log,
         t_meas=float(t_measure),
         n_qr=n_qr,
+        x_final=x.copy(),
     )

@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Tuple
 
 import numpy as np
 import streamlit as st
@@ -14,48 +14,59 @@ from core.poincare_sweep import (
     SweepConfig,
 )
 from app.helpers import parse_params, build_custom_rhs
+from app.params import (
+    InitialConditions,
+    IntegrationConfig,
+    SolverTolerances,
+    SweepRunConfig,
+    SystemConfig,
+)
 
 
 @st.cache_data(show_spinner=False)
-def solve_cached(system_key: str,
-                 t0: float, tf: float, dt: float,
-                 y0_tuple: Tuple[float, ...],
-                 # Lorenz:
-                 sigma: float, rho: float, beta: float,
-                 # Rossler:
-                 ross_a: float, ross_b: float, ross_c: float,
-                 # Custom:
-                 var_names_tuple: Tuple[str, ...],
-                 eq_lines_tuple: Tuple[str, ...],
-                 params_text: str,
-                 solve_options: Optional[Dict[str, float]]) -> Tuple[np.ndarray, np.ndarray]:
+def solve_cached(
+    system: SystemConfig,
+    integration: IntegrationConfig,
+    initial: InitialConditions,
+    solve_tols: SolverTolerances,
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Returns (t, y):
       t: shape (n_steps,)
       y: shape (n_vars, n_steps)
     """
-    y0 = np.array(y0_tuple, dtype=float)
-    solve_options = dict(solve_options or {})
+    y0 = np.array(initial.y0, dtype=float)
+    solve_options = solve_tols.to_dict()
 
-    if system_key == "lorenz":
+    if system.key == "lorenz":
+        params = system.lorenz
+
         def rhs(t, y):
-            return lorenz_rhs(t, y, sigma=sigma, rho=rho, beta=beta)
+            return lorenz_rhs(t, y, sigma=params.sigma, rho=params.rho, beta=params.beta)
 
-    elif system_key == "rossler":
+    elif system.key == "rossler":
+        params = system.rossler
+
         def rhs(t, y):
-            return rossler_rhs(t, y, a=ross_a, b=ross_b, c=ross_c)
+            return rossler_rhs(t, y, a=params.a, b=params.b, c=params.c)
 
-    elif system_key == "custom":
-        var_names = list(var_names_tuple)
-        eq_lines = list(eq_lines_tuple)
-        params = parse_params(params_text)
+    elif system.key == "custom":
+        custom = system.custom
+        var_names = list(custom.var_names)
+        eq_lines = list(custom.eq_lines)
+        params = parse_params(custom.params_text)
         rhs = build_custom_rhs(var_names, eq_lines, params)
 
     else:
-        raise ValueError(f"Unknown system_key: {system_key}")
+        raise ValueError(f"Unknown system_key: {system.key}")
 
-    opts = dict(solve_options or {})
-    sol = integrate_system(rhs, t_span=(t0, tf), y0=y0, t_step=dt, **opts)
+    sol = integrate_system(
+        rhs,
+        t_span=(integration.t0, integration.tf),
+        y0=y0,
+        t_step=integration.dt,
+        **solve_options,
+    )
     if not sol.success:
         raise RuntimeError(sol.message)
 
@@ -64,71 +75,55 @@ def solve_cached(system_key: str,
 
 @st.cache_data(show_spinner=False)
 def sweep_cached(
-    system_key: str,
-    t0: float, tf: float, dt: float,
-    y0_tuple: Tuple[float, ...],
-    # built-in params
-    sigma: float, rho: float, beta: float,
-    ross_a: float, ross_b: float, ross_c: float,
-    # custom definitions
-    var_names_tuple: Tuple[str, ...],
-    eq_lines_tuple: Tuple[str, ...],
-    params_text: str,
-    # sweep + poincare settings
-    sweep_param: str, sweep_start: float, sweep_stop: float, sweep_step: float,
-    section_index: int, section_value: float, direction: int,
-    method: str, tol: float, transient_steps: int,
-    # output selection
-    output_index: int,
-    solve_options: Optional[Dict[str, float]],
+    system: SystemConfig,
+    integration: IntegrationConfig,
+    initial: InitialConditions,
+    sweep: SweepConfig,
+    poincare: PoincareConfig,
+    run_cfg: SweepRunConfig,
+    solve_tols: SolverTolerances,
     solver_kind: str = "ivp",
-    warm_start: bool = False,
-    max_hits: int = 100,
-    early_stop: bool = True,
-    chunk_time: float = 2.0,
 ):
     import pandas as pd
 
-    y0 = np.array(y0_tuple, dtype=float)
+    y0 = np.array(initial.y0, dtype=float)
+    solve_options = solve_tols.to_dict()
 
     # Build base rhs + base_params (everything except swept param)
-    if system_key == "lorenz":
+    if system.key == "lorenz":
         rhs_fn = lorenz_rhs
-        base_params = {"sigma": float(sigma), "rho": float(rho), "beta": float(beta)}
-    elif system_key == "rossler":
+        base_params = {
+            "sigma": float(system.lorenz.sigma),
+            "rho": float(system.lorenz.rho),
+            "beta": float(system.lorenz.beta),
+        }
+    elif system.key == "rossler":
         rhs_fn = rossler_rhs
-        base_params = {"a": float(ross_a), "b": float(ross_b), "c": float(ross_c)}
-    elif system_key == "custom":
-        var_names = list(var_names_tuple)
-        eq_lines = list(eq_lines_tuple)
-        params = parse_params(params_text)
+        base_params = {
+            "a": float(system.rossler.a),
+            "b": float(system.rossler.b),
+            "c": float(system.rossler.c),
+        }
+    elif system.key == "custom":
+        custom = system.custom
+        var_names = list(custom.var_names)
+        eq_lines = list(custom.eq_lines)
+        params = parse_params(custom.params_text)
         rhs_user = build_custom_rhs(var_names, eq_lines, params)
 
         rhs_fn = None  # handled below
         base_params = dict(params)
     else:
-        raise ValueError(f"Unknown system_key: {system_key}")
-
-    sweep = SweepConfig(param_name=str(sweep_param), start=float(sweep_start),
-                        stop=float(sweep_stop), step=float(sweep_step))
-
-    transient_steps_sweep = int(transient_steps)
-    poincare = PoincareConfig(
-        section_index=int(section_index),
-        section_value=float(section_value),
-        direction=int(direction),
-        method=str(method),
-        tol=float(tol),
-        transient_steps=transient_steps_sweep,
-    )
+        raise ValueError(f"Unknown system_key: {system.key}")
 
     # -----------------------
     # EARLY RETURN: custom
     # -----------------------
-    if system_key == "custom":
-        var_names = list(var_names_tuple)
-        eq_lines = list(eq_lines_tuple)
-        base_params = parse_params(params_text)
+    if system.key == "custom":
+        custom = system.custom
+        var_names = list(custom.var_names)
+        eq_lines = list(custom.eq_lines)
+        base_params = parse_params(custom.params_text)
 
         # Generate inclusive sweep values (safe for floats)
         if sweep.step <= 0:
@@ -138,7 +133,7 @@ def sweep_cached(
         param_vals = param_vals[param_vals <= sweep.stop + 1e-12]
 
         rows = []
-        ycol = f"y{int(output_index)}"
+        ycol = f"y{int(run_cfg.output_index)}"
 
         for pv in param_vals:
             params2 = dict(base_params)
@@ -146,7 +141,13 @@ def sweep_cached(
 
             rhs2 = build_custom_rhs(var_names, eq_lines, params2)
 
-            sol = integrate_system(rhs2, t_span=(t0, tf), y0=y0, t_step=dt, **solve_options)
+            sol = integrate_system(
+                rhs2,
+                t_span=(integration.t0, integration.tf),
+                y0=y0,
+                t_step=integration.dt,
+                **solve_options,
+            )
 
             if not sol.success:
                 continue
@@ -167,7 +168,7 @@ def sweep_cached(
                 rows.append({
                     sweep.param_name: float(pv),
                     "t_hit": float(t_hits[j]),
-                    ycol: float(y_hits[int(output_index), j]),
+                    ycol: float(y_hits[int(run_cfg.output_index), j]),
                 })
 
         return pd.DataFrame(rows)
@@ -175,48 +176,56 @@ def sweep_cached(
     # -----------------------
     # Non-custom: use sweep_poincare
     # -----------------------
-    if system_key == "lorenz":
+    if system.key == "lorenz":
         rhs_fn = lorenz_rhs
-        base_params = {"sigma": float(sigma), "rho": float(rho), "beta": float(beta)}
-    elif system_key == "rossler":
+        base_params = {
+            "sigma": float(system.lorenz.sigma),
+            "rho": float(system.lorenz.rho),
+            "beta": float(system.lorenz.beta),
+        }
+    elif system.key == "rossler":
         rhs_fn = rossler_rhs
-        base_params = {"a": float(ross_a), "b": float(ross_b), "c": float(ross_c)}
+        base_params = {
+            "a": float(system.rossler.a),
+            "b": float(system.rossler.b),
+            "c": float(system.rossler.c),
+        }
     else:
-        raise ValueError(f"Unknown system_key: {system_key}")
+        raise ValueError(f"Unknown system_key: {system.key}")
 
     # Event-based fast path (only for ivp + crossing)
-    if str(solver_kind).lower() == "ivp" and str(method).lower() == "crossing":
+    if str(solver_kind).lower() == "ivp" and str(poincare.method).lower() == "crossing":
         df = sweep_poincare_events_ivp(
             rhs=rhs_fn,
             y0=tuple(y0),
-            t_span=(float(t0), float(tf)),
+            t_span=(float(integration.t0), float(integration.tf)),
             base_params=base_params,
             sweep=sweep,
             poincare=poincare,
-            t_step=float(dt),
+            t_step=float(integration.dt),
             solve_options=solve_options,
-            output_indices=[int(output_index)],
+            output_indices=[int(run_cfg.output_index)],
             include_all_state=False,
-            warm_start=bool(warm_start),
-            max_hits=int(max_hits),
-            early_stop=bool(early_stop),
-            chunk_time=float(chunk_time),
+            warm_start=bool(run_cfg.warm_start),
+            max_hits=int(run_cfg.max_hits),
+            early_stop=bool(run_cfg.early_stop),
+            chunk_time=float(run_cfg.chunk_time),
         )
 
     else:
         df = sweep_poincare(
             rhs=rhs_fn,
             y0=tuple(y0),
-            t_span=(float(t0), float(tf)),
+            t_span=(float(integration.t0), float(integration.tf)),
             base_params=base_params,
             sweep=sweep,
             poincare=poincare,
             solver_kind=str(solver_kind),
-            t_step=float(dt),
+            t_step=float(integration.dt),
             solve_options=solve_options,
-            output_indices=[int(output_index)],
+            output_indices=[int(run_cfg.output_index)],
             include_all_state=False,
-            warm_start=bool(warm_start),
+            warm_start=bool(run_cfg.warm_start),
         )
 
     return df

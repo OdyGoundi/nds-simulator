@@ -12,20 +12,25 @@ import numpy as np
 import streamlit as st
 
 from app.cache import solve_cached
-from app.helpers import (
-    build_csv_bytes,
-    build_custom_rhs,
-    parse_list_of_floats,
-    parse_params,
-    slider_with_input,
-)
+from app.helpers import build_csv_bytes, build_custom_rhs, parse_list_of_floats, parse_params
 from app.plots import (
     plot_phase_2d,
     plot_phase_3d,
     plot_time_seiries_functional,
     plot_time_series,
 )
+from app.params import (
+    CustomSystemDefinition,
+    InitialConditions,
+    IntegrationConfig,
+    LorenzParams,
+    LyapunovConfig,
+    RosslerParams,
+    SolverTolerances,
+    SystemConfig,
+)
 from app.tab_bifurcation import render_bifurcation_tab
+from core.jacobians_fixed_systems import lorenz_jac, rossler_jac
 from core.lorenz_system_rhs import lorenz_rhs
 from core.rossler_system_rhs import rossler_rhs
 from core.lyapunov import compute_lyapunov_spectrum
@@ -33,70 +38,69 @@ from core.lyapunov import compute_lyapunov_spectrum
 
 @st.cache_data(show_spinner=False)
 def compute_lyapunov_cached(
-    system_key: str,
-    y0_tuple: tuple,
-    t0: float,
-    tf: float,
-    dt: float,
-    transient_steps: int,
-    sigma: float,
-    rho: float,
-    beta: float,
-    ross_a: float,
-    ross_b: float,
-    ross_c: float,
-    var_names_tuple: tuple,
-    eq_lines_tuple: tuple,
-    params_text: str,
-    solve_options: dict,
+    system: SystemConfig,
+    integration: IntegrationConfig,
+    initial: InitialConditions,
+    lyapunov: LyapunovConfig,
+    solve_tols: SolverTolerances,
 ) -> np.ndarray:
-    solve_options = dict(solve_options or {})
-    y0 = np.array(y0_tuple, dtype=float)
+    solve_options = solve_tols.to_dict()
+    y0 = np.array(initial.y0, dtype=float)
 
-    if system_key == "lorenz":
+    if system.key == "lorenz":
+        params = system.lorenz
+
         def rhs_lorenz(tt, xx):
-            return lorenz_rhs(tt, xx, sigma=sigma, rho=rho, beta=beta)
+            return lorenz_rhs(tt, xx, sigma=params.sigma, rho=params.rho, beta=params.beta)
 
         rhs = rhs_lorenz
+        jac = lambda tt, xx: lorenz_jac(tt, xx, sigma=params.sigma, rho=params.rho, beta=params.beta)
 
-    elif system_key == "rossler":
+    elif system.key == "rossler":
+        params = system.rossler
+
         def rhs_rossler(tt, xx):
-            return rossler_rhs(tt, xx, a=ross_a, b=ross_b, c=ross_c)
+            return rossler_rhs(tt, xx, a=params.a, b=params.b, c=params.c)
 
         rhs = rhs_rossler
+        jac = lambda tt, xx: rossler_jac(tt, xx, a=params.a, b=params.b, c=params.c)
 
-    elif system_key == "custom":
-        var_names = list(var_names_tuple)
-        eq_lines = list(eq_lines_tuple)
-        params = parse_params(params_text)
+    elif system.key == "custom":
+        var_names = list(system.custom.var_names)
+        eq_lines = list(system.custom.eq_lines)
+        params = parse_params(system.custom.params_text)
         rhs_custom_func = build_custom_rhs(var_names, eq_lines, params)
 
         def rhs_custom_wrapper(tt, xx):
             return rhs_custom_func(tt, xx)
 
         rhs = rhs_custom_wrapper
+        jac = None
 
     else:
-        raise ValueError(f"Unknown system_key: {system_key}")
+        raise ValueError(f"Unknown system_key: {system.key}")
 
-    t_transient = float(transient_steps) * float(dt)
-    total_time = float(tf) - float(t0)
+    t_transient = float(lyapunov.transient_steps) * float(integration.dt)
+    total_time = float(integration.tf) - float(integration.t0)
     t_measure = total_time - t_transient
     if t_measure <= 0.0:
         raise ValueError("Not enough time for Lyapunov measurement. Increase tf or reduce transient cut.")
 
-    target_chunk = max(0.05, float(dt))
-    qr_every_steps = max(1, int(round(target_chunk / float(dt))))
+    if lyapunov.qr_interval <= 0.0:
+        raise ValueError("Lyapunov QR interval must be > 0.")
+    target_chunk = float(lyapunov.qr_interval)
+    qr_every_steps = max(1, int(round(target_chunk / float(integration.dt))))
 
     result = compute_lyapunov_spectrum(
         rhs=rhs,
         x0=y0,
-        t0=float(t0),
-        dt=float(dt),
+        t0=float(integration.t0),
+        dt=float(integration.dt),
         t_transient=float(t_transient),
         t_measure=float(t_measure),
         qr_every_steps=qr_every_steps,
         solve_options=solve_options,
+        jac=jac,
     )
     return result.lambdas
 
@@ -207,14 +211,20 @@ try:
             st.header("System parameters")
 
             if system_key == "lorenz":
-                sigma = slider_with_input("sigma", 0.1, 50.0, 10.0, 0.1, key="sigma", fmt="%.3f")
-                rho   = slider_with_input("rho",   0.0, 80.0, 28.0, 0.5, key="rho",   fmt="%.3f")
-                beta  = slider_with_input("beta",  0.1, 10.0, float(8.0/3.0), 0.05, key="beta", fmt="%.4f")
+                sigma = st.number_input("sigma", value=10.0, step=0.1, format="%.3f", key="sigma")
+                rho = st.number_input("rho", value=28.0, step=0.5, format="%.3f", key="rho")
+                beta = st.number_input(
+                    "beta",
+                    value=float(8.0 / 3.0),
+                    step=0.05,
+                    format="%.4f",
+                    key="beta",
+                )
 
             elif system_key == "rossler":
-                ross_a = slider_with_input("a", 0.0, 1.0, 0.2, 0.01, key="ross_a", fmt="%.4f")
-                ross_b = slider_with_input("b", 0.0, 1.0, 0.2, 0.01, key="ross_b", fmt="%.4f")
-                ross_c = slider_with_input("c", 0.0, 10.0, 5.7, 0.1, key="ross_c", fmt="%.3f")
+                ross_a = st.number_input("a", value=0.2, step=0.01, format="%.4f", key="ross_a")
+                ross_b = st.number_input("b", value=0.2, step=0.01, format="%.4f", key="ross_b")
+                ross_c = st.number_input("c", value=5.7, step=0.1, format="%.3f", key="ross_c")
 
             else:
                 st.caption("Custom: parameters are defined above.")
@@ -229,6 +239,16 @@ try:
                 value=0,
                 step=100,
                 help="Ignores the first N integration samples before plotting/export."
+            )
+
+            st.markdown("**Lyapunov settings**")
+            qr_interval = st.number_input(
+                "QR interval (time)",
+                min_value=1e-6,
+                value=0.1,
+                step=0.01,
+                format="%.4f",
+                help="Time between orthonormalizations during Lyapunov computation.",
             )
 
             st.divider()
@@ -278,20 +298,31 @@ try:
                 format="%.1e",
                 key="atol",
             )
-            solve_options = {"rtol": float(rtol), "atol": float(atol)}
+            solve_tols = SolverTolerances(rtol=float(rtol), atol=float(atol))
 
     y0 = parse_list_of_floats(y0_text, int(n_vars), label="y0")
+    initial = InitialConditions(tuple(float(v) for v in y0))
+    integration = IntegrationConfig(t0=float(t0), tf=float(tf), dt=float(dt))
+    system = SystemConfig(
+        key=system_key,
+        lorenz=LorenzParams(sigma=float(sigma), rho=float(rho), beta=float(beta)),
+        rossler=RosslerParams(a=float(ross_a), b=float(ross_b), c=float(ross_c)),
+        custom=CustomSystemDefinition(
+            var_names=tuple(var_names),
+            eq_lines=tuple(eq_lines),
+            params_text=params_text,
+        ),
+    )
+    lyapunov_cfg = LyapunovConfig(
+        transient_steps=int(transient_steps),
+        qr_interval=float(qr_interval),
+    )
 
     t, y = solve_cached(
-        system_key=system_key,
-        t0=float(t0), tf=float(tf), dt=float(dt),
-        y0_tuple=tuple(float(v) for v in y0),
-        sigma=float(sigma), rho=float(rho), beta=float(beta),
-        ross_a=float(ross_a), ross_b=float(ross_b), ross_c=float(ross_c),
-        var_names_tuple=tuple(var_names),
-        eq_lines_tuple=tuple(eq_lines),
-        params_text=params_text,
-        solve_options=solve_options,
+        system=system,
+        integration=integration,
+        initial=initial,
+        solve_tols=solve_tols,
     )
 
     # Apply transient cut safely (keep >= 2 samples)
@@ -342,22 +373,11 @@ try:
             try:
                 with st.spinner("Computing Lyapunov spectrum..."):
                     lambdas = compute_lyapunov_cached(
-                        system_key=system_key,
-                        y0_tuple=tuple(float(v) for v in y0),
-                        t0=float(t0),
-                        tf=float(tf),
-                        dt=float(dt),
-                        transient_steps=int(transient_steps),
-                        sigma=float(sigma),
-                        rho=float(rho),
-                        beta=float(beta),
-                        ross_a=float(ross_a),
-                        ross_b=float(ross_b),
-                        ross_c=float(ross_c),
-                        var_names_tuple=tuple(var_names),
-                        eq_lines_tuple=tuple(eq_lines),
-                        params_text=params_text,
-                        solve_options=solve_options,
+                        system=system,
+                        integration=integration,
+                        initial=initial,
+                        lyapunov=lyapunov_cfg,
+                        solve_tols=solve_tols,
                     )
                 formatted = ", ".join(f"{val:.5f}" for val in lambdas)
                 st.write(f"lambda = [{formatted}]")
@@ -437,20 +457,9 @@ try:
         # -----------------------------
         render_bifurcation_tab(
             tab=tabs[2],
-            system_key=system_key,
-            t0=float(t0),
-            tf=float(tf),
-            dt=float(dt),
-            y0=np.array(y0, dtype=float),
-            sigma=float(sigma),
-            rho=float(rho),
-            beta=float(beta),
-            ross_a=float(ross_a),
-            ross_b=float(ross_b),
-            ross_c=float(ross_c),
-            var_names=list(var_names),
-            eq_lines=list(eq_lines),
-            params_text=params_text,
+            system=system,
+            integration=integration,
+            initial=initial,
         )
 
         # --- Tab 4: Export (CSV functional) ---
