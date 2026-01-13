@@ -172,7 +172,8 @@ def _run_lyapunov_sweep(
                 solve_options=solve_options,
                 jac=jac,
             )
-            lambdas_list.append(res.lambdas)
+            l_sorted = np.sort(np.array(res.lambdas, dtype=float))[::-1]
+            lambdas_list.append(l_sorted)
             if warm_start:
                 y0_curr = np.array(res.x_final, dtype=float).copy()
             else:
@@ -376,6 +377,23 @@ def render_bifurcation_tab(
                 disabled=not clip_lyapunov,
             )
 
+            st.markdown("**Lyapunov transient (sweep time)**")
+            ltc1, ltc2 = st.columns([1, 1], gap="small")
+            with ltc1:
+                transient_frac_lya = st.slider(
+                    "Lyapunov transient fraction",
+                    min_value=0.0,
+                    max_value=0.95,
+                    value=0.80,
+                    step=0.05,
+                    key="lya_transient_frac_tab3",
+                    help="Fraction of sweep integration steps to discard before Lyapunov measurement."
+                )
+            with ltc2:
+                n_steps_est_lya = int(max(1.0, (float(tf_sweep) - float(t0)) / float(dt_sweep)))
+                transient_steps_lya = int(transient_frac_lya * n_steps_est_lya)
+                st.metric("Lyapunov transient steps (estimated)", transient_steps_lya)
+
             st.markdown("**Transient removal (sweep only)**")
             tc1, tc2 = st.columns([1, 1], gap="small")
             with tc1:
@@ -420,7 +438,7 @@ def render_bifurcation_tab(
             chunk_time=float(chunk_time),
         )
         lyapunov_cfg = LyapunovConfig(
-            transient_steps=int(transient_steps_sweep),
+            transient_steps=int(transient_steps_lya),
             qr_interval=float(qr_interval_lya),
         )
 
@@ -490,6 +508,8 @@ def render_bifurcation_tab(
             solve_tols=solve_tols_sweep,
         )
         lya_meta = dict(sweep_meta)
+        lya_meta.pop("transient_frac", None)
+        lya_meta["lyapunov_transient_frac"] = float(transient_frac_lya)
         lya_meta["lyapunov_qr_interval"] = float(lyapunov_cfg.qr_interval)
 
         if run_new:
@@ -764,7 +784,8 @@ def render_bifurcation_tab(
                 param_vals,
                 plot_lambdas[:, k],
                 color=COLORS[k % len(COLORS)],
-                linewidth=1.0,
+                linestyle="-",
+                linewidth=1.1,
                 label=f"lambda{k}",
             )
 
