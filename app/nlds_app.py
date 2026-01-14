@@ -193,7 +193,7 @@ ross_a = ross_b = ross_c = 0.0
 # -------- Main layout: outputs only --------
 st.subheader("Outputs")
 
-tabs = st.tabs(["Phase portrait", "Time series", "Bifurcation Diagram", "Export"])
+tabs = st.tabs(["Phase portrait", "Time series", "Parameter Sweep Analysis", "Export"])
 
 # Solve once, then all outputs derive from (t, y)
 try:
@@ -453,7 +453,7 @@ try:
             st.pyplot(fig, clear_figure=True)
 
         # -----------------------------
-        # Tab 3: Bifurcation diagram
+        # Tab 3: Bifurcation and Lyapunov diagram of parameter sweep
         # -----------------------------
         render_bifurcation_tab(
             tab=tabs[2],
@@ -518,6 +518,56 @@ try:
                 )
 
                 st.caption(f"Rows: {len(df_sweep)} | Columns: {', '.join(df_sweep.columns)}")
+
+            st.divider()
+            st.markdown("**Export: Lyapunov sweep**")
+
+            lya_data = st.session_state.get("lya_acc_data", None)
+            if lya_data is None:
+                st.info("No Lyapunov sweep results available yet. Run Lyapunov in Tab 3 first.")
+            else:
+                import pandas as pd
+
+                param_vals = np.array(lya_data.get("param_vals", []), dtype=float)
+                lambdas_arr = np.array(lya_data.get("lambdas", []), dtype=float)
+                if param_vals.size == 0 or lambdas_arr.size == 0:
+                    st.info("No Lyapunov sweep results available yet. Run Lyapunov in Tab 3 first.")
+                else:
+                    meta = lya_data.get("meta", {})
+                    sweep_param = meta.get("sweep_param", "param")
+
+                    data = {str(sweep_param): param_vals}
+                    if lambdas_arr.ndim == 1:
+                        data["lambda0"] = lambdas_arr
+                    else:
+                        for k in range(lambdas_arr.shape[1]):
+                            data[f"lambda{k}"] = lambdas_arr[:, k]
+
+                    df_lya = pd.DataFrame(data)
+                    csv_bytes = df_lya.to_csv(index=False).encode("utf-8")
+
+                    sys_key = meta.get("system_key", "system")
+                    a = meta.get("sweep_start", float(param_vals[0]) if param_vals.size else 0.0)
+                    b = meta.get("sweep_stop", float(param_vals[-1]) if param_vals.size else 0.0)
+                    stp = meta.get("sweep_step", 0.0)
+                    rtol_meta = meta.get("rtol", rtol)
+                    atol_meta = meta.get("atol", atol)
+                    rtol_tag = f"{float(rtol_meta):.0e}"
+                    atol_tag = f"{float(atol_meta):.0e}"
+                    fname = (
+                        f"{sys_key}_lyapunov_{sweep_param}_{a:g}_{b:g}_step{stp:g}"
+                        f"_rtol{rtol_tag}_atol{atol_tag}.csv"
+                    )
+
+                    st.download_button(
+                        label="Download Lyapunov CSV",
+                        data=csv_bytes,
+                        file_name=fname,
+                        mime="text/csv",
+                        key="dl_lya_csv",
+                    )
+
+                    st.caption(f"Rows: {len(df_lya)} | Columns: {', '.join(df_lya.columns)}")
 
 
 except Exception as e:

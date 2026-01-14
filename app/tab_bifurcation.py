@@ -202,34 +202,31 @@ def render_bifurcation_tab(
         var_names = list(system.custom.var_names)
         params_text = system.custom.params_text
 
-        st.markdown("**Bifurcation / Poincaré sweep**")
         _init_sweep_state()
 
-        left_col, right_col = st.columns([1, 1], gap="large")
+        if system_key == "lorenz":
+            sweep_choices = ["sigma", "rho", "beta"]
+        elif system_key == "rossler":
+            sweep_choices = ["a", "b", "c"]
+        else:
+            try:
+                sweep_choices = list(parse_params(params_text).keys())
+            except Exception:
+                sweep_choices = []
 
-        # Left column: sweep + section controls
-        with left_col:
-            c1, c2, c3, c4 = st.columns([1, 1, 1, 1], gap="small")
+        if not sweep_choices:
+            st.warning("No sweep parameters available (check parameters).")
+            st.stop()
 
-            if system_key == "lorenz":
-                sweep_choices = ["sigma", "rho", "beta"]
-            elif system_key == "rossler":
-                sweep_choices = ["a", "b", "c"]
-            else:
-                try:
-                    sweep_choices = list(parse_params(params_text).keys())
-                except Exception:
-                    sweep_choices = []
-
-            if not sweep_choices:
-                st.warning("No sweep parameters available (check parameters).")
-                st.stop()
-
-            with c1:
+        top_c1, top_c2, top_c3 = st.columns([2, 2, 1], gap="large")
+        with top_c1:
+            st.markdown("**Parameter sweep setup**")
+            p1c1, p1c2, p1c3, p1c4 = st.columns([1, 1, 1, 1], gap="small")
+            with p1c1:
                 sweep_param = st.selectbox("Sweep param", sweep_choices, index=0, key="sw_param_tab3")
-            with c2:
+            with p1c2:
                 sweep_start = st.number_input("start", value=0.0, step=0.1, format="%.6f", key="sw_start_tab3")
-            with c3:
+            with p1c3:
                 sweep_stop = st.number_input(
                     "stop",
                     value=float(st.session_state["sweep_stop_internal"]),
@@ -237,50 +234,25 @@ def render_bifurcation_tab(
                     format="%.6f",
                     key="sw_stop_tab3",
                 )
-
-            with c4:
+            with p1c4:
                 sweep_step = st.number_input("step", value=0.1, step=0.01, format="%.6f", key="sw_step_tab3")
 
-            st.divider()
-
-            d1, d2, d3, d4, d5 = st.columns([1, 1, 1, 1, 1], gap="small")
-
-            with d1:
-                section_var = st.selectbox("Section var", var_names, index=0, key="sec_var_tab3")
-                section_index = var_names.index(section_var)
-            with d2:
-                section_value = st.number_input("Section value", value=0.0, step=0.1, format="%.6f", key="sec_val_tab3")
-            with d3:
-                direction_label = st.selectbox("Direction", ["+1 (up)", "-1 (down)", "0 (both)"], index=0, key="sec_dir_tab3")
-                direction = +1 if direction_label.startswith("+1") else (-1 if direction_label.startswith("-1") else 0)
-            with d4:
-                method = st.selectbox("Method", ["crossing", "slab"], index=0, key="sec_method_tab3")
-            with d5:
-                tol = st.number_input("tolerance (slab only)", value=1e-3, step=1e-3, format="%.6f", key="sec_tol_tab3")
-
-            out_var = st.selectbox("Output var (plotted)", var_names, index=min(2, len(var_names) - 1), key="out_var_tab3")
-            output_index = var_names.index(out_var)
-
-            st.caption("Uses sweep-specific transient fraction (see right column).")
-
-        # Right column: performance + transient
-        with right_col:
+        with top_c2:
             st.markdown("**Sweep performance settings**")
-            r1c1, r1c2, r1c3 = st.columns([1, 1, 1], gap="small")
-
-            with r1c1:
+            p2c1, p2c2, p2c3 = st.columns([1, 1, 1], gap="small")
+            with p2c1:
                 dt_sweep = st.number_input(
-                    "dt (sweep)",
+                    "dt",
                     min_value=1e-6,
                     value=max(float(dt), 0.1),
                     step=0.01,
                     format="%.6f",
                     key="dt_sweep_tab3",
-                    help="Time step used ONLY for sweep."
+                    help="Time step used for sweep."
                 )
-            with r1c2:
+            with p2c2:
                 tf_sweep = st.number_input(
-                    "final time (sweep)",
+                    "final time",
                     min_value=float(t0) + 1e-6,
                     value=min(float(tf), 80.0),
                     step=5.0,
@@ -288,7 +260,7 @@ def render_bifurcation_tab(
                     key="tf_sweep_tab3",
                     help="Final integration time for sweep."
                 )
-            with r1c3:
+            with p2c3:
                 sweep_mode = st.selectbox(
                     "Sweep mode",
                     ["Bifurcation (reset ICs)", "Continuation (warm start)"],
@@ -296,17 +268,94 @@ def render_bifurcation_tab(
                     key="sweep_mode_tab3",
                     help="Reset ICs = bibliography-style. Warm start = faster continuation."
                 )
-            warm_start = sweep_mode.startswith("Continuation")
+
+        with top_c3:
+            st.markdown("**Sweep solver tolerances**")
+            p3c1, p3c2 = st.columns([1, 1], gap="small")
+            with p3c1:
+                rtol_sweep = st.number_input(
+                    "relative tolerance",
+                    min_value=0.0,
+                    value=3e-4,
+                    step=1e-4,
+                    format="%.1e",
+                    key="rtol_sweep_tab3",
+                )
+            with p3c2:
+                atol_sweep = st.number_input(
+                    "absolute tolerance",
+                    min_value=0.0,
+                    value=1e-6,
+                    step=1e-6,
+                    format="%.1e",
+                    key="atol_sweep_tab3",
+                )
+
+        warm_start = sweep_mode.startswith("Continuation")
+        solve_tols_sweep = SolverTolerances(rtol=float(rtol_sweep), atol=float(atol_sweep))
+
+        continue_stop = None
+        continue_stop_lya = None
+
+        st.divider()
+
+        left_col, right_col = st.columns([1, 1], gap="large")
+
+        with left_col:
+            st.markdown("**Bifurcation sweep settings**")
+            r1c1, r1c2, r1c3, r1c4 = st.columns([1, 1, 1, 1], gap="small")
+            with r1c1:
+                section_var = st.selectbox("Section var", var_names, index=0, key="sec_var_tab3")
+                section_index = var_names.index(section_var)
+            with r1c2:
+                section_value = st.number_input(
+                    "Section value",
+                    value=0.0,
+                    step=0.1,
+                    format="%.6f",
+                    key="sec_val_tab3",
+                )
+            with r1c3:
+                direction_label = st.selectbox(
+                    "Direction",
+                    ["+1 (up)", "-1 (down)", "0 (both)"],
+                    index=0,
+                    key="sec_dir_tab3",
+                )
+                direction = +1 if direction_label.startswith("+1") else (-1 if direction_label.startswith("-1") else 0)
+            with r1c4:
+                out_var = st.selectbox(
+                    "Output var (plotted)",
+                    var_names,
+                    index=min(2, len(var_names) - 1),
+                    key="out_var_tab3",
+                )
+                output_index = var_names.index(out_var)
+
 
             r2c1, r2c2, r2c3 = st.columns([1, 1, 1], gap="small")
             with r2c1:
+                method = st.selectbox("Method", ["crossing", "slab"], index=0, key="sec_method_tab3")
+            with r2c2:
+                tol = st.number_input(
+                    "Tolerance (slab only)",
+                    value=1e-3,
+                    step=1e-3,
+                    format="%.1e",
+                    key="sec_tol_tab3",
+                )
+            with r2c3:
+                st.empty()
+
+            r3c1, r3c2, r3c3 = st.columns([1, 1, 1], gap="small")
+            with r3c1:
                 early_stop = st.checkbox(
                     "Early stop (events)",
                     value=True,
                     key="early_stop_tab3",
                     help="Stop each run after collecting enough Poincaré hits."
                 )
-            with r2c2:
+            with r3c2:
                 max_hits = st.number_input(
                     "Max hits kept",
                     min_value=10,
@@ -317,7 +366,7 @@ def render_bifurcation_tab(
                     disabled=not early_stop,
                     help="Maximum number of crossings kept per parameter value."
                 )
-            with r2c3:
+            with r3c3:
                 chunk_time = st.number_input(
                     "Chunk time",
                     min_value=0.1,
@@ -329,30 +378,55 @@ def render_bifurcation_tab(
                     help="Integration time window for event detection."
                 )
 
-            st.markdown("**Sweep solver tolerances**")
-            t1c1, t1c2 = st.columns([1, 1], gap="small")
-            with t1c1:
-                rtol_sweep = st.number_input(
-                    "relative tolerance (sweep)",
+            st.markdown("**Bifurcation discard (not plotted)**")
+            r4c1, r4c2 = st.columns([1, 1], gap="small")
+            with r4c1:
+                transient_frac = st.slider(
+                    "Transient fraction",
                     min_value=0.0,
-                    value=3e-4,
-                    step=1e-4,
-                    format="%.1e",
-                    key="rtol_sweep_tab3",
+                    max_value=0.95,
+                value=0.75,
+                    step=0.05,
+                    key="sw_transient_frac_tab3",
+                    help="Fraction of sweep integration steps to discard before crossings."
                 )
-            with t1c2:
-                atol_sweep = st.number_input(
-                    "absolute tolerance (sweep)",
-                    min_value=0.0,
-                    value=1e-6,
-                    step=1e-6,
-                    format="%.1e",
-                    key="atol_sweep_tab3",
+            with r4c2:
+                n_steps_est = int(max(1.0, (float(tf_sweep) - float(t0)) / float(dt_sweep)))
+                transient_steps_sweep = int(transient_frac * n_steps_est)
+                st.metric("Transient steps (estimated)", transient_steps_sweep)
+
+            bbtn1, bbtn2, bbtn3 = st.columns([1, 1, 1], gap="small")
+            with bbtn1:
+                run_new = st.button("Generate Bifurcation Diagram", type="primary", key="run_new_sweep")
+            with bbtn2:
+                reset_bif = st.button("Reset bifurcation data", type="secondary", key="reset_acc_bif")
+            with bbtn3:
+                run_cont = st.button("Continue Bifurcation", type="secondary", key="run_cont_sweep")
+            if reset_bif:
+                st.session_state["sweep_acc_df"] = None
+                st.session_state["sweep_last_pv"] = None
+                st.session_state["sweep_boundaries"] = []
+                st.session_state["sweep_meta"] = {}
+                st.success("Bifurcation sweep cleared.")
+
+            have_prev_bif = (
+                st.session_state.get("sweep_acc_df", None) is not None and
+                st.session_state.get("sweep_last_pv", None) is not None
+            )
+            if have_prev_bif:
+                last_pv_ui = float(st.session_state["sweep_last_pv"])
+                continue_stop = st.number_input(
+                    f"Continue bifurcation to (stop) [{sweep_param}]",
+                    min_value=last_pv_ui + float(sweep_step),
+                    value=max(float(sweep_stop), last_pv_ui + float(sweep_step)),
+                    step=float(sweep_step),
+                    format="%.6f",
+                    key="continue_stop_tab3",
+                    help="Sets the new stop for Continue Bifurcation. Start is last_pv + step."
                 )
 
-            solve_tols_sweep = SolverTolerances(rtol=float(rtol_sweep), atol=float(atol_sweep))
-
-            st.markdown("**Lyapunov diagram settings**")
+        with right_col:
+            st.markdown("**Lyapunov sweep settings**")
             qr_interval_lya = st.number_input(
                 "QR interval (time)",
                 min_value=1e-6,
@@ -376,40 +450,53 @@ def render_bifurcation_tab(
                 key="clip_min_lyapunov_tab3",
                 disabled=not clip_lyapunov,
             )
-
-            st.markdown("**Lyapunov transient (sweep time)**")
+            
+            st.markdown("**Lyapunov discard (not plotted)**")
             ltc1, ltc2 = st.columns([1, 1], gap="small")
             with ltc1:
                 transient_frac_lya = st.slider(
-                    "Lyapunov transient fraction",
+                    "Transient fraction",
                     min_value=0.0,
                     max_value=0.95,
-                    value=0.80,
+                    value=0.30,
                     step=0.05,
                     key="lya_transient_frac_tab3",
-                    help="Fraction of sweep integration steps to discard before Lyapunov measurement."
+                    help="Fraction of integration steps excluded from the Lyapunov plot."
                 )
             with ltc2:
                 n_steps_est_lya = int(max(1.0, (float(tf_sweep) - float(t0)) / float(dt_sweep)))
                 transient_steps_lya = int(transient_frac_lya * n_steps_est_lya)
-                st.metric("Lyapunov transient steps (estimated)", transient_steps_lya)
+                st.metric("Excluded steps (estimated)", transient_steps_lya)
 
-            st.markdown("**Transient removal (sweep only)**")
-            tc1, tc2 = st.columns([1, 1], gap="small")
-            with tc1:
-                transient_frac = st.slider(
-                    "Transient fraction",
-                    min_value=0.0,
-                    max_value=0.95,
-                    value=0.80,
-                    step=0.05,
-                    key="sw_transient_frac_tab3",
-                    help="Fraction of sweep integration steps to discard before crossings."
+            lbtn1, lbtn2, lbtn3 = st.columns([1, 1, 1], gap="small")
+            with lbtn1:
+                run_lya = st.button("Generate Lyapunov Diagram", type="primary", key="run_lya_sweep")
+            with lbtn2:
+                reset_lya = st.button("Reset Lyapunov data", type="secondary", key="reset_acc_lya")
+            with lbtn3:
+                run_lya_cont = st.button("Continue Lyapunov", type="secondary", key="run_cont_lya")
+            if reset_lya:
+                st.session_state["lya_acc_data"] = None
+                st.session_state["lya_last_pv"] = None
+                st.session_state["lya_meta"] = {}
+                st.session_state["lya_boundaries"] = []
+                st.success("Lyapunov sweep cleared.")
+
+            have_prev_lya = (
+                st.session_state.get("lya_acc_data", None) is not None and
+                st.session_state.get("lya_last_pv", None) is not None
+            )
+            if have_prev_lya:
+                last_pv_ui = float(st.session_state["lya_last_pv"])
+                continue_stop_lya = st.number_input(
+                    f"Continue Lyapunov to (stop) [{sweep_param}]",
+                    min_value=last_pv_ui + float(sweep_step),
+                    value=max(float(sweep_stop), last_pv_ui + float(sweep_step)),
+                    step=float(sweep_step),
+                    format="%.6f",
+                    key="continue_stop_lya_tab3",
+                    help="Sets the new stop for Continue Lyapunov. Start is last_pv + step."
                 )
-            with tc2:
-                n_steps_est = int(max(1.0, (float(tf_sweep) - float(t0)) / float(dt_sweep)))
-                transient_steps_sweep = int(transient_frac * n_steps_est)
-                st.metric("Transient steps (estimated)", transient_steps_sweep)
 
         sweep_cfg = SweepConfig(
             param_name=str(sweep_param),
@@ -442,62 +529,6 @@ def render_bifurcation_tab(
             qr_interval=float(qr_interval_lya),
         )
 
-        run_new = st.button("Generate Bifurcation Diagram", type="primary", key="run_new_sweep")
-        run_lya = st.button("Generate Lyapunov Diagram", type="secondary", key="run_lya_sweep")
-
-        st.divider()
-
-        run_cont = st.button("Continue Bifurcation", type="secondary", key="run_cont_sweep")
-        run_lya_cont = st.button("Continue Lyapunov", type="secondary", key="run_cont_lya")
-        reset_acc = st.button("Reset accumulated", type="secondary", key="reset_acc_sweep")
-
-        if reset_acc:
-            st.session_state["sweep_acc_df"] = None
-            st.session_state["sweep_last_pv"] = None
-            st.session_state["sweep_boundaries"] = []
-            st.session_state["sweep_meta"] = {}
-            st.session_state["lya_acc_data"] = None
-            st.session_state["lya_last_pv"] = None
-            st.session_state["lya_meta"] = {}
-            st.session_state["lya_boundaries"] = []
-            st.success("Accumulated sweep cleared.")
-
-        df_plot = None
-
-        have_prev_bif = (
-            st.session_state.get("sweep_acc_df", None) is not None and
-            st.session_state.get("sweep_last_pv", None) is not None
-        )
-        have_prev_lya = (
-            st.session_state.get("lya_acc_data", None) is not None and
-            st.session_state.get("lya_last_pv", None) is not None
-        )
-
-        continue_stop = None
-        continue_stop_lya = None
-        if have_prev_bif:
-            last_pv_ui = float(st.session_state["sweep_last_pv"])
-            continue_stop = st.number_input(
-                f"Continue bifurcation to (stop) [{sweep_param}]",
-                min_value=last_pv_ui + float(sweep_step),
-                value=max(float(sweep_stop), last_pv_ui + float(sweep_step)),
-                step=float(sweep_step),
-                format="%.6f",
-                key="continue_stop_tab3",
-                help="Sets the new stop for Continue Bifurcation. Start is last_pv + step."
-            )
-        if have_prev_lya:
-            last_pv_ui = float(st.session_state["lya_last_pv"])
-            continue_stop_lya = st.number_input(
-                f"Continue Lyapunov to (stop) [{sweep_param}]",
-                min_value=last_pv_ui + float(sweep_step),
-                value=max(float(sweep_stop), last_pv_ui + float(sweep_step)),
-                step=float(sweep_step),
-                format="%.6f",
-                key="continue_stop_lya_tab3",
-                help="Sets the new stop for Continue Lyapunov. Start is last_pv + step."
-            )
-
         sweep_meta = _sweep_settings_fingerprint(
             system=system,
             sweep=sweep_cfg,
@@ -511,6 +542,8 @@ def render_bifurcation_tab(
         lya_meta.pop("transient_frac", None)
         lya_meta["lyapunov_transient_frac"] = float(transient_frac_lya)
         lya_meta["lyapunov_qr_interval"] = float(lyapunov_cfg.qr_interval)
+
+        df_plot = None
 
         if run_new:
             st.session_state["sweep_acc_df"] = None
@@ -552,7 +585,7 @@ def render_bifurcation_tab(
             last_pv = st.session_state.get("sweep_last_pv", None)
 
             if acc_df is None or last_pv is None:
-                st.warning("No previous sweep found. Run 'Generate' first.")
+                st.warning("No previous sweep found. Run 'Generate Bifurcation Diagram' first.")
                 st.stop()
 
             else:
@@ -574,7 +607,7 @@ def render_bifurcation_tab(
                 if mismatches:
                     st.error(
                         "Cannot continue: settings changed since last run. "
-                        f"Changed: {', '.join(mismatches)}. Run 'Generate' to restart."
+                        f"Changed: {', '.join(mismatches)}. Run 'Generate Bifurcation Diagram' to restart."
                     )
                 else:
                     last_pv = float(st.session_state["sweep_last_pv"])
@@ -623,7 +656,7 @@ def render_bifurcation_tab(
             last_pv = st.session_state.get("lya_last_pv", None)
 
             if acc_data is None or last_pv is None:
-                st.warning("No previous Lyapunov sweep found. Run 'Generate Lyapunov' first.")
+                st.warning("No previous Lyapunov sweep found. Run 'Generate Lyapunov Diagram' first.")
             else:
                 prev_meta = st.session_state.get("lya_meta", {})
                 now_meta = lya_meta
@@ -643,7 +676,7 @@ def render_bifurcation_tab(
                 if mismatches:
                     st.error(
                         "Cannot continue Lyapunov: settings changed since last run. "
-                        f"Changed: {', '.join(mismatches)}. Run 'Generate Lyapunov' to restart."
+                        f"Changed: {', '.join(mismatches)}. Run 'Generate Lyapunov Diagram' to restart."
                     )
                 else:
                     start_here = float(last_pv) + float(sweep_step)
@@ -717,91 +750,94 @@ def render_bifurcation_tab(
         if df_plot is None:
             df_plot = st.session_state.get("sweep_acc_df", None)
 
-        if df_plot is None or len(df_plot) == 0:
-            st.info("No sweep data yet. Click 'Generate' to start.")
-        else:
-            if not isinstance(df_plot, pd.DataFrame):
-                df_plot = pd.DataFrame(df_plot)
-
-            ycol = f"y{int(output_index)}"
-            fig, ax = plt.subplots(figsize=(6.0, 3.2))
-            fig.set_dpi(140)
-            ax.scatter(
-                df_plot[sweep_param].to_numpy(),
-                df_plot[ycol].to_numpy(),
-                s=2,
-                c="black",
-                marker=".",
-                linewidths=0,
-                alpha=0.8,
-            )
-
-            for x_sep in st.session_state.get("sweep_boundaries", []):
-                ax.axvline(float(x_sep), color="magenta", linewidth=0.3)
-
-            ax.set_xlabel(sweep_param)
-            ax.set_ylabel(f"{out_var} on section ({section_var}={section_value})")
-            x_min = float(sweep_start)
-            x_max = float(np.nanmax(df_plot[sweep_param].to_numpy()))
-            ax.set_xlim(x_min, x_max)
-            ax.grid(True, linewidth=0.3)
-            st.pyplot(fig, clear_figure=True)
-
-            last_pv = st.session_state.get("sweep_last_pv", None)
-            if last_pv is not None:
-                st.caption(f"Accumulated sweep up to {sweep_param} = {float(last_pv):g} | Rows: {len(df_plot)}")
+        with left_col:
+            st.divider()
+            if df_plot is None or len(df_plot) == 0:
+                st.info("No sweep data yet. Click 'Generate Bifurcation Diagram' to start.")
             else:
-                try:
-                    st.caption(f"Accumulated sweep | Rows: {len(df_plot)}")
-                except Exception:
-                    pass
+                if not isinstance(df_plot, pd.DataFrame):
+                    df_plot = pd.DataFrame(df_plot)
 
-        lya_data = st.session_state.get("lya_acc_data", None)
-        if lya_data is None:
-            st.info("No Lyapunov sweep data yet. Click 'Generate Lyapunov Diagram'.")
-            return
+                ycol = f"y{int(output_index)}"
+                fig, ax = plt.subplots(figsize=(6.0, 3.2))
+                fig.set_dpi(140)
+                ax.scatter(
+                    df_plot[sweep_param].to_numpy(),
+                    df_plot[ycol].to_numpy(),
+                    s=2,
+                    c="black",
+                    marker=".",
+                    linewidths=0,
+                    alpha=0.8,
+                )
 
-        param_vals = lya_data.get("param_vals", np.array([], dtype=float))
-        lambdas_arr = lya_data.get("lambdas", np.zeros((0, len(var_names))))
-        errors = lya_data.get("errors", [])
+                for x_sep in st.session_state.get("sweep_boundaries", []):
+                    ax.axvline(float(x_sep), color="magenta", linewidth=0.3)
 
-        if param_vals.size == 0 or lambdas_arr.size == 0:
-            st.info("No Lyapunov sweep data yet. Click 'Generate Lyapunov Diagram'.")
-            return
+                ax.set_xlabel(sweep_param)
+                ax.set_ylabel(f"{out_var} on section ({section_var}={section_value})")
+                x_min = float(sweep_start)
+                x_max = float(np.nanmax(df_plot[sweep_param].to_numpy()))
+                ax.set_xlim(x_min, x_max)
+                ax.grid(True, linewidth=0.3)
+                st.pyplot(fig, clear_figure=True)
 
-        plot_lambdas = np.array(lambdas_arr, dtype=float)
-        if clip_lyapunov:
-            plot_lambdas = np.maximum(plot_lambdas, float(clip_min))
+                last_pv = st.session_state.get("sweep_last_pv", None)
+                if last_pv is not None:
+                    st.caption(f"Accumulated sweep up to {sweep_param} = {float(last_pv):g} | Rows: {len(df_plot)}")
+                else:
+                    try:
+                        st.caption(f"Accumulated sweep | Rows: {len(df_plot)}")
+                    except Exception:
+                        pass
 
-        st.divider()
-        st.markdown("**Lyapunov exponents (sweep)**")
-        fig_lya, ax_lya = plt.subplots(figsize=(6.0, 3.2))
-        fig_lya.set_dpi(140)
+        with right_col:
+            st.divider()
+            lya_data = st.session_state.get("lya_acc_data", None)
+            if lya_data is None:
+                st.info("No Lyapunov sweep data yet. Click 'Generate Lyapunov Diagram'.")
+                return
 
-        n_exps = plot_lambdas.shape[1]
-        for k in range(n_exps):
-            ax_lya.plot(
-                param_vals,
-                plot_lambdas[:, k],
-                color=COLORS[k % len(COLORS)],
-                linestyle="-",
-                linewidth=1.1,
-                label=f"lambda{k}",
-            )
+            param_vals = lya_data.get("param_vals", np.array([], dtype=float))
+            lambdas_arr = lya_data.get("lambdas", np.zeros((0, len(var_names))))
+            errors = lya_data.get("errors", [])
 
-        for x_sep in st.session_state.get("lya_boundaries", []):
-            ax_lya.axvline(float(x_sep), color="magenta", linewidth=0.3)
+            if param_vals.size == 0 or lambdas_arr.size == 0:
+                st.info("No Lyapunov sweep data yet. Click 'Generate Lyapunov Diagram'.")
+                return
 
-        ax_lya.set_xlabel(sweep_param)
-        ax_lya.set_ylabel("Lyapunov exponents")
-        ax_lya.grid(True, linewidth=0.3)
-        ax_lya.legend(loc="best", fontsize=8)
-        st.pyplot(fig_lya, clear_figure=True)
+            plot_lambdas = np.array(lambdas_arr, dtype=float)
+            if clip_lyapunov:
+                plot_lambdas = np.maximum(plot_lambdas, float(clip_min))
 
-        if clip_lyapunov:
-            st.caption(f"Clipped exponents below {float(clip_min):g} for plotting.")
-        if errors:
-            st.caption(f"Lyapunov sweep failures: {len(errors)}")
-        last_pv = st.session_state.get("lya_last_pv", None)
-        if last_pv is not None:
-            st.caption(f"Accumulated Lyapunov sweep up to {sweep_param} = {float(last_pv):g}")
+            st.markdown("**Lyapunov exponents**")
+            fig_lya, ax_lya = plt.subplots(figsize=(6.0, 3.2))
+            fig_lya.set_dpi(140)
+
+            n_exps = plot_lambdas.shape[1]
+            for k in range(n_exps):
+                ax_lya.plot(
+                    param_vals,
+                    plot_lambdas[:, k],
+                    color=COLORS[k % len(COLORS)],
+                    linestyle="-",
+                    linewidth=1.1,
+                    label=f"lambda{k}",
+                )
+
+            for x_sep in st.session_state.get("lya_boundaries", []):
+                ax_lya.axvline(float(x_sep), color="magenta", linewidth=0.3)
+
+            ax_lya.set_xlabel(sweep_param)
+            ax_lya.set_ylabel("Lyapunov exponents")
+            ax_lya.grid(True, linewidth=0.3)
+            ax_lya.legend(loc="best", fontsize=8)
+            st.pyplot(fig_lya, clear_figure=True)
+
+            if clip_lyapunov:
+                st.caption(f"Clipped exponents below {float(clip_min):g} for plotting.")
+            if errors:
+                st.caption(f"Lyapunov sweep failures: {len(errors)}")
+            last_pv = st.session_state.get("lya_last_pv", None)
+            if last_pv is not None:
+                st.caption(f"Accumulated Lyapunov sweep up to {sweep_param} = {float(last_pv):g}")
