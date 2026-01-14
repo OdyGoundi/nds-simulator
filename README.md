@@ -1,6 +1,6 @@
 # NLDS Simulator
 
-Minimal Streamlit app for nonlinear dynamics: simulate Lorenz/Rossler/custom systems, plot phase/time series, and generate bifurcation (Poincaré) diagrams.
+Minimal Streamlit app for nonlinear dynamics: simulate Lorenz/Rossler/custom systems, plot phase/time series, compute Lyapunov exponents, and generate parameter sweeps (bifurcation + Lyapunov), with optional parallel workers.
 
 ---
 

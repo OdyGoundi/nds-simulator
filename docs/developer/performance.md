@@ -127,7 +127,26 @@ for pᵢ₊₁.
 
 - Enabled via Sweep mode → Continuation
 
-## 6. Transient removal (sweep-only)
+## 6. Parallel workers (independent mode)
+
+### What
+
+Distribute parameter values across multiple workers when the sweep
+is **independent** (reset ICs, no warm start).
+
+### Why
+
+- Speeds up large parameter ranges on multi-core machines
+- Keeps UI responsive for local runs
+- Preserves correctness because runs are independent
+
+### How
+
+- Uses a process pool to evaluate chunks in parallel
+- Disabled automatically for continuation (warm start)
+- Typically limited to local runs (Streamlit Cloud disables it)
+
+## 7. Transient removal (sweep-only)
 
 ### What
 
@@ -147,7 +166,7 @@ Ignore an initial fraction of each sweep integration.
 
 - Applied before event collection
 
-## 7. Computational complexity (qualitative)
+## 8. Computational complexity (qualitative)
 
 Let:
 
@@ -179,16 +198,22 @@ terminates early, the computational cost depends on the number of
 now complete in **a few minutes**.
 
 
-## 8. Practical tuning guidelines
+## 9. Practical tuning guidelines
 
-| Goal                | Recommendation                           |
-| ------------------- | ---------------------------------------- |
-| Fast preview        | `tf_sweep ≈ 10–20`, `max_hits ≈ 50`      |
-| Publication-quality | `tf_sweep ≈ 50–80`, `max_hits ≈ 100–200` |
-| Very large sweeps   | Enable warm start + early stop           |
-| Chaotic regimes     | Smaller `chunk_time`                     |
+Rules of thumb for **Lorenz bifurcation sweeps**. Express integration length as total steps:
 
-## 9. Why this design fits Streamlit
+`N_steps ~= (tf_sweep - t0) / dt_sweep`
+
+Smaller `dt_sweep` means larger `N_steps` (slower) but more accurate crossings.
+
+| Goal                | Recommendation                                                                 |
+| ------------------- | ------------------------------------------------------------------------------ |
+| Fast preview        | `N_steps` in the low thousands, `max_hits ~ 50`                                |
+| Publication-quality | Increase `N_steps` and `max_hits` vs preview until the diagram stabilizes      |
+| Very large sweeps   | Enable warm start + early stop; for independent mode, enable parallel workers  |
+| Chaotic regimes     | Smaller `chunk_time`; increase `N_steps` if crossings are sparse or missing    |
+
+## 10. Why this design fits Streamlit
 
 - No long blocking calls
 
@@ -198,7 +223,7 @@ now complete in **a few minutes**.
 
 - Safe for cloud deployment limits
 
-## 10. Summary
+## 11. Summary
 
 
 ### Core performance principle
@@ -211,6 +236,4 @@ bifurcation diagrams from a **brute-force numerical task** into a
 
 As a result, **NLDS remains interactive**, even for large parameter
 sweeps and chaotic regimes.
-
-
 

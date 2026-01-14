@@ -9,11 +9,12 @@
 1) Εκτέλεσε: `streamlit run app/nlds_app.py`.  
 2) Διάλεξε σύστημα (Lorenz/Rossler/Custom) και ρυθμίσεις ολοκλήρωσης από το sidebar.  
 3) Ρύθμισε παραμέτρους συστήματος (sidebar) και άξονες στο Tab 1.  
-4) Εξερεύνησε τα tabs: Phase portrait, Time series, Bifurcation.  
-5) Κατέβασε CSV από το tab Export.
+4) Εξερεύνησε τα tabs: Phase portrait (μαζί με Lyapunov), Time series, Parameter Sweep Analysis (διακλάδωση + Lyapunov).  
+5) Κατέβασε CSV από το tab Export (τροχιές, διακλάδωση, Lyapunov).
 
 ## Συμβουλές
 
 - Μείωσε `dt` για ομαλότερες καμπύλες, αύξησε `final time` για μεγαλύτερη διάρκεια.  
 - Χρησιμοποίησε transient cut για να αγνοήσεις αρχικές μεταβατικές καταστάσεις.  
-- Αν δεις σφάλμα, έλεγξε το μήκος `y0` στα `initial` και σωστή γραφή εξισώσεων/παραμέτρων.
+- Αν δεις σφάλμα, έλεγξε το μήκος `y0` στα `initial` και σωστή γραφή εξισώσεων/παραμέτρων.  
+- Τα parallel workers δουλεύουν μόνο τοπικά και μόνο σε independent mode (όχι Continuation).

@@ -1,19 +1,27 @@
-# Διάγραμμα Διακλάδωσης (Tab 3)
+# Σάρωση Παραμέτρου (Tab 3) – Διακλάδωση & Lyapunov
 
-Μίνι οδηγός για σάρωση Poincaré / διακλαδώσεων.
+Μίνι οδηγός για σάρωση Poincare, διακλάδωση και Lyapunov.
 
 ---
 
-## Βήματα
+## Διακλάδωση (αριστερή στήλη)
 
-1) Επίλεξε παράμετρο σάρωσης, αρχή/τέλος/βήμα (αριστερή στήλη).  
-2) Διάλεξε τομή Poincaré (μεταβλητή/τιμή) και κατεύθυνση crossing.  
-3) Ρύθμισε απόδοση (δεξιά στήλη): `dt_sweep`, `tf_sweep`, early stop, `max_hits`, `chunk_time`, transient fraction.  
-4) Πάτησε **Generate** για νέα σάρωση ή **Continue** για συνέχεια.  
-5) Το διάγραμμα εμφανίζει scatter· οι μωβ γραμμές δείχνουν τα όρια συνέχισης.
+1) Επίλεξε παράμετρο σάρωσης, αρχή/τέλος/βήμα.  
+2) Διάλεξε τομή Poincare (μεταβλητή/τιμή) και κατεύθυνση crossing.  
+3) Διάλεξε sweep mode: **Bifurcation (reset ICs)** ή **Continuation (warm start)**.  
+4) Προαιρετικά: **Parallel sweep (local only)** και **Workers**.  
+5) Πάτησε **Generate Bifurcation Diagram** ή **Continue Bifurcation**.
+
+## Lyapunov (δεξιά στήλη)
+
+1) Ίδια παράμετρος σάρωσης από το πάνω μέρος.  
+2) Ρύθμισε **QR interval (time)** και **Transient fraction**.  
+3) Προαιρετικά: **Parallel sweep (local only)** και **Workers**.  
+4) Πάτησε **Generate Lyapunov Diagram** ή **Continue Lyapunov**.  
+5) Το διάγραμμα δείχνει lambda vs παράμετρο (μωβ γραμμές = όρια συνέχισης).
 
 ## Συμβουλές
 
-- Warm start (Continuation) για ομαλές σάρωσεις μεγάλου εύρους.  
+- Continuation = ομαλή συνέχεια αλλά σειριακό (χωρίς parallel).  
 - Μικρό `tf_sweep` + λίγα `max_hits` για γρήγορο preview.  
-- Κάνε reset accumulated όταν αλλάζεις βασικές ρυθμίσεις (παράμετρος σάρωσης, τομή, μέθοδος).
+- Κάνε reset όταν αλλάζεις βασικές ρυθμίσεις (παράμετρος, τομή, μέθοδος).

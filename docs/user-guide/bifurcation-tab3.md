@@ -1,19 +1,27 @@
-# Bifurcation / Poincaré Sweep (Tab 3)
+# Parameter Sweep Analysis (Tab 3)
 
-Minimal recipe to generate bifurcation diagrams.
+Minimal recipe to generate **bifurcation (Poincare)** and **Lyapunov** diagrams.
 
 ---
 
-## Steps
+## Bifurcation sweep (left column)
 
-1) Choose sweep parameter, range, and step (left column).  
-2) Set Poincaré section variable/value and crossing direction.  
-3) Configure performance (right column): `dt_sweep`, `tf_sweep`, early stop, `max_hits`, `chunk_time`, transient fraction.  
-4) Click **Generate** to start from scratch, or **Continue** to extend the last sweep.  
-5) View scatter plot; magenta lines mark continuation boundaries.
+1) Choose sweep parameter, range, and step.  
+2) Set Poincare section variable/value and crossing direction.  
+3) Pick sweep mode: **Bifurcation (reset ICs)** or **Continuation (warm start)**.  
+4) Optional: enable **Parallel sweep (local only)** and set **Workers**.  
+5) Click **Generate Bifurcation Diagram** or **Continue Bifurcation**.
+
+## Lyapunov sweep (right column)
+
+1) Reuse the same sweep parameter/range from the top.  
+2) Set **QR interval (time)** and **Transient fraction** for Lyapunov.  
+3) Optional: enable **Parallel sweep (local only)** and set **Workers**.  
+4) Click **Generate Lyapunov Diagram** or **Continue Lyapunov**.  
+5) Plot shows lambda values vs parameter (magenta lines mark continuation boundaries).
 
 ## Tips
 
-- Use warm start (Continuation) for smooth parameter sweeps.  
-- Reduce `tf_sweep` and `max_hits` for quick previews; increase for publication-grade diagrams.  
-- Reset accumulated data if you change key settings (sweep param, section, or solver mode).
+- Continuation is smooth but sequential; parallel only works in independent mode (no warm start).  
+- If Lyapunov curves are noisy, increase `final time` and reduce `time step`.  
+- Reset accumulated data if you change key settings (sweep param, section, solver mode).
