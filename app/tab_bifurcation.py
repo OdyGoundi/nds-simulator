@@ -1,6 +1,9 @@
 from typing import Dict, List, Tuple
 
+import concurrent.futures
+import itertools
 import math
+import os
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -24,6 +27,104 @@ from core.poincare_sweep import PoincareConfig, SweepConfig
 
 
 COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
+
+
+def _is_streamlit_cloud() -> bool:
+    env = os.environ
+    if env.get("STREAMLIT_RUNTIME_ENV", "").lower() == "cloud":
+        return True
+    if env.get("STREAMLIT_CLOUD", "").lower() in ("1", "true", "yes"):
+        return True
+    if env.get("STREAMLIT_SHARING", "").lower() in ("1", "true", "yes"):
+        return True
+    addr = env.get("STREAMLIT_SERVER_ADDRESS", "")
+    if addr.endswith("streamlit.app"):
+        return True
+    return False
+
+
+def _default_worker_count() -> int:
+    physical = None
+    try:
+        import psutil
+        physical = psutil.cpu_count(logical=False)
+    except Exception:
+        physical = None
+    cpu_count = physical or (os.cpu_count() or 1)
+    return max(1, min(int(cpu_count), 8))
+
+
+def _chunk_param_values(param_vals: np.ndarray, max_workers: int) -> List[np.ndarray]:
+    if param_vals.size == 0:
+        return []
+    workers = max(1, int(max_workers))
+    target_chunks = max(1, workers * 4)
+    chunk_size = max(1, int(math.ceil(param_vals.size / target_chunks)))
+    return [param_vals[i:i + chunk_size] for i in range(0, param_vals.size, chunk_size)]
+
+
+def _run_lyapunov_chunk(
+    param_vals: np.ndarray,
+    system_key: str,
+    base_params: Dict[str, float],
+    sweep_param: str,
+    var_names: List[str],
+    eq_lines: List[str],
+    y0_base: List[float],
+    t0: float,
+    dt: float,
+    t_transient: float,
+    t_measure: float,
+    qr_every_steps: int,
+    solve_options: Dict[str, float],
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    y0_base_arr = np.array(y0_base, dtype=float)
+    errors: List[str] = []
+    lambdas_list: List[np.ndarray] = []
+
+    for pv in param_vals:
+        params = dict(base_params)
+        params[str(sweep_param)] = float(pv)
+
+        if system_key == "lorenz":
+            rhs = lambda tt, xx: lorenz_rhs(
+                tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
+            )
+            jac = lambda tt, xx: lorenz_jac(
+                tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
+            )
+        elif system_key == "rossler":
+            rhs = lambda tt, xx: rossler_rhs(
+                tt, xx, a=params["a"], b=params["b"], c=params["c"]
+            )
+            jac = lambda tt, xx: rossler_jac(
+                tt, xx, a=params["a"], b=params["b"], c=params["c"]
+            )
+        else:
+            rhs_custom = build_custom_rhs(var_names, eq_lines, params)
+            rhs = lambda tt, xx: rhs_custom(tt, xx)
+            jac = None
+
+        try:
+            res = compute_lyapunov_spectrum(
+                rhs=rhs,
+                x0=y0_base_arr,
+                t0=float(t0),
+                dt=float(dt),
+                t_transient=float(t_transient),
+                t_measure=float(t_measure),
+                qr_every_steps=int(qr_every_steps),
+                solve_options=solve_options,
+                jac=jac,
+            )
+            l_sorted = np.sort(np.array(res.lambdas, dtype=float))[::-1]
+            lambdas_list.append(l_sorted)
+        except Exception as exc:
+            errors.append(f"{sweep_param}={float(pv):g}: {exc}")
+            lambdas_list.append(np.full(y0_base_arr.shape[0], np.nan))
+
+    lambdas_arr = np.vstack(lambdas_list) if lambdas_list else np.zeros((0, y0_base_arr.shape[0]))
+    return np.array(param_vals, dtype=float), lambdas_arr, errors
 
 
 def _init_sweep_state():
@@ -97,6 +198,8 @@ def _run_lyapunov_sweep(
     lyapunov: LyapunovConfig,
     solve_tols: SolverTolerances,
     warm_start: bool,
+    parallel: bool,
+    max_workers: int,
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     param_vals = _frange_inclusive(float(sweep.start), float(sweep.stop), float(sweep.step))
     y0_base = np.array(initial.y0, dtype=float).copy()
@@ -133,6 +236,42 @@ def _run_lyapunov_sweep(
         raise ValueError("Lyapunov QR interval must be > 0.")
     target_chunk = float(lyapunov.qr_interval)
     qr_every_steps = max(1, int(round(target_chunk / float(integration.dt))))
+
+    if parallel and not warm_start:
+        param_chunks = _chunk_param_values(param_vals, max_workers)
+        if not param_chunks:
+            return param_vals, np.zeros((0, y0_base.shape[0])), []
+
+        workers = max(1, min(int(max_workers), int(param_vals.size)))
+        with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
+            results = list(executor.map(
+                _run_lyapunov_chunk,
+                param_chunks,
+                itertools.repeat(system.key),
+                itertools.repeat(base_params),
+                itertools.repeat(str(sweep.param_name)),
+                itertools.repeat(var_names),
+                itertools.repeat(eq_lines),
+                itertools.repeat(y0_base.tolist()),
+                itertools.repeat(float(integration.t0)),
+                itertools.repeat(float(integration.dt)),
+                itertools.repeat(float(t_transient)),
+                itertools.repeat(float(t_measure)),
+                itertools.repeat(qr_every_steps),
+                itertools.repeat(solve_options),
+            ))
+
+        param_out: List[np.ndarray] = []
+        lambdas_out: List[np.ndarray] = []
+        errors: List[str] = []
+        for pv_chunk, lambdas_chunk, errors_chunk in results:
+            param_out.append(pv_chunk)
+            lambdas_out.append(lambdas_chunk)
+            errors.extend(errors_chunk)
+
+        param_vals_out = np.concatenate(param_out) if param_out else np.array([], dtype=float)
+        lambdas_arr = np.vstack(lambdas_out) if lambdas_out else np.zeros((0, y0_base.shape[0]))
+        return param_vals_out, lambdas_arr, errors
 
     errors: List[str] = []
     lambdas_list: List[np.ndarray] = []
@@ -185,6 +324,78 @@ def _run_lyapunov_sweep(
 
     lambdas_arr = np.vstack(lambdas_list) if lambdas_list else np.zeros((0, y0_base.shape[0]))
     return param_vals, lambdas_arr, errors
+
+
+def _run_bifurcation_chunk(
+    param_vals: np.ndarray,
+    system: SystemConfig,
+    integration: IntegrationConfig,
+    initial: InitialConditions,
+    sweep_param: str,
+    sweep_step: float,
+    poincare: PoincareConfig,
+    run_cfg: SweepRunConfig,
+    solve_tols: SolverTolerances,
+) -> List[dict]:
+    if param_vals.size == 0:
+        return []
+    sweep_run = SweepConfig(
+        param_name=str(sweep_param),
+        start=float(param_vals[0]),
+        stop=float(param_vals[-1]),
+        step=float(sweep_step),
+    )
+    rows = run_sweep_chunk(
+        system=system,
+        integration=integration,
+        initial=initial,
+        sweep=sweep_run,
+        poincare=poincare,
+        run_cfg=run_cfg,
+        solve_tols=solve_tols,
+    )
+    if rows is None:
+        return []
+    if isinstance(rows, pd.DataFrame):
+        return rows.to_dict(orient="records")
+    return list(rows)
+
+
+def _run_bifurcation_parallel(
+    *,
+    system: SystemConfig,
+    integration: IntegrationConfig,
+    initial: InitialConditions,
+    sweep: SweepConfig,
+    poincare: PoincareConfig,
+    run_cfg: SweepRunConfig,
+    solve_tols: SolverTolerances,
+    max_workers: int,
+) -> List[dict]:
+    param_vals = _frange_inclusive(float(sweep.start), float(sweep.stop), float(sweep.step))
+    param_chunks = _chunk_param_values(param_vals, max_workers)
+    if not param_chunks:
+        return []
+
+    workers = max(1, min(int(max_workers), int(param_vals.size)))
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(
+            _run_bifurcation_chunk,
+            param_chunks,
+            itertools.repeat(system),
+            itertools.repeat(integration),
+            itertools.repeat(initial),
+            itertools.repeat(str(sweep.param_name)),
+            itertools.repeat(float(sweep.step)),
+            itertools.repeat(poincare),
+            itertools.repeat(run_cfg),
+            itertools.repeat(solve_tols),
+        ))
+
+    rows: List[dict] = []
+    for chunk_rows in results:
+        rows.extend(chunk_rows)
+    return rows
 
 
 def render_bifurcation_tab(
@@ -303,6 +514,37 @@ def render_bifurcation_tab(
 
         with left_col:
             st.markdown("**Bifurcation sweep settings**")
+            on_cloud_bif = _is_streamlit_cloud()
+            parallel_bif_disabled = bool(warm_start or on_cloud_bif)
+            parallel_bif = st.checkbox(
+                "Parallel sweep (local only)",
+                value=False,
+                disabled=parallel_bif_disabled,
+                key="bif_parallel_tab3",
+                help="On Streamlit Cloud this may not speed up.",
+            )
+            if on_cloud_bif:
+                st.warning("Parallel sweep is disabled on Streamlit Cloud.")
+            elif warm_start:
+                st.caption("Continuation mode: sequential (smooth).")
+            elif parallel_bif:
+                st.caption("Parallel independent mode: faster (no warm start).")
+            else:
+                st.caption("Independent mode: sequential.")
+
+            cpu_count_bif = os.cpu_count() or 1
+            max_workers_ui_bif = max(1, min(int(cpu_count_bif), 32))
+            workers_default_bif = min(_default_worker_count(), max_workers_ui_bif)
+            workers_bif = st.slider(
+                "Workers",
+                min_value=1,
+                max_value=max_workers_ui_bif,
+                value=workers_default_bif,
+                step=1,
+                key="bif_workers_tab3",
+                disabled=parallel_bif_disabled or not parallel_bif,
+            )
+
             r1c1, r1c2, r1c3, r1c4 = st.columns([1, 1, 1, 1], gap="small")
             with r1c1:
                 section_var = st.selectbox("Section var", var_names, index=0, key="sec_var_tab3")
@@ -332,6 +574,7 @@ def render_bifurcation_tab(
                 )
                 output_index = var_names.index(out_var)
 
+            st.divider()
 
             r2c1, r2c2, r2c3 = st.columns([1, 1, 1], gap="small")
             with r2c1:
@@ -385,7 +628,7 @@ def render_bifurcation_tab(
                     "Transient fraction",
                     min_value=0.0,
                     max_value=0.95,
-                value=0.75,
+                    value=0.75,
                     step=0.05,
                     key="sw_transient_frac_tab3",
                     help="Fraction of sweep integration steps to discard before crossings."
@@ -427,6 +670,37 @@ def render_bifurcation_tab(
 
         with right_col:
             st.markdown("**Lyapunov sweep settings**")
+            on_cloud = _is_streamlit_cloud()
+            parallel_disabled = bool(warm_start or on_cloud)
+            parallel_lya = st.checkbox(
+                "Parallel sweep (local only)",
+                value=False,
+                disabled=parallel_disabled,
+                key="lya_parallel_tab3",
+                help="On Streamlit Cloud this may not speed up.",
+            )
+            if on_cloud:
+                st.warning("Parallel sweep is disabled on Streamlit Cloud.")
+            elif warm_start:
+                st.caption("Continuation mode: sequential (smooth).")
+            elif parallel_lya:
+                st.caption("Parallel independent mode: faster (no warm start).")
+            else:
+                st.caption("Independent mode: sequential.")
+
+            cpu_count = os.cpu_count() or 1
+            max_workers_ui = max(1, min(int(cpu_count), 32))
+            workers_default = min(_default_worker_count(), max_workers_ui)
+            workers = st.slider(
+                "Workers",
+                min_value=1,
+                max_value=max_workers_ui,
+                value=workers_default,
+                step=1,
+                key="lya_workers_tab3",
+                disabled=parallel_disabled or not parallel_lya,
+            )
+
             qr_interval_lya = st.number_input(
                 "QR interval (time)",
                 min_value=1e-6,
@@ -529,6 +803,9 @@ def render_bifurcation_tab(
             qr_interval=float(qr_interval_lya),
         )
 
+        parallel_bif_enabled = bool(parallel_bif and not parallel_bif_disabled)
+        parallel_enabled = bool(parallel_lya and not parallel_disabled)
+
         sweep_meta = _sweep_settings_fingerprint(
             system=system,
             sweep=sweep_cfg,
@@ -542,6 +819,8 @@ def render_bifurcation_tab(
         lya_meta.pop("transient_frac", None)
         lya_meta["lyapunov_transient_frac"] = float(transient_frac_lya)
         lya_meta["lyapunov_qr_interval"] = float(lyapunov_cfg.qr_interval)
+        lya_meta["parallel"] = parallel_enabled
+        lya_meta["parallel_workers"] = int(workers) if parallel_enabled else None
 
         df_plot = None
 
@@ -561,15 +840,27 @@ def render_bifurcation_tab(
             )
 
             with st.spinner("Running sweep..."):
-                df_chunk = run_sweep_chunk(
-                    system=system,
-                    integration=integration_sweep,
-                    initial=initial,
-                    sweep=sweep_run,
-                    poincare=poincare_cfg,
-                    run_cfg=run_cfg,
-                    solve_tols=solve_tols_sweep,
-                )
+                if parallel_bif_enabled:
+                    df_chunk = _run_bifurcation_parallel(
+                        system=system,
+                        integration=integration_sweep,
+                        initial=initial,
+                        sweep=sweep_run,
+                        poincare=poincare_cfg,
+                        run_cfg=run_cfg,
+                        solve_tols=solve_tols_sweep,
+                        max_workers=int(workers_bif),
+                    )
+                else:
+                    df_chunk = run_sweep_chunk(
+                        system=system,
+                        integration=integration_sweep,
+                        initial=initial,
+                        sweep=sweep_run,
+                        poincare=poincare_cfg,
+                        run_cfg=run_cfg,
+                        solve_tols=solve_tols_sweep,
+                    )
 
             df_chunk = pd.DataFrame(df_chunk) if not isinstance(df_chunk, pd.DataFrame) else df_chunk
             st.session_state["sweep_acc_df"] = df_chunk
@@ -629,15 +920,27 @@ def render_bifurcation_tab(
                         )
 
                         with st.spinner("Continuing sweep..."):
-                            df_chunk = run_sweep_chunk(
-                                system=system,
-                                integration=integration_sweep,
-                                initial=initial,
-                                sweep=sweep_run,
-                                poincare=poincare_cfg,
-                                run_cfg=run_cfg,
-                                solve_tols=solve_tols_sweep,
-                            )
+                            if parallel_bif_enabled:
+                                df_chunk = _run_bifurcation_parallel(
+                                    system=system,
+                                    integration=integration_sweep,
+                                    initial=initial,
+                                    sweep=sweep_run,
+                                    poincare=poincare_cfg,
+                                    run_cfg=run_cfg,
+                                    solve_tols=solve_tols_sweep,
+                                    max_workers=int(workers_bif),
+                                )
+                            else:
+                                df_chunk = run_sweep_chunk(
+                                    system=system,
+                                    integration=integration_sweep,
+                                    initial=initial,
+                                    sweep=sweep_run,
+                                    poincare=poincare_cfg,
+                                    run_cfg=run_cfg,
+                                    solve_tols=solve_tols_sweep,
+                                )
 
                         df_chunk = pd.DataFrame(df_chunk) if not isinstance(df_chunk, pd.DataFrame) else df_chunk
                         df_acc = st.session_state["sweep_acc_df"]
@@ -701,6 +1004,8 @@ def render_bifurcation_tab(
                                 lyapunov=lyapunov_cfg,
                                 solve_tols=solve_tols_sweep,
                                 warm_start=bool(warm_start),
+                                parallel=parallel_enabled,
+                                max_workers=int(workers),
                             )
 
                         prev_vals = acc_data.get("param_vals", np.array([], dtype=float))
@@ -734,6 +1039,8 @@ def render_bifurcation_tab(
                     lyapunov=lyapunov_cfg,
                     solve_tols=solve_tols_sweep,
                     warm_start=bool(warm_start),
+                    parallel=parallel_enabled,
+                    max_workers=int(workers),
                 )
 
             st.session_state["lya_acc_data"] = {
