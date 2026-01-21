@@ -126,6 +126,8 @@ def _integrate_chunk_ivp(
         raise RuntimeError("scipy is required (solve_ivp not available).")
 
     opts = dict(solve_options or {})
+    opts["method"] = "DOP853"
+    opts["max_step"] = float(t1) - float(t0)
 
     sol = solve_ivp(
         rhs_aug,

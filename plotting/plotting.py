@@ -20,8 +20,8 @@ def phase_portrait(state_trajectory,
     y_component = states_trimmed[y_index]
 
     # Plot
-    plt.figure(figsize=(6, 6))
-    plt.plot(x_component, y_component, "teal", linewidth=0.8)
+    plt.figure(figsize=(9, 9), dpi=200)
+    plt.plot(x_component, y_component, "teal", linewidth=0.075)
     plt.xlabel(xlabel, color="black")
     plt.ylabel(ylabel, color="black")
     plt.title(title, color="black")
@@ -73,7 +73,7 @@ def animated_phase_portrait(state_trajectory,
     # Time per frame in ms
     interval_ms = (total_duration_seconds * 1000.0) / float(n_frames)
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(9, 9), dpi=200)
 
     # Axis labels & style
     ax.set_xlabel(xlabel, color="black")
@@ -109,7 +109,7 @@ def animated_phase_portrait(state_trajectory,
     ax.set_aspect("equal", adjustable="box")
 
     # Line that grows with time
-    trajectory_line, = ax.plot([], [], "teal", linewidth=0.8)
+    trajectory_line, = ax.plot([], [], "teal", linewidth=0.075)
 
     def init():
         trajectory_line.set_data([], [])

@@ -72,6 +72,7 @@ def _sweep_settings_fingerprint(
         "output_index": int(run_cfg.output_index),
         "tf_sweep": float(integration.tf),
         "dt_sweep": float(integration.dt),
+        "solver_kind": str(getattr(integration, "solver_kind", "ivp")),
         "transient_frac": float(transient_frac),
         "max_hits": int(run_cfg.max_hits),
         "early_stop": bool(run_cfg.early_stop),

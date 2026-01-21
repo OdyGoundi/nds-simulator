@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import concurrent.futures
 import itertools
@@ -13,10 +13,15 @@ from app.params import (
     SolverTolerances,
     SystemConfig,
 )
-from core.jacobians_fixed_systems import lorenz_jac, rossler_jac
+from core.jacobians_fixed_systems import (
+    henon_heiles_jac,
+    lorenz_jac,
+    rossler_jac,
+)
+from core.henon_heiles_system_rhs import henon_heiles_rhs
 from core.lorenz_system_rhs import lorenz_rhs
 from core.rossler_system_rhs import rossler_rhs
-from core.lyapunov import compute_lyapunov_spectrum
+from core.lyapunov import JacFn, RhsFn, compute_lyapunov_spectrum
 from core.poincare_sweep import SweepConfig
 
 
@@ -45,31 +50,67 @@ def _run_lyapunov_chunk(
         params = dict(base_params)
         params[str(sweep_param)] = float(pv)
 
+        rhs: RhsFn
+        jac: JacFn | None
         if system_key == "lorenz":
-            rhs = lambda tt, xx: lorenz_rhs(
-                tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
-            )
-            jac = lambda tt, xx: lorenz_jac(
-                tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
-            )
+            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return lorenz_rhs(
+                    tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
+                )
+
+            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return lorenz_jac(
+                    tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
+                )
+
+            rhs = rhs_wrapped
+            jac = jac_wrapped
         elif system_key == "rossler":
-            rhs = lambda tt, xx: rossler_rhs(
-                tt, xx, a=params["a"], b=params["b"], c=params["c"]
-            )
-            jac = lambda tt, xx: rossler_jac(
-                tt, xx, a=params["a"], b=params["b"], c=params["c"]
-            )
+            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return rossler_rhs(
+                    tt, xx, a=params["a"], b=params["b"], c=params["c"]
+                )
+
+            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return rossler_jac(
+                    tt, xx, a=params["a"], b=params["b"], c=params["c"]
+                )
+
+            rhs = rhs_wrapped
+            jac = jac_wrapped
+        elif system_key == "henon_heiles":
+            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return henon_heiles_rhs(tt, xx, lam=params["lambda"])
+
+            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return henon_heiles_jac(tt, xx, lam=params["lambda"])
+
+            rhs = rhs_wrapped
+            jac = jac_wrapped
         else:
+            jac_custom = None
             if custom_auto_jac:
                 rhs_custom, jac_custom = build_custom_rhs_and_jacobian(
                     var_names, eq_lines, params
                 )
             else:
                 rhs_custom = build_custom_rhs(var_names, eq_lines, params)
-                jac_custom = None
 
-            rhs = lambda tt, xx: rhs_custom(tt, xx)
-            jac = (lambda tt, xx: jac_custom(tt, xx)) if (custom_auto_jac and custom_use_jac) else None
+            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return rhs_custom(tt, xx)
+
+            rhs = rhs_wrapped
+            jac = None
+            if custom_auto_jac and custom_use_jac:
+                if jac_custom is None:
+                    raise RuntimeError("Analytic Jacobian requested but not available.")
+
+                jac_custom_fn: Callable[[float, np.ndarray], np.ndarray] = jac_custom
+
+                def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                    return jac_custom_fn(tt, xx)
+
+                jac = jac_wrapped
 
         try:
             res = compute_lyapunov_spectrum(
@@ -120,6 +161,10 @@ def _run_lyapunov_sweep(
             "a": float(system.rossler.a),
             "b": float(system.rossler.b),
             "c": float(system.rossler.c),
+        }
+    elif system.key == "henon_heiles":
+        base_params = {
+            "lambda": float(system.henon_heiles.lam),
         }
     elif system.key == "custom":
         base_params = parse_params(system.custom.params_text)
@@ -197,31 +242,67 @@ def _run_lyapunov_sweep(
         params = dict(base_params)
         params[str(sweep.param_name)] = float(pv)
 
+        rhs: RhsFn
+        jac: JacFn | None
         if system.key == "lorenz":
-            rhs = lambda tt, xx: lorenz_rhs(
-                tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
-            )
-            jac = lambda tt, xx: lorenz_jac(
-                tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
-            )
+            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return lorenz_rhs(
+                    tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
+                )
+
+            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return lorenz_jac(
+                    tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
+                )
+
+            rhs = rhs_wrapped
+            jac = jac_wrapped
         elif system.key == "rossler":
-            rhs = lambda tt, xx: rossler_rhs(
-                tt, xx, a=params["a"], b=params["b"], c=params["c"]
-            )
-            jac = lambda tt, xx: rossler_jac(
-                tt, xx, a=params["a"], b=params["b"], c=params["c"]
-            )
+            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return rossler_rhs(
+                    tt, xx, a=params["a"], b=params["b"], c=params["c"]
+                )
+
+            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return rossler_jac(
+                    tt, xx, a=params["a"], b=params["b"], c=params["c"]
+                )
+
+            rhs = rhs_wrapped
+            jac = jac_wrapped
+        elif system.key == "henon_heiles":
+            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return henon_heiles_rhs(tt, xx, lam=params["lambda"])
+
+            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return henon_heiles_jac(tt, xx, lam=params["lambda"])
+
+            rhs = rhs_wrapped
+            jac = jac_wrapped
         else:
+            jac_custom = None
             if custom_auto_jac:
                 rhs_custom, jac_custom = build_custom_rhs_and_jacobian(
                     var_names, eq_lines, params
                 )
             else:
                 rhs_custom = build_custom_rhs(var_names, eq_lines, params)
-                jac_custom = None
 
-            rhs = lambda tt, xx: rhs_custom(tt, xx)
-            jac = (lambda tt, xx: jac_custom(tt, xx)) if (custom_auto_jac and custom_use_jac) else None
+            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return rhs_custom(tt, xx)
+
+            rhs = rhs_wrapped
+            jac = None
+            if custom_auto_jac and custom_use_jac:
+                if jac_custom is None:
+                    raise RuntimeError("Analytic Jacobian requested but not available.")
+
+                jac_custom_fn: Callable[[float, np.ndarray], np.ndarray] = jac_custom
+
+                def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                    return jac_custom_fn(tt, xx)
+
+                jac = jac_wrapped
 
         try:
             res = compute_lyapunov_spectrum(

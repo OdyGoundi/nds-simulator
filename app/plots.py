@@ -7,7 +7,7 @@ import numpy as np
 def plot_phase_2d(y: np.ndarray, i: int, j: int, title: str, xlabel: str, ylabel: str):
     fig, ax = plt.subplots(figsize=(3.2, 3.2))
     fig.set_dpi(150)
-    ax.plot(y[i, :], y[j, :], linewidth=0.7)
+    ax.plot(y[i, :], y[j, :], linewidth=0.07)
     ax.set_title(title, fontsize=10)
     ax.set_xlabel(xlabel, fontsize=9)
     ax.set_ylabel(ylabel, fontsize=9)
@@ -21,7 +21,7 @@ def plot_phase_3d(y: np.ndarray, i: int, j: int, k: int, title: str, labels: Tup
     fig = plt.figure(figsize=(3.2, 3.2))
     fig.set_dpi(150)
     ax = fig.add_subplot(111, projection="3d")
-    ax.plot(y[i, :], y[j, :], y[k, :], linewidth=0.7)
+    ax.plot(y[i, :], y[j, :], y[k, :], linewidth=0.07)
     ax.set_title(title, fontsize=10)
     ax.set_xlabel(labels[0], fontsize=9)
     ax.set_ylabel(labels[1], fontsize=9)

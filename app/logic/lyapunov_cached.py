@@ -9,7 +9,8 @@ from app.params import (
     SolverTolerances,
     SystemConfig,
 )
-from core.jacobians_fixed_systems import lorenz_jac, rossler_jac
+from core.jacobians_fixed_systems import henon_heiles_jac, lorenz_jac, rossler_jac
+from core.henon_heiles_system_rhs import henon_heiles_rhs
 from core.lorenz_system_rhs import lorenz_rhs
 from core.rossler_system_rhs import rossler_rhs
 from core.lyapunov import compute_lyapunov_spectrum
@@ -44,6 +45,15 @@ def compute_lyapunov_cached(
         rhs = rhs_rossler
         jac = lambda tt, xx: rossler_jac(tt, xx, a=params.a, b=params.b, c=params.c)
 
+    elif system.key == "henon_heiles":
+        params = system.henon_heiles
+
+        def rhs_henon(tt, xx):
+            return henon_heiles_rhs(tt, xx, lam=params.lam)
+
+        rhs = rhs_henon
+        jac = lambda tt, xx: henon_heiles_jac(tt, xx, lam=params.lam)
+
     elif system.key == "custom":
         var_names = list(system.custom.var_names)
         eq_lines = list(system.custom.eq_lines)
@@ -51,19 +61,23 @@ def compute_lyapunov_cached(
         auto_jac = bool(system.custom.auto_jacobian)
         use_jac = bool(system.custom.use_jacobian)
 
+        jac_custom_func = None
         if auto_jac:
             rhs_custom_func, jac_custom_func = build_custom_rhs_and_jacobian(
                 var_names, eq_lines, params
             )
         else:
             rhs_custom_func = build_custom_rhs(var_names, eq_lines, params)
-            jac_custom_func = None
 
         def rhs_custom_wrapper(tt, xx):
             return rhs_custom_func(tt, xx)
 
         rhs = rhs_custom_wrapper
-        jac = (lambda tt, xx: jac_custom_func(tt, xx)) if (auto_jac and use_jac) else None
+        jac = None
+        if auto_jac and use_jac:
+            if jac_custom_func is None:
+                raise RuntimeError("Analytic Jacobian requested but not available.")
+            jac = lambda tt, xx: jac_custom_func(tt, xx)
 
     else:
         raise ValueError(f"Unknown system_key: {system.key}")

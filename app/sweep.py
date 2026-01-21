@@ -2,6 +2,7 @@ from typing import Optional
 
 import numpy as np
 
+from core.henon_heiles_system_rhs import henon_heiles_rhs
 from core.lorenz_system_rhs import lorenz_rhs
 from core.rossler_system_rhs import rossler_rhs
 from core.poincare_sweep import (
@@ -11,7 +12,7 @@ from core.poincare_sweep import (
     PoincareConfig,
     SweepConfig,
 )
-from core.solver import integrate_system
+from core.solver import integrate_system, integrate_system_rk4
 from app.helpers import parse_params, build_custom_rhs
 from app.params import (
     InitialConditions,
@@ -36,6 +37,8 @@ def run_sweep_chunk(
 ):
     if solve_options is None:
         solve_options = solve_tols.to_dict()
+    solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
+    sweep_solver_kind = "rk4" if solver_kind == "rk4" else "ivp"
 
     if system.key == "lorenz":
         rhs_fn = lorenz_rhs
@@ -50,6 +53,11 @@ def run_sweep_chunk(
             "a": float(system.rossler.a),
             "b": float(system.rossler.b),
             "c": float(system.rossler.c),
+        }
+    elif system.key == "henon_heiles":
+        rhs_fn = henon_heiles_rhs
+        base_params = {
+            "lambda": float(system.henon_heiles.lam),
         }
     elif system.key == "custom":
         base_params = parse_params(system.custom.params_text)
@@ -78,13 +86,21 @@ def run_sweep_chunk(
                 params2,
             )
 
-            sol = integrate_system(
-                rhs2,
-                t_span=(float(integration.t0), float(integration.tf)),
-                y0=y0_curr,
-                t_step=float(integration.dt),
-                **solve_options,
-            )
+            if sweep_solver_kind == "rk4":
+                sol = integrate_system_rk4(
+                    rhs2,
+                    t_span=(float(integration.t0), float(integration.tf)),
+                    y0=y0_curr,
+                    t_step=float(integration.dt),
+                )
+            else:
+                sol = integrate_system(
+                    rhs2,
+                    t_span=(float(integration.t0), float(integration.tf)),
+                    y0=y0_curr,
+                    t_step=float(integration.dt),
+                    **solve_options,
+                )
             if not sol.success:
                 if not run_cfg.warm_start:
                     y0_curr = y0_base.copy()
@@ -141,7 +157,7 @@ def run_sweep_chunk(
         base_params=base_params,
         sweep=sweep,
         poincare=poincare,
-        solver_kind="ivp",
+        solver_kind=sweep_solver_kind,
         t_step=float(integration.dt),
         solve_options=solve_options,
         output_indices=[int(run_cfg.output_index)],

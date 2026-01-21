@@ -1,6 +1,9 @@
+import io
+import json
 import sys
+import zipfile
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 # Ensure project root import works
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -10,14 +13,17 @@ if str(PROJECT_ROOT) not in sys.path:
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
+import pandas as pd
 
 from app.cache import solve_cached
 from app.helpers import (
     build_csv_bytes,
+    build_custom_symplectic_functions,
     build_custom_symbolic_jacobian_str,
     parse_list_of_floats,
     parse_params,
 )
+from app.export_utils import build_static_config
 from app.logic.lyapunov_cached import compute_lyapunov_cached
 from app.plots import (
     plot_phase_2d,
@@ -27,6 +33,7 @@ from app.plots import (
 )
 from app.params import (
     CustomSystemDefinition,
+    HenonHeilesParams,
     InitialConditions,
     IntegrationConfig,
     LorenzParams,
@@ -37,6 +44,24 @@ from app.params import (
 )
 from app.ui.bifurcation_tab import render_bifurcation_tab
 
+APP_NAME = "nlds-simulator"
+HENON_HEILES_VAR_NAMES = ["q1", "q2", "p1", "p2"]
+HENON_HEILES_EQ_LINES = [
+    "p1",
+    "p2",
+    "-q1 - 2*lambda*q1*q2",
+    "-q2 - lambda*(q1**2 - q2**2)",
+]
+HENON_HEILES_PARAMS_TEXT = "lambda=1.0"
+
+
+def _zip_bytes(file_map: Dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in file_map.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
 st.set_page_config(page_title="Non Linear Dynamics Simulator", layout="wide")
 st.title("Non Linear Dynamics Simulator (NLDS)")
 
@@ -46,7 +71,7 @@ with st.sidebar:
 
     system_label = st.selectbox(
         "Choose system",
-        ["Lorenz (3D)", "Rossler (3D)", "Custom (nD)"],
+        ["Lorenz (3D)", "Rossler (3D)", "Henon-Heiles (4D Hamiltonian)", "Custom (nD)"],
         index=0
     )
 
@@ -56,14 +81,59 @@ with st.sidebar:
     elif system_label.startswith("Rossler"):
         system_key = "rossler"
         n_vars = 3
+    elif system_label.startswith("Henon-Heiles"):
+        system_key = "henon_heiles"
+        n_vars = 4
     else:
         system_key = "custom"
         n_vars = st.number_input("Number of equations (n)", min_value=1, max_value=12, value=3, step=1)
 
+    st.markdown("**Solver kind**")
+    solver_kind_labels = [
+        "RK45 (adaptive, solve_ivp)",
+        "RK4 (fixed step)",
+        "Symplectic Verlet (2nd order)",
+        "Symplectic Forest-Ruth (4th order)",
+    ]
+    solver_kind_map = {
+        "RK45 (adaptive, solve_ivp)": "ivp",
+        "RK4 (fixed step)": "rk4",
+        "Symplectic Verlet (2nd order)": "symplectic_verlet",
+        "Symplectic Forest-Ruth (4th order)": "symplectic_fr",
+    }
+    solver_default = "Symplectic Verlet (2nd order)" if system_key == "henon_heiles" else "RK45 (adaptive, solve_ivp)"
+    solver_kind_label = st.selectbox(
+        "Solver kind",
+        solver_kind_labels,
+        index=solver_kind_labels.index(solver_default),
+    )
+    solver_kind = solver_kind_map[solver_kind_label]
+    st.markdown(
+        "- RK45 adaptive: default choice, uses rtol/atol.\n"
+        "- RK4 fixed: fixed dt, faster but needs smaller dt for accuracy.\n"
+        "- Symplectic Verlet: separable Hamiltonians, state = [q..., p...], dq/dt uses p only, dp/dt uses q only.\n"
+        "- Symplectic Forest-Ruth: higher-order symplectic, same assumptions, more accurate."
+    )
+    solver_kind_effective = solver_kind
+    if solver_kind.startswith("symplectic"):
+        if system_key not in ("custom", "henon_heiles"):
+            st.warning("Symplectic solvers require Hamiltonian systems. Using RK45 instead.")
+            solver_kind_effective = "ivp"
+        elif int(n_vars) % 2 != 0:
+            st.warning("Symplectic solvers require an even number of variables [q..., p...]. Using RK45 instead.")
+            solver_kind_effective = "ivp"
+    elif system_key == "henon_heiles":
+        st.caption("Henon-Heiles is Hamiltonian: symplectic solvers are recommended.")
+
     st.divider()
     st.header("Initial conditions")
 
-    y0_default = "1, 1, 1" if int(n_vars) == 3 else "\n".join(["0"] * int(n_vars))
+    if system_key == "henon_heiles":
+        y0_default = "0.1, 0.0, 0.0, 0.1"
+    elif int(n_vars) == 3:
+        y0_default = "1, 1, 1"
+    else:
+        y0_default = "\n".join(["0"] * int(n_vars))
     y0_text = st.text_area(
         "y0 values (comma/space/newline separated)",
         value=y0_default,
@@ -84,6 +154,15 @@ custom_use_jac = False
 # Variable names
 if system_key in ("lorenz", "rossler"):
     var_names = ["x", "y", "z"]
+elif system_key == "henon_heiles":
+    var_names = list(HENON_HEILES_VAR_NAMES)
+    eq_lines = list(HENON_HEILES_EQ_LINES)
+    params_text = HENON_HEILES_PARAMS_TEXT
+    with st.sidebar:
+        st.header("Henon-Heiles definition")
+        st.caption("State order: q1, q2, p1, p2")
+        st.code("\n".join(eq_lines), language="text")
+        st.caption(f"Parameters: {HENON_HEILES_PARAMS_TEXT}")
 else:
     with st.sidebar:
         st.header("Custom definitions")
@@ -140,11 +219,44 @@ else:
             except Exception as exc:
                 st.warning(f"Jacobian preview failed: {exc}")
 
+with st.sidebar:
+    st.header("Symplectic preview")
+    if system_key not in ("custom", "henon_heiles"):
+        st.caption("Symplectic preview is available for custom or Henon-Heiles systems.")
+    elif int(n_vars) % 2 != 0:
+        st.caption("Symplectic solvers require an even number of variables [q..., p...].")
+    else:
+        n_q = int(n_vars) // 2
+        q_vars = list(var_names[:n_q])
+        p_vars = list(var_names[n_q:])
+        st.markdown(f"**q vars:** {', '.join(q_vars)}")
+        st.markdown(f"**p vars:** {', '.join(p_vars)}")
+
+        dq_lines = eq_lines[:n_q]
+        dp_lines = eq_lines[n_q:]
+        st.markdown("**dq/dt (q):**")
+        st.code("\n".join(dq_lines), language="text")
+        st.markdown("**dp/dt (p):**")
+        st.code("\n".join(dp_lines), language="text")
+
+        if not str(solver_kind_effective).startswith("symplectic"):
+            st.caption("Select a symplectic solver to validate the structure.")
+        elif system_key == "custom":
+            try:
+                params = parse_params(params_text)
+                build_custom_symplectic_functions(var_names, eq_lines, params)
+                st.success("Symplectic check passed.")
+            except Exception as exc:
+                st.error(f"Symplectic check failed: {exc}")
+        elif system_key == "henon_heiles":
+            st.success("Symplectic check passed (Henon-Heiles).")
+
 
 # -------- System parameters defaults --------
 # Default values
 sigma = rho = beta = 0.0
 ross_a = ross_b = ross_c = 0.0
+hh_lambda = 1.0
 
 
 # -------- Main layout: outputs only --------
@@ -183,6 +295,15 @@ try:
                 ross_b = st.number_input("b", value=0.2, step=0.01, format="%.4f", key="ross_b")
                 ross_c = st.number_input("c", value=5.7, step=0.1, format="%.3f", key="ross_c")
 
+            elif system_key == "henon_heiles":
+                hh_lambda = st.number_input(
+                    "lambda",
+                    value=1.0,
+                    step=0.05,
+                    format="%.4f",
+                    key="hh_lambda",
+                )
+
             else:
                 st.caption("Custom: parameters are defined above.")
 
@@ -207,12 +328,23 @@ try:
                 format="%.4f",
                 help="Time between orthonormalizations during Lyapunov computation.",
             )
-            lyapunov_keep_steps = st.number_input(
-                "Keep last steps (Lyapunov only)",
-                min_value=1,
-                value=100,
-                step=10,
-                help="Uses only the last N base steps (dt) for Lyapunov; does not affect plots.",
+            lya_c1, lya_c2 = st.columns([1, 1], gap="small")
+            with lya_c1:
+                lyapunov_transient_frac = st.slider(
+                    "Lyapunov transient fraction",
+                    min_value=0.0,
+                    max_value=0.95,
+                    value=0.30,
+                    step=0.05,
+                    help="Fraction of integration steps discarded before Lyapunov accumulation.",
+                )
+            with lya_c2:
+                n_steps_est_lya = int(max(1.0, (float(tf) - float(t0)) / float(dt)))
+                transient_steps_lya = int(lyapunov_transient_frac * n_steps_est_lya)
+                st.metric("Lyapunov transient steps (estimated)", transient_steps_lya)
+            compute_lya_btn = st.button(
+                "Compute Lyapunov exponents",
+                key="compute_lya_tab1",
             )
 
             st.divider()
@@ -262,15 +394,29 @@ try:
                 format="%.1e",
                 key="atol",
             )
+            if str(solver_kind_effective) != "ivp":
+                st.caption("Note: rtol/atol are used only by RK45 (adaptive).")
             solve_tols = SolverTolerances(rtol=float(rtol), atol=float(atol))
 
+            st.divider()
+            st.markdown("**Configuration**")
+            save_static_cfg = st.button("Save configuration", key="save_static_cfg_tab1")
+
     y0 = parse_list_of_floats(y0_text, int(n_vars), label="y0")
+    if system_key == "henon_heiles":
+        params_text = f"lambda={float(hh_lambda)}"
     initial = InitialConditions(tuple(float(v) for v in y0))
-    integration = IntegrationConfig(t0=float(t0), tf=float(tf), dt=float(dt))
+    integration = IntegrationConfig(
+        t0=float(t0),
+        tf=float(tf),
+        dt=float(dt),
+        solver_kind=str(solver_kind_effective),
+    )
     system = SystemConfig(
         key=system_key,
         lorenz=LorenzParams(sigma=float(sigma), rho=float(rho), beta=float(beta)),
         rossler=RosslerParams(a=float(ross_a), b=float(ross_b), c=float(ross_c)),
+        henon_heiles=HenonHeilesParams(lam=float(hh_lambda)),
         custom=CustomSystemDefinition(
             var_names=tuple(var_names),
             eq_lines=tuple(eq_lines),
@@ -280,10 +426,31 @@ try:
         ),
     )
     lyapunov_cfg = LyapunovConfig(
-        transient_steps=int(transient_steps),
+        transient_steps=int(transient_steps_lya),
         qr_interval=float(qr_interval),
-        keep_last_steps=int(lyapunov_keep_steps),
     )
+
+    if save_static_cfg:
+        z_idx_val = int(z_idx) if plot_mode == "3D phase plot" else None
+        static_config = build_static_config(
+            app_name=APP_NAME,
+            repo_root=PROJECT_ROOT,
+            system=system,
+            integration=integration,
+            initial=initial,
+            solve_tols=solve_tols,
+            plot_mode=plot_mode,
+            x_idx=int(x_idx),
+            y_idx=int(y_idx),
+            z_idx=z_idx_val,
+            transient_steps=int(transient_steps),
+            lyapunov_transient_steps=int(transient_steps_lya),
+            lyapunov_transient_frac=float(lyapunov_transient_frac),
+            qr_interval=float(qr_interval),
+        )
+        st.session_state["static_config"] = static_config
+        with phase_col_controls:
+            st.success("Static configuration saved. Download from the Export tab.")
 
     t, y = solve_cached(
         system=system,
@@ -331,30 +498,45 @@ try:
 
         st.divider()
         st.markdown("**Lyapunov exponents**")
+        t_transient_lya = float(transient_steps_lya) * float(dt)
         total_time_lya = float(tf) - float(t0)
-        keep_steps_lya = int(lyapunov_keep_steps)
-        t_measure_lya = min(total_time_lya, float(keep_steps_lya) * float(dt))
-        t_transient_lya = max(0.0, total_time_lya - t_measure_lya)
+        t_measure_lya = total_time_lya - t_transient_lya
+        lya_sig = (
+            repr(system),
+            repr(integration),
+            repr(initial),
+            repr(lyapunov_cfg),
+            repr(solve_tols),
+        )
         if t_measure_lya <= 0.0:
-            st.warning("Not enough time for Lyapunov measurement. Increase tf or reduce transient cut.")
+            st.warning("Not enough time for Lyapunov measurement. Increase tf or reduce Lyapunov transient fraction.")
         else:
-            try:
-                with st.spinner("Computing Lyapunov spectrum..."):
-                    lambdas = compute_lyapunov_cached(
-                        system=system,
-                        integration=integration,
-                        initial=initial,
-                        lyapunov=lyapunov_cfg,
-                        solve_tols=solve_tols,
-                    )
+            if compute_lya_btn:
+                try:
+                    with st.spinner("Computing Lyapunov spectrum..."):
+                        lambdas = compute_lyapunov_cached(
+                            system=system,
+                            integration=integration,
+                            initial=initial,
+                            lyapunov=lyapunov_cfg,
+                            solve_tols=solve_tols,
+                        )
+                    st.session_state["lya_result_tab1"] = np.array(lambdas, dtype=float)
+                    st.session_state["lya_result_sig"] = lya_sig
+                except Exception as exc:
+                    st.warning(f"Lyapunov computation failed: {exc}")
+
+            lambdas = st.session_state.get("lya_result_tab1", None)
+            sig_ok = st.session_state.get("lya_result_sig", None) == lya_sig
+            if lambdas is not None and sig_ok:
                 formatted = ", ".join(f"{val:.5f}" for val in lambdas)
                 st.write(f"lambda = [{formatted}]")
                 st.caption(
                     f"n={len(lambdas)} | t_transient={t_transient_lya:.3f} | "
-                    f"t_measure={t_measure_lya:.3f} | keep_last_steps={keep_steps_lya}"
+                    f"t_measure={t_measure_lya:.3f} | lyapunov_transient_frac={lyapunov_transient_frac:.2f}"
                 )
-            except Exception as exc:
-                st.warning(f"Lyapunov computation failed: {exc}")
+            else:
+                st.info("Click 'Compute Lyapunov exponents' to run the calculation.")
 
     # --- Tab 2: Time series (one plot per variable)
     with tabs[1]:
@@ -428,12 +610,43 @@ try:
             system=system,
             integration=integration,
             initial=initial,
+            solve_tols=solve_tols,
+            app_name=APP_NAME,
+            repo_root=PROJECT_ROOT,
         )
 
         # --- Tab 4: Export (CSV functional) ---
         with tabs[3]:
             st.markdown("**Export results**")
 
+            st.markdown("**Export: Configurations**")
+            static_cfg = st.session_state.get("static_config", None)
+            if static_cfg is None:
+                st.info("No StaticParamsConfig saved yet. Use Save configuration in Tab 1.")
+            else:
+                static_json = json.dumps(static_cfg, indent=2).encode("utf-8")
+                st.download_button(
+                    label="Download StaticParamsConfig.json",
+                    data=static_json,
+                    file_name="StaticParamsConfig.json",
+                    mime="application/json",
+                    key="dl_static_cfg",
+                )
+
+            sweep_cfg = st.session_state.get("sweep_config", None)
+            if sweep_cfg is None:
+                st.info("No SweepParamConfig saved yet. Use Save configuration in Tab 3.")
+            else:
+                sweep_json = json.dumps(sweep_cfg, indent=2).encode("utf-8")
+                st.download_button(
+                    label="Download SweepParamConfig.json",
+                    data=sweep_json,
+                    file_name="SweepParamConfig.json",
+                    mime="application/json",
+                    key="dl_sweep_cfg",
+                )
+
+            st.divider()
             csv_bytes = build_csv_bytes(t_plot, y_plot, var_names)
             rtol_tag = f"{float(rtol):.0e}"
             atol_tag = f"{float(atol):.0e}"
@@ -536,6 +749,68 @@ try:
                     )
 
                     st.caption(f"Rows: {len(df_lya)} | Columns: {', '.join(df_lya.columns)}")
+
+            st.divider()
+            st.markdown("**Export: Run bundle (zip)**")
+            bundle_files: Dict[str, bytes] = {}
+
+            if static_cfg is None:
+                z_idx_val = int(z_idx) if plot_mode == "3D phase plot" else None
+                bundle_cfg = build_static_config(
+                    app_name=APP_NAME,
+                    repo_root=PROJECT_ROOT,
+                    system=system,
+                    integration=integration,
+                    initial=initial,
+                    solve_tols=solve_tols,
+                    plot_mode=plot_mode,
+                    x_idx=int(x_idx),
+                    y_idx=int(y_idx),
+                    z_idx=z_idx_val,
+                    transient_steps=int(transient_steps),
+                    lyapunov_transient_steps=int(transient_steps_lya),
+                    lyapunov_transient_frac=float(lyapunov_transient_frac),
+                    qr_interval=float(qr_interval),
+                )
+            else:
+                bundle_cfg = static_cfg
+
+            bundle_files["config.json"] = json.dumps(bundle_cfg, indent=2).encode("utf-8")
+            if static_cfg is not None:
+                bundle_files["StaticParamsConfig.json"] = json.dumps(static_cfg, indent=2).encode("utf-8")
+            if sweep_cfg is not None:
+                bundle_files["SweepParamConfig.json"] = json.dumps(sweep_cfg, indent=2).encode("utf-8")
+
+            bundle_files["trajectory.csv"] = build_csv_bytes(t_plot, y_plot, var_names)
+
+            if df_sweep is not None and len(df_sweep) > 0:
+                if not isinstance(df_sweep, pd.DataFrame):
+                    df_sweep = pd.DataFrame(df_sweep)
+                bundle_files["sweep.csv"] = df_sweep.to_csv(index=False).encode("utf-8")
+
+            if lya_data is not None:
+                param_vals = np.array(lya_data.get("param_vals", []), dtype=float)
+                lambdas_arr = np.array(lya_data.get("lambdas", []), dtype=float)
+                if param_vals.size and lambdas_arr.size:
+                    meta = lya_data.get("meta", {})
+                    sweep_param = meta.get("sweep_param", "param")
+                    data = {str(sweep_param): param_vals}
+                    if lambdas_arr.ndim == 1:
+                        data["lambda0"] = lambdas_arr
+                    else:
+                        for k in range(lambdas_arr.shape[1]):
+                            data[f"lambda{k}"] = lambdas_arr[:, k]
+                    df_lya = pd.DataFrame(data)
+                    bundle_files["lyapunov_sweep.csv"] = df_lya.to_csv(index=False).encode("utf-8")
+
+            bundle_bytes = _zip_bytes(bundle_files)
+            st.download_button(
+                label="Download Run Bundle (zip)",
+                data=bundle_bytes,
+                file_name="run_bundle.zip",
+                mime="application/zip",
+                key="dl_run_bundle_zip",
+            )
 
 
 except Exception as e:

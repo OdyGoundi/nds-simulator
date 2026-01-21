@@ -3,9 +3,18 @@ from typing import Tuple
 import numpy as np
 import streamlit as st
 
+from core.henon_heiles_system_rhs import (
+    henon_heiles_dp_dt,
+    henon_heiles_dq_dt,
+    henon_heiles_rhs,
+)
 from core.lorenz_system_rhs import lorenz_rhs
 from core.rossler_system_rhs import rossler_rhs
-from core.solver import integrate_system
+from core.solver import integrate_system, integrate_system_rk4
+from core.symplectic_solver import (
+    integrate_system_symplectic_fr,
+    integrate_system_symplectic_verlet,
+)
 from core.poincare_sweep import (
     poincare_section,
     sweep_poincare,
@@ -13,7 +22,11 @@ from core.poincare_sweep import (
     PoincareConfig,
     SweepConfig,
 )
-from app.helpers import parse_params, build_custom_rhs
+from app.helpers import (
+    build_custom_rhs,
+    build_custom_symplectic_functions,
+    parse_params,
+)
 from app.params import (
     InitialConditions,
     IntegrationConfig,
@@ -37,6 +50,7 @@ def solve_cached(
     """
     y0 = np.array(initial.y0, dtype=float)
     solve_options = solve_tols.to_dict()
+    solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
 
     if system.key == "lorenz":
         params = system.lorenz
@@ -50,6 +64,12 @@ def solve_cached(
         def rhs(t, y):
             return rossler_rhs(t, y, a=params.a, b=params.b, c=params.c)
 
+    elif system.key == "henon_heiles":
+        params = system.henon_heiles
+
+        def rhs(t, y):
+            return henon_heiles_rhs(t, y, lam=params.lam)
+
     elif system.key == "custom":
         custom = system.custom
         var_names = list(custom.var_names)
@@ -60,13 +80,50 @@ def solve_cached(
     else:
         raise ValueError(f"Unknown system_key: {system.key}")
 
-    sol = integrate_system(
-        rhs,
-        t_span=(integration.t0, integration.tf),
-        y0=y0,
-        t_step=integration.dt,
-        **solve_options,
-    )
+    if solver_kind in ("symplectic_verlet", "symplectic_fr"):
+        if system.key == "custom":
+            dq_dt, dp_dt = build_custom_symplectic_functions(var_names, eq_lines, params)
+        elif system.key == "henon_heiles":
+            def dq_dt(t, p):
+                return henon_heiles_dq_dt(t, p, lam=params.lam)
+
+            def dp_dt(t, q):
+                return henon_heiles_dp_dt(t, q, lam=params.lam)
+        else:
+            raise ValueError("Symplectic solvers require Hamiltonian systems.")
+        if solver_kind == "symplectic_verlet":
+            sol = integrate_system_symplectic_verlet(
+                rhs,
+                t_span=(integration.t0, integration.tf),
+                y0=y0,
+                t_step=integration.dt,
+                dp_dt=dp_dt,
+                dq_dt=dq_dt,
+            )
+        else:
+            sol = integrate_system_symplectic_fr(
+                rhs,
+                t_span=(integration.t0, integration.tf),
+                y0=y0,
+                t_step=integration.dt,
+                dp_dt=dp_dt,
+                dq_dt=dq_dt,
+            )
+    elif solver_kind == "rk4":
+        sol = integrate_system_rk4(
+            rhs,
+            t_span=(integration.t0, integration.tf),
+            y0=y0,
+            t_step=integration.dt,
+        )
+    else:
+        sol = integrate_system(
+            rhs,
+            t_span=(integration.t0, integration.tf),
+            y0=y0,
+            t_step=integration.dt,
+            **solve_options,
+        )
     if not sol.success:
         raise RuntimeError(sol.message)
 
@@ -103,6 +160,11 @@ def sweep_cached(
             "a": float(system.rossler.a),
             "b": float(system.rossler.b),
             "c": float(system.rossler.c),
+        }
+    elif system.key == "henon_heiles":
+        rhs_fn = henon_heiles_rhs
+        base_params = {
+            "lambda": float(system.henon_heiles.lam),
         }
     elif system.key == "custom":
         custom = system.custom
@@ -189,6 +251,11 @@ def sweep_cached(
             "a": float(system.rossler.a),
             "b": float(system.rossler.b),
             "c": float(system.rossler.c),
+        }
+    elif system.key == "henon_heiles":
+        rhs_fn = henon_heiles_rhs
+        base_params = {
+            "lambda": float(system.henon_heiles.lam),
         }
     else:
         raise ValueError(f"Unknown system_key: {system.key}")

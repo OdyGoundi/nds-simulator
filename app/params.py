@@ -7,6 +7,7 @@ class IntegrationConfig:
     t0: float
     tf: float
     dt: float
+    solver_kind: str = "ivp"
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,11 @@ class RosslerParams:
 
 
 @dataclass(frozen=True)
+class HenonHeilesParams:
+    lam: float = 1.0
+
+
+@dataclass(frozen=True)
 class CustomSystemDefinition:
     var_names: Tuple[str, ...]
     eq_lines: Tuple[str, ...]
@@ -42,6 +48,7 @@ class SystemConfig:
     key: str
     lorenz: LorenzParams
     rossler: RosslerParams
+    henon_heiles: HenonHeilesParams
     custom: CustomSystemDefinition
 
 

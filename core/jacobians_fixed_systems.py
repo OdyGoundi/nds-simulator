@@ -59,3 +59,23 @@ def thomas_jac(_t, state, beta=0.208186) -> np.ndarray:
         ],
         dtype=float,
     )
+
+
+def henon_heiles_jac(_t, state, lam=1.0, **kwargs) -> np.ndarray:
+    """
+    Jacobian of the Henon-Heiles system.
+    State ordering: [q1, q2, p1, p2]
+    """
+    if "lambda" in kwargs:
+        lam = kwargs["lambda"]
+
+    q1, q2, _p1, _p2 = state
+    return np.array(
+        [
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            [-(1.0 + 2.0 * lam * q2), -(2.0 * lam * q1), 0.0, 0.0],
+            [-(2.0 * lam * q1), -(1.0 - 2.0 * lam * q2), 0.0, 0.0],
+        ],
+        dtype=float,
+    )

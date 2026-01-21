@@ -1,11 +1,13 @@
 import math
 import os
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 
 from app.helpers import parse_params
+from app.export_utils import build_sweep_config
 from app.logic.bifurcation_sweep import _run_bifurcation_parallel
 from app.logic.lyapunov_sweep import _run_lyapunov_sweep
 from app.logic.sweep_utils import (
@@ -57,6 +59,9 @@ def render_bifurcation_tab(
     system: SystemConfig,
     integration: IntegrationConfig,
     initial: InitialConditions,
+    solve_tols: SolverTolerances,
+    app_name: str,
+    repo_root: Path,
 ):
     with tab:
         system_key = system.key
@@ -72,6 +77,8 @@ def render_bifurcation_tab(
             sweep_choices = ["sigma", "rho", "beta"]
         elif system_key == "rossler":
             sweep_choices = ["a", "b", "c"]
+        elif system_key == "henon_heiles":
+            sweep_choices = ["lambda"]
         else:
             try:
                 sweep_choices = list(parse_params(params_text).keys())
@@ -391,21 +398,22 @@ def render_bifurcation_tab(
                 disabled=not clip_lyapunov,
             )
             
-            st.markdown("**Lyapunov calculation window**")
+            st.markdown("**Lyapunov transient cut**")
             ltc1, ltc2 = st.columns([1, 1], gap="small")
             with ltc1:
-                keep_last_steps_lya = st.number_input(
-                    "Keep last steps",
-                    min_value=1,
-                    value=100,
-                    step=1,
-                    key="lya_keep_last_steps_tab3",
-                    help="Uses only the last N base steps (dt) for Lyapunov; does not affect plots.",
+                transient_frac_lya = st.slider(
+                    "Transient fraction",
+                    min_value=0.0,
+                    max_value=0.95,
+                    value=0.30,
+                    step=0.05,
+                    key="lya_transient_frac_tab3",
+                    help="Fraction of sweep integration steps discarded before Lyapunov computation.",
                 )
             with ltc2:
                 n_steps_est_lya = int(max(1.0, (float(tf_sweep) - float(t0)) / float(dt_sweep)))
-                keep_steps_effective = min(int(keep_last_steps_lya), n_steps_est_lya)
-                st.metric("Steps used (estimated)", keep_steps_effective)
+                transient_steps_lya = int(transient_frac_lya * n_steps_est_lya)
+                st.metric("Transient steps (estimated)", transient_steps_lya)
 
             lbtn1, lbtn2, lbtn3 = st.columns([1, 1, 1], gap="small")
             with lbtn1:
@@ -414,6 +422,7 @@ def render_bifurcation_tab(
                 reset_lya = st.button("Reset Lyapunov data", type="secondary", key="reset_acc_lya")
             with lbtn3:
                 run_lya_cont = st.button("Continue Lyapunov", type="secondary", key="run_cont_lya")
+            save_sweep_cfg = st.button("Save configuration", key="save_cfg_lya_tab3")
             if reset_lya:
                 st.session_state["lya_acc_data"] = None
                 st.session_state["lya_last_pv"] = None
@@ -457,6 +466,7 @@ def render_bifurcation_tab(
             t0=float(t0),
             tf=float(tf_sweep),
             dt=float(dt_sweep),
+            solver_kind=str(getattr(integration, "solver_kind", "ivp")),
         )
         run_cfg = SweepRunConfig(
             output_index=int(output_index),
@@ -466,9 +476,8 @@ def render_bifurcation_tab(
             chunk_time=float(chunk_time),
         )
         lyapunov_cfg = LyapunovConfig(
-            transient_steps=0,
+            transient_steps=int(transient_steps_lya),
             qr_interval=float(qr_interval_lya),
-            keep_last_steps=int(keep_last_steps_lya),
         )
 
         parallel_bif_enabled = bool(parallel_bif and not parallel_bif_disabled)
@@ -485,10 +494,57 @@ def render_bifurcation_tab(
         )
         lya_meta = dict(sweep_meta)
         lya_meta.pop("transient_frac", None)
-        lya_meta["lyapunov_keep_last_steps"] = int(keep_last_steps_lya)
+        lya_meta["lyapunov_transient_frac"] = float(transient_frac_lya)
         lya_meta["lyapunov_qr_interval"] = float(lyapunov_cfg.qr_interval)
         lya_meta["parallel"] = parallel_enabled
         lya_meta["parallel_workers"] = int(workers) if parallel_enabled else None
+
+        if save_sweep_cfg:
+            sweep_config = build_sweep_config(
+                app_name=app_name,
+                repo_root=repo_root,
+                system=system,
+                integration=integration,
+                initial=initial,
+                solve_tols=solve_tols,
+                sweep_param=str(sweep_param),
+                sweep_start=float(sweep_start),
+                sweep_stop=float(sweep_stop),
+                sweep_step=float(sweep_step),
+                dt_sweep=float(dt_sweep),
+                tf_sweep=float(tf_sweep),
+                section_var=str(section_var),
+                section_index=int(section_index),
+                section_value=float(section_value),
+                section_expr=str(section_expr or ""),
+                direction=int(direction),
+                method=str(method),
+                tol=float(tol),
+                output_var=str(out_var),
+                output_index=int(output_index),
+                transient_frac=float(transient_frac),
+                transient_steps_est=int(transient_steps_sweep),
+                warm_start=bool(warm_start),
+                early_stop=bool(early_stop),
+                max_hits=int(max_hits),
+                chunk_time=float(chunk_time),
+                parallel_bif=bool(parallel_bif),
+                workers_bif=int(workers_bif),
+                rtol_sweep=float(rtol_sweep),
+                atol_sweep=float(atol_sweep),
+                qr_interval_lya=float(qr_interval_lya),
+                lyapunov_transient_frac=float(transient_frac_lya),
+                lyapunov_transient_steps=int(transient_steps_lya),
+                parallel_lya=bool(parallel_enabled),
+                workers_lya=int(workers),
+                clip_lyapunov=bool(clip_lyapunov),
+                clip_min=float(clip_min),
+                sweep_fingerprint=sweep_meta,
+                lya_fingerprint=lya_meta,
+            )
+            st.session_state["sweep_config"] = sweep_config
+            with right_col:
+                st.success("Sweep configuration saved. Download from the Export tab.")
 
         df_plot = None
 
