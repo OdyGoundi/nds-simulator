@@ -65,6 +65,7 @@ def _sweep_settings_fingerprint(
         "sweep_step": float(sweep.step),
         "section_index": int(poincare.section_index),
         "section_value": float(poincare.section_value),
+        "section_expr": str(poincare.section_expr or ""),
         "direction": int(poincare.direction),
         "method": str(poincare.method),
         "tol": float(poincare.tol),

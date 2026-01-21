@@ -152,7 +152,7 @@ def sweep_cached(
             if not sol.success:
                 continue
 
-            t_hits, y_hits = poincare_section(sol.t, sol.y, poincare)
+            t_hits, y_hits = poincare_section(sol.t, sol.y, poincare, params=params2)
 
             # Keep only last K Poincaré hits (bibliography-style)
             MAX_HITS = 100

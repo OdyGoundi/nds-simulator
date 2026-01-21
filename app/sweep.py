@@ -94,7 +94,7 @@ def run_sweep_chunk(
             else:
                 y0_curr = y0_base.copy()
 
-            t_hits, y_hits = poincare_section(sol.t, sol.y, poincare)
+            t_hits, y_hits = poincare_section(sol.t, sol.y, poincare, params=params2)
 
             if t_hits.size > max_keep:
                 t_hits = t_hits[-max_keep:]

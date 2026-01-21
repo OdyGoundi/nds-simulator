@@ -1,7 +1,7 @@
 import numpy as np
 import streamlit as st
 
-from app.helpers import build_custom_rhs, parse_params
+from app.helpers import build_custom_rhs, build_custom_rhs_and_jacobian, parse_params
 from app.params import (
     InitialConditions,
     IntegrationConfig,
@@ -48,21 +48,39 @@ def compute_lyapunov_cached(
         var_names = list(system.custom.var_names)
         eq_lines = list(system.custom.eq_lines)
         params = parse_params(system.custom.params_text)
-        rhs_custom_func = build_custom_rhs(var_names, eq_lines, params)
+        auto_jac = bool(system.custom.auto_jacobian)
+        use_jac = bool(system.custom.use_jacobian)
+
+        if auto_jac:
+            rhs_custom_func, jac_custom_func = build_custom_rhs_and_jacobian(
+                var_names, eq_lines, params
+            )
+        else:
+            rhs_custom_func = build_custom_rhs(var_names, eq_lines, params)
+            jac_custom_func = None
 
         def rhs_custom_wrapper(tt, xx):
             return rhs_custom_func(tt, xx)
 
         rhs = rhs_custom_wrapper
-        jac = None
+        jac = (lambda tt, xx: jac_custom_func(tt, xx)) if (auto_jac and use_jac) else None
 
     else:
         raise ValueError(f"Unknown system_key: {system.key}")
 
-    t_transient = float(lyapunov.transient_steps) * float(integration.dt)
     total_time = float(integration.tf) - float(integration.t0)
-    t_measure = total_time - t_transient
+    if lyapunov.keep_last_steps is not None:
+        keep_steps = int(lyapunov.keep_last_steps)
+        if keep_steps <= 0:
+            raise ValueError("Lyapunov keep-last-steps must be > 0.")
+        t_measure = min(total_time, float(keep_steps) * float(integration.dt))
+        t_transient = max(0.0, total_time - t_measure)
+    else:
+        t_transient = float(lyapunov.transient_steps) * float(integration.dt)
+        t_measure = total_time - t_transient
     if t_measure <= 0.0:
+        if lyapunov.keep_last_steps is not None:
+            raise ValueError("Not enough time for Lyapunov measurement. Increase tf or keep more steps.")
         raise ValueError("Not enough time for Lyapunov measurement. Increase tf or reduce transient cut.")
 
     if lyapunov.qr_interval <= 0.0:

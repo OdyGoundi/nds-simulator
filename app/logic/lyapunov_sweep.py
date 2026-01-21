@@ -4,7 +4,7 @@ import concurrent.futures
 import itertools
 import numpy as np
 
-from app.helpers import build_custom_rhs, parse_params
+from app.helpers import build_custom_rhs, build_custom_rhs_and_jacobian, parse_params
 from app.logic.sweep_utils import _chunk_param_values, _frange_inclusive
 from app.params import (
     InitialConditions,
@@ -27,6 +27,8 @@ def _run_lyapunov_chunk(
     sweep_param: str,
     var_names: List[str],
     eq_lines: List[str],
+    custom_auto_jac: bool,
+    custom_use_jac: bool,
     y0_base: List[float],
     t0: float,
     dt: float,
@@ -58,9 +60,16 @@ def _run_lyapunov_chunk(
                 tt, xx, a=params["a"], b=params["b"], c=params["c"]
             )
         else:
-            rhs_custom = build_custom_rhs(var_names, eq_lines, params)
+            if custom_auto_jac:
+                rhs_custom, jac_custom = build_custom_rhs_and_jacobian(
+                    var_names, eq_lines, params
+                )
+            else:
+                rhs_custom = build_custom_rhs(var_names, eq_lines, params)
+                jac_custom = None
+
             rhs = lambda tt, xx: rhs_custom(tt, xx)
-            jac = None
+            jac = (lambda tt, xx: jac_custom(tt, xx)) if (custom_auto_jac and custom_use_jac) else None
 
         try:
             res = compute_lyapunov_spectrum(
@@ -120,11 +129,22 @@ def _run_lyapunov_sweep(
     solve_options = solve_tols.to_dict()
     var_names = list(system.custom.var_names)
     eq_lines = list(system.custom.eq_lines)
+    custom_auto_jac = bool(system.custom.auto_jacobian)
+    custom_use_jac = bool(system.custom.use_jacobian)
 
-    t_transient = float(lyapunov.transient_steps) * float(integration.dt)
     total_time = float(integration.tf) - float(integration.t0)
-    t_measure = total_time - t_transient
+    if lyapunov.keep_last_steps is not None:
+        keep_steps = int(lyapunov.keep_last_steps)
+        if keep_steps <= 0:
+            raise ValueError("Lyapunov keep-last-steps must be > 0.")
+        t_measure = min(total_time, float(keep_steps) * float(integration.dt))
+        t_transient = max(0.0, total_time - t_measure)
+    else:
+        t_transient = float(lyapunov.transient_steps) * float(integration.dt)
+        t_measure = total_time - t_transient
     if t_measure <= 0.0:
+        if lyapunov.keep_last_steps is not None:
+            raise ValueError("Not enough time for Lyapunov measurement. Increase tf or keep more steps.")
         raise ValueError("Not enough time for Lyapunov measurement. Increase tf or reduce transient cut.")
 
     if lyapunov.qr_interval <= 0.0:
@@ -147,6 +167,8 @@ def _run_lyapunov_sweep(
                 itertools.repeat(str(sweep.param_name)),
                 itertools.repeat(var_names),
                 itertools.repeat(eq_lines),
+                itertools.repeat(custom_auto_jac),
+                itertools.repeat(custom_use_jac),
                 itertools.repeat(y0_base.tolist()),
                 itertools.repeat(float(integration.t0)),
                 itertools.repeat(float(integration.dt)),
@@ -190,9 +212,16 @@ def _run_lyapunov_sweep(
                 tt, xx, a=params["a"], b=params["b"], c=params["c"]
             )
         else:
-            rhs_custom = build_custom_rhs(var_names, eq_lines, params)
+            if custom_auto_jac:
+                rhs_custom, jac_custom = build_custom_rhs_and_jacobian(
+                    var_names, eq_lines, params
+                )
+            else:
+                rhs_custom = build_custom_rhs(var_names, eq_lines, params)
+                jac_custom = None
+
             rhs = lambda tt, xx: rhs_custom(tt, xx)
-            jac = None
+            jac = (lambda tt, xx: jac_custom(tt, xx)) if (custom_auto_jac and custom_use_jac) else None
 
         try:
             res = compute_lyapunov_spectrum(

@@ -38,6 +38,80 @@ class PoincareConfig:
 
     # discard transient:
     transient_steps: int = 0
+    # optional general section: expression f(t, y, params) = 0
+    section_expr: str = ""
+    # variable names for expression mapping (one per state dimension)
+    section_vars: Tuple[str, ...] = ()
+
+
+def _normalize_section_expr(expr_text: str) -> str:
+    s = (expr_text or "").strip()
+    if "=" in s:
+        lhs, rhs = s.split("=", 1)
+        lhs = lhs.strip()
+        rhs = rhs.strip()
+        if not lhs or not rhs:
+            raise ValueError("Section equation must include both sides of '='.")
+        return f"({lhs}) - ({rhs})"
+    return s
+
+
+def _build_section_expr_func(
+    expr_text: str,
+    var_names: Sequence[str],
+    params: Dict[str, float],
+):
+    try:
+        import sympy as sp
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("sympy is required for section expressions.") from exc
+
+    safe_funcs = {
+        "sin": sp.sin,
+        "cos": sp.cos,
+        "tan": sp.tan,
+        "exp": sp.exp,
+        "log": sp.log,
+        "sqrt": sp.sqrt,
+        "abs": sp.Abs,
+    }
+
+    t_sym = sp.Symbol("t")
+    var_syms = sp.symbols(list(var_names))
+    param_syms = {k: sp.Symbol(k) for k in params.keys()}
+
+    locals_dict = {
+        **safe_funcs,
+        "t": t_sym,
+        **{name: sym for name, sym in zip(var_names, var_syms)},
+        **param_syms,
+    }
+
+    expr_str = _normalize_section_expr(expr_text)
+    expr = sp.sympify(expr_str, locals=locals_dict)
+
+    known = {t_sym} | set(var_syms) | set(param_syms.values())
+    unknown = expr.free_symbols - known
+    if unknown:
+        names = ", ".join(sorted(str(s) for s in unknown))
+        raise ValueError(f"Unknown symbols in section expression: {names}")
+
+    args = [t_sym] + list(var_syms) + [param_syms[k] for k in params.keys()]
+    f = sp.lambdify(args, expr, modules=["numpy"])
+    param_values = [float(params[k]) for k in params.keys()]
+
+    def section_eval(t, y):
+        y_arr = np.asarray(y, dtype=float)
+        if y_arr.ndim == 1:
+            vals = [float(t)] + list(y_arr) + param_values
+            return float(f(*vals))
+        if y_arr.ndim == 2:
+            t_arr = np.asarray(t, dtype=float)
+            vals = [t_arr] + [y_arr[i, :] for i in range(y_arr.shape[0])] + param_values
+            return np.asarray(f(*vals), dtype=float)
+        raise ValueError("y must be 1D or 2D")
+
+    return section_eval
 
 
 @dataclass(frozen=True)
@@ -67,6 +141,7 @@ def poincare_section(
     t: np.ndarray,
     y: np.ndarray,
     cfg: PoincareConfig,
+    params: Optional[Dict[str, float]] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Extract Poincaré section hits from a trajectory.
@@ -76,6 +151,8 @@ def poincare_section(
     t : (n,) array
     y : (d, n) array
     cfg : PoincareConfig
+    params : optional dict
+        Parameter values used when cfg.section_expr is set.
 
     Returns
     -------
@@ -103,16 +180,29 @@ def poincare_section(
 
     s = cfg.section_index
     v = cfg.section_value
+    params = params or {}
+
+    section_expr = str(cfg.section_expr or "").strip()
+    if section_expr:
+        if not cfg.section_vars:
+            raise ValueError("section_vars must be provided when section_expr is set.")
+        if len(cfg.section_vars) != d:
+            raise ValueError("section_vars length must match y dimension.")
+        section_fn = _build_section_expr_func(section_expr, cfg.section_vars, params)
+        ds = np.asarray(section_fn(t2, y2), dtype=float).ravel()
+        if ds.size != t2.size:
+            raise ValueError("section_expr must evaluate to a 1D array matching t.")
+    else:
+        ds = y2[s, :] - v
 
     if cfg.method.lower() == "slab":
         # slab filter: |y_s - v| <= tol, optional direction via dy_s/dt sign
-        ds = y2[s, :] - v
         mask = np.abs(ds) <= float(cfg.tol)
 
         if cfg.direction != 0:
-            # finite diff for dy_s/dt sign
+            # finite diff for dg/dt sign
             dt = np.diff(t2)
-            dy = np.diff(y2[s, :])
+            dy = np.diff(ds)
             # align with points 1..end
             deriv = np.zeros_like(t2)
             deriv[1:] = np.divide(dy, dt, out=np.zeros_like(dy), where=dt != 0.0)
@@ -128,8 +218,6 @@ def poincare_section(
         return t2[idx].copy(), y2[:, idx].copy()
 
     # default: "crossing"
-    ds = y2[s, :] - v
-
     t_hits: List[float] = []
     y_hits: List[np.ndarray] = []
 
@@ -174,9 +262,16 @@ def poincare_section(
     y_hits_arr = np.stack(y_hits, axis=1)  # (d, m)
     return t_hits_arr, y_hits_arr
 
-def _make_poincare_event(section_index: int, section_value: float, direction: int):
+def _make_poincare_event(
+    section_index: int,
+    section_value: float,
+    direction: int,
+    section_fn=None,
+):
     def event(t, y):
-        return float(y[section_index] - section_value)
+        if section_fn is None:
+            return float(y[section_index] - section_value)
+        return float(section_fn(t, y))
     # assign event attributes using setattr to satisfy static type checkers
     setattr(event, "terminal", False)
     setattr(event, "direction", int(direction))
@@ -242,14 +337,19 @@ def sweep_poincare_events_ivp(
         def rhs_wrapped(t, y):
             return rhs(t, y, **params)
 
-        # define event: y[s] - v = 0
-        s = int(poincare.section_index)
-        v = float(poincare.section_value)
+        # define event: g(t, y) = 0 (plane or general expression)
+        section_fn = None
+        section_expr = str(poincare.section_expr or "").strip()
+        if section_expr:
+            if not poincare.section_vars:
+                raise ValueError("section_vars must be provided when section_expr is set.")
+            section_fn = _build_section_expr_func(section_expr, poincare.section_vars, params)
 
         event_fn = _make_poincare_event(
             poincare.section_index,
             poincare.section_value,
             poincare.direction,
+            section_fn=section_fn,
         )
 
         # --- 1) burn transient (no event collection needed) ---
@@ -410,7 +510,7 @@ def sweep_poincare(
             y0_curr = np.array(y0, dtype=float).copy()
 
 
-        t_hits, y_hits = poincare_section(sol.t, sol.y, poincare)
+        t_hits, y_hits = poincare_section(sol.t, sol.y, poincare, params=params)
 
         MAX_HITS = 100
         if t_hits.size > MAX_HITS:

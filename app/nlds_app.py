@@ -12,7 +12,12 @@ import numpy as np
 import streamlit as st
 
 from app.cache import solve_cached
-from app.helpers import build_csv_bytes, parse_list_of_floats
+from app.helpers import (
+    build_csv_bytes,
+    build_custom_symbolic_jacobian_str,
+    parse_list_of_floats,
+    parse_params,
+)
 from app.logic.lyapunov_cached import compute_lyapunov_cached
 from app.plots import (
     plot_phase_2d,
@@ -73,6 +78,8 @@ with st.sidebar:
 eq_lines: List[str] = [""] * int(n_vars)
 params_text: str = ""
 var_names_text: str = ""
+custom_auto_jac = False
+custom_use_jac = False
 
 # Variable names
 if system_key in ("lorenz", "rossler"):
@@ -107,9 +114,31 @@ else:
             height=120,
         )
 
-    # Build equation list for custom
-    eq_lines = [ln.strip() for ln in (eqs_text or "").splitlines()]
-    eq_lines = (eq_lines + ["0"] * int(n_vars))[:int(n_vars)]
+        eq_lines = [ln.strip() for ln in (eqs_text or "").splitlines()]
+        eq_lines = (eq_lines + ["0"] * int(n_vars))[:int(n_vars)]
+
+        st.markdown("**Jacobian (custom)**")
+        custom_auto_jac = st.checkbox(
+            "Auto-compute Jacobian (symbolic)",
+            value=False,
+            help="Builds a symbolic Jacobian for Lyapunov on custom systems.",
+        )
+        custom_use_jac = st.checkbox(
+            "Use analytic Jacobian",
+            value=custom_auto_jac,
+            disabled=not custom_auto_jac,
+            help="When off, Lyapunov uses finite differences as before.",
+        )
+        if not custom_auto_jac:
+            custom_use_jac = False
+        else:
+            try:
+                params = parse_params(params_text)
+                jac_preview = build_custom_symbolic_jacobian_str(var_names, eq_lines, params)
+                st.markdown("**Symbolic Jacobian**")
+                st.code(jac_preview, language="text")
+            except Exception as exc:
+                st.warning(f"Jacobian preview failed: {exc}")
 
 
 # -------- System parameters defaults --------
@@ -166,10 +195,10 @@ try:
                 min_value=0,
                 value=0,
                 step=100,
-                help="Ignores the first N integration samples before plotting/export."
+                help="Ignores the first N integration samples before plotting/export. Does not affect Lyapunov."
             )
 
-            st.markdown("**Lyapunov settings**")
+            st.markdown("**Lyapunov exponents calculation settings**")
             qr_interval = st.number_input(
                 "QR interval (time)",
                 min_value=1e-6,
@@ -177,6 +206,13 @@ try:
                 step=0.01,
                 format="%.4f",
                 help="Time between orthonormalizations during Lyapunov computation.",
+            )
+            lyapunov_keep_steps = st.number_input(
+                "Keep last steps (Lyapunov only)",
+                min_value=1,
+                value=100,
+                step=10,
+                help="Uses only the last N base steps (dt) for Lyapunov; does not affect plots.",
             )
 
             st.divider()
@@ -239,11 +275,14 @@ try:
             var_names=tuple(var_names),
             eq_lines=tuple(eq_lines),
             params_text=params_text,
+            auto_jacobian=bool(custom_auto_jac),
+            use_jacobian=bool(custom_use_jac),
         ),
     )
     lyapunov_cfg = LyapunovConfig(
         transient_steps=int(transient_steps),
         qr_interval=float(qr_interval),
+        keep_last_steps=int(lyapunov_keep_steps),
     )
 
     t, y = solve_cached(
@@ -292,9 +331,10 @@ try:
 
         st.divider()
         st.markdown("**Lyapunov exponents**")
-        t_transient_lya = float(transient_steps) * float(dt)
         total_time_lya = float(tf) - float(t0)
-        t_measure_lya = total_time_lya - t_transient_lya
+        keep_steps_lya = int(lyapunov_keep_steps)
+        t_measure_lya = min(total_time_lya, float(keep_steps_lya) * float(dt))
+        t_transient_lya = max(0.0, total_time_lya - t_measure_lya)
         if t_measure_lya <= 0.0:
             st.warning("Not enough time for Lyapunov measurement. Increase tf or reduce transient cut.")
         else:
@@ -311,7 +351,7 @@ try:
                 st.write(f"lambda = [{formatted}]")
                 st.caption(
                     f"n={len(lambdas)} | t_transient={t_transient_lya:.3f} | "
-                    f"t_measure={t_measure_lya:.3f}"
+                    f"t_measure={t_measure_lya:.3f} | keep_last_steps={keep_steps_lya}"
                 )
             except Exception as exc:
                 st.warning(f"Lyapunov computation failed: {exc}")

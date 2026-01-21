@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,8 @@ class CustomSystemDefinition:
     var_names: Tuple[str, ...]
     eq_lines: Tuple[str, ...]
     params_text: str
+    auto_jacobian: bool = False
+    use_jacobian: bool = False
 
 
 @dataclass(frozen=True)
@@ -65,3 +67,4 @@ class SweepRunConfig:
 class LyapunovConfig:
     transient_steps: int
     qr_interval: float = 0.1
+    keep_last_steps: Optional[int] = None

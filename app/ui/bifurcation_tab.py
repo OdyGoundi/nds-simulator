@@ -227,6 +227,19 @@ def render_bifurcation_tab(
                 )
                 output_index = var_names.index(out_var)
 
+            var_hint = ", ".join(var_names)
+            param_hint = ", ".join(sweep_choices)
+            section_expr = st.text_input(
+                "Section equation (optional, overrides plane)",
+                value="",
+                key="sec_expr_tab3",
+                help=(
+                    f"Vars: {var_hint}. Params: {param_hint}."
+                ),
+            )
+            if str(section_expr).strip():
+                st.caption("Using section equation; Section var/value is ignored.")
+
             st.divider()
 
             r2c1, r2c2, r2c3 = st.columns([1, 1, 1], gap="small")
@@ -378,22 +391,21 @@ def render_bifurcation_tab(
                 disabled=not clip_lyapunov,
             )
             
-            st.markdown("**Lyapunov discard (not plotted)**")
+            st.markdown("**Lyapunov calculation window**")
             ltc1, ltc2 = st.columns([1, 1], gap="small")
             with ltc1:
-                transient_frac_lya = st.slider(
-                    "Transient fraction",
-                    min_value=0.0,
-                    max_value=0.95,
-                    value=0.30,
-                    step=0.05,
-                    key="lya_transient_frac_tab3",
-                    help="Fraction of integration steps excluded from the Lyapunov plot."
+                keep_last_steps_lya = st.number_input(
+                    "Keep last steps",
+                    min_value=1,
+                    value=100,
+                    step=1,
+                    key="lya_keep_last_steps_tab3",
+                    help="Uses only the last N base steps (dt) for Lyapunov; does not affect plots.",
                 )
             with ltc2:
                 n_steps_est_lya = int(max(1.0, (float(tf_sweep) - float(t0)) / float(dt_sweep)))
-                transient_steps_lya = int(transient_frac_lya * n_steps_est_lya)
-                st.metric("Excluded steps (estimated)", transient_steps_lya)
+                keep_steps_effective = min(int(keep_last_steps_lya), n_steps_est_lya)
+                st.metric("Steps used (estimated)", keep_steps_effective)
 
             lbtn1, lbtn2, lbtn3 = st.columns([1, 1, 1], gap="small")
             with lbtn1:
@@ -434,6 +446,8 @@ def render_bifurcation_tab(
         poincare_cfg = PoincareConfig(
             section_index=int(section_index),
             section_value=float(section_value),
+            section_expr=str(section_expr).strip(),
+            section_vars=tuple(var_names),
             direction=int(direction),
             method=str(method),
             tol=float(tol),
@@ -452,8 +466,9 @@ def render_bifurcation_tab(
             chunk_time=float(chunk_time),
         )
         lyapunov_cfg = LyapunovConfig(
-            transient_steps=int(transient_steps_lya),
+            transient_steps=0,
             qr_interval=float(qr_interval_lya),
+            keep_last_steps=int(keep_last_steps_lya),
         )
 
         parallel_bif_enabled = bool(parallel_bif and not parallel_bif_disabled)
@@ -470,7 +485,7 @@ def render_bifurcation_tab(
         )
         lya_meta = dict(sweep_meta)
         lya_meta.pop("transient_frac", None)
-        lya_meta["lyapunov_transient_frac"] = float(transient_frac_lya)
+        lya_meta["lyapunov_keep_last_steps"] = int(keep_last_steps_lya)
         lya_meta["lyapunov_qr_interval"] = float(lyapunov_cfg.qr_interval)
         lya_meta["parallel"] = parallel_enabled
         lya_meta["parallel_workers"] = int(workers) if parallel_enabled else None
@@ -735,7 +750,11 @@ def render_bifurcation_tab(
                     ax.axvline(float(x_sep), color="magenta", linewidth=0.3)
 
                 ax.set_xlabel(sweep_param)
-                ax.set_ylabel(f"{out_var} on section ({section_var}={section_value})")
+                section_label = str(section_expr).strip()
+                if section_label:
+                    ax.set_ylabel(f"{out_var} on section ({section_label})")
+                else:
+                    ax.set_ylabel(f"{out_var} on section ({section_var}={section_value})")
                 x_min = float(sweep_start)
                 x_max = float(np.nanmax(df_plot[sweep_param].to_numpy()))
                 ax.set_xlim(x_min, x_max)
