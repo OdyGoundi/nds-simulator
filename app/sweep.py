@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -33,11 +33,21 @@ def run_sweep_chunk(
     poincare: PoincareConfig,
     run_cfg: SweepRunConfig,
     solve_tols: SolverTolerances,
-    solve_options: Optional[dict] = None,
+    solve_options: Optional[Dict[str, Any]] = None,
 ):
     if solve_options is None:
-        solve_options = solve_tols.to_dict()
+        solve_options = dict(solve_tols.to_dict())
+    else:
+        solve_options = dict(solve_options)
+    solve_options_any: Dict[str, Any] = dict(solve_options)
     solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
+    method = None
+    if solver_kind in ("rk45", "ivp"):
+        method = "RK45"
+    elif solver_kind == "dop853":
+        method = "DOP853"
+    if method is not None:
+        solve_options_any["method"] = method
     sweep_solver_kind = "rk4" if solver_kind == "rk4" else "ivp"
 
     if system.key == "lorenz":
@@ -99,7 +109,7 @@ def run_sweep_chunk(
                     t_span=(float(integration.t0), float(integration.tf)),
                     y0=y0_curr,
                     t_step=float(integration.dt),
-                    **solve_options,
+                    **solve_options_any,
                 )
             if not sol.success:
                 if not run_cfg.warm_start:
@@ -141,7 +151,7 @@ def run_sweep_chunk(
             sweep=sweep,
             poincare=poincare,
             t_step=float(integration.dt),
-            solve_options=solve_options,
+            solve_options=solve_options_any,
             output_indices=[int(run_cfg.output_index)],
             include_all_state=False,
             warm_start=bool(run_cfg.warm_start),
@@ -159,7 +169,7 @@ def run_sweep_chunk(
         poincare=poincare,
         solver_kind=sweep_solver_kind,
         t_step=float(integration.dt),
-        solve_options=solve_options,
+        solve_options=solve_options_any,
         output_indices=[int(run_cfg.output_index)],
         include_all_state=False,
         warm_start=bool(run_cfg.warm_start),

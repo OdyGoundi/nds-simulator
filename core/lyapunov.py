@@ -9,7 +9,7 @@ Core-only numerics (no plotting, no I/O, no Streamlit).
 Implementation detail:
 - Because QR must happen frequently, we integrate in short chunks:
     [t, t+chunk_dt] -> take final state -> QR -> continue
-- This uses scipy.solve_ivp (project default mindset).
+- Default uses scipy.solve_ivp; optional fixed-step RK4 can be selected.
 
 Typing note (Pyright/Pylance):
 - We use Protocol-based callables so parameter-name checking does not break.
@@ -18,7 +18,7 @@ Typing note (Pyright/Pylance):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Any, Protocol
+from typing import Optional, Tuple, Dict, Any, Protocol, Literal, overload
 
 import numpy as np
 
@@ -111,13 +111,85 @@ def _qr_accumulate(Q: np.ndarray, sums_log: np.ndarray) -> Tuple[np.ndarray, np.
     return Q_new, sums_log
 
 
+def _rk4_step(rhs, t: float, y: np.ndarray, h: float) -> np.ndarray:
+    k1 = rhs(t, y)
+    k2 = rhs(t + 0.5 * h, y + 0.5 * h * k1)
+    k3 = rhs(t + 0.5 * h, y + 0.5 * h * k2)
+    k4 = rhs(t + h, y + h * k3)
+    return y + (h / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+
+
+def _integrate_chunk_rk4(
+    rhs_aug,
+    t0: float,
+    y0: np.ndarray,
+    t1: float,
+    dt: float,
+) -> np.ndarray:
+    if dt <= 0:
+        raise ValueError("dt must be > 0 for RK4 integration.")
+    duration = float(t1) - float(t0)
+    if duration < 0:
+        raise ValueError("t1 must be >= t0.")
+    if duration <= 1e-15:
+        return np.asarray(y0, dtype=float).copy()
+
+    t = float(t0)
+    y = np.asarray(y0, dtype=float).copy()
+    n_full = int(np.floor(duration / float(dt)))
+    for _ in range(n_full):
+        y = _rk4_step(rhs_aug, t, y, float(dt))
+        t += float(dt)
+
+    rem = float(t1) - t
+    if rem > 1e-15:
+        y = _rk4_step(rhs_aug, t, y, rem)
+
+    return y
+
+
+def _rk4_cost_estimate(t0: float, t1: float, dt: float) -> int:
+    duration = float(t1) - float(t0)
+    if duration <= 0:
+        return 0
+    n_steps = int(np.ceil(duration / float(dt)))
+    n_steps = max(1, n_steps)
+    return int(4 * n_steps)
+
+
+@overload
 def _integrate_chunk_ivp(
     rhs_aug,
     t0: float,
     y0: np.ndarray,
     t1: float,
     solve_options: Optional[Dict[str, Any]] = None,
-) -> np.ndarray:
+    *,
+    return_nfev: Literal[False] = False,
+) -> np.ndarray: ...
+
+
+@overload
+def _integrate_chunk_ivp(
+    rhs_aug,
+    t0: float,
+    y0: np.ndarray,
+    t1: float,
+    solve_options: Optional[Dict[str, Any]] = None,
+    *,
+    return_nfev: Literal[True],
+) -> Tuple[np.ndarray, int]: ...
+
+
+def _integrate_chunk_ivp(
+    rhs_aug,
+    t0: float,
+    y0: np.ndarray,
+    t1: float,
+    solve_options: Optional[Dict[str, Any]] = None,
+    *,
+    return_nfev: bool = False,
+) -> np.ndarray | Tuple[np.ndarray, int]:
     """
     Integrate one chunk with solve_ivp and return y(t1).
     Uses t_eval=[t1] to reduce overhead.
@@ -126,7 +198,8 @@ def _integrate_chunk_ivp(
         raise RuntimeError("scipy is required (solve_ivp not available).")
 
     opts = dict(solve_options or {})
-    opts["method"] = "DOP853"
+    if "method" not in opts:
+        opts["method"] = "RK45"
     opts["max_step"] = float(t1) - float(t0)
 
     sol = solve_ivp(
@@ -139,7 +212,10 @@ def _integrate_chunk_ivp(
     if not sol.success:
         raise RuntimeError(f"solve_ivp failed: {sol.message}")
 
-    return sol.y[:, -1]
+    y_out = sol.y[:, -1]
+    if return_nfev:
+        return y_out, int(getattr(sol, "nfev", 0))
+    return y_out
 
 
 # ----------------------------
@@ -157,6 +233,9 @@ def compute_lyapunov_spectrum(
     fd_eps: float = 1e-8,
     qr_every_steps: int = 1,
     solve_options: Optional[Dict[str, Any]] = None,
+    solver_kind: str = "ivp",
+    auto_switch_rk4: bool = False,
+    rk4_cost_ratio: float = 1.0,
     seed_frame: Optional[np.ndarray] = None,
 ) -> LyapunovResult:
     """
@@ -186,6 +265,14 @@ def compute_lyapunov_spectrum(
         Perform QR every (qr_every_steps * dt) units of time.
     solve_options
         Passed to solve_ivp (e.g., {"method":"RK45","rtol":..., "atol":...}).
+        Ignored when using RK4.
+    solver_kind
+        If "rk4", uses fixed-step RK4 with step size dt. Otherwise uses solve_ivp.
+    auto_switch_rk4
+        If True, switches from solve_ivp to RK4 when solve_ivp's function-eval
+        cost exceeds the RK4 estimate for a chunk.
+    rk4_cost_ratio
+        Multiplicative threshold for the RK4 cost estimate (e.g., 1.2).
     seed_frame
         Optional initial perturbation frame Q0 (n,n). If None, identity is used.
 
@@ -206,6 +293,8 @@ def compute_lyapunov_spectrum(
         raise ValueError("t_measure must be > 0.")
     if qr_every_steps < 1:
         raise ValueError("qr_every_steps must be >= 1.")
+    if rk4_cost_ratio <= 0:
+        raise ValueError("rk4_cost_ratio must be > 0.")
 
     # Jacobian provider
     if jac is None:
@@ -232,6 +321,28 @@ def compute_lyapunov_spectrum(
         return _pack_augmented(dx, dQ)
 
     chunk_dt = float(qr_every_steps) * float(dt)
+    solver_kind_norm = str(solver_kind or "ivp").lower()
+    use_rk4 = solver_kind_norm == "rk4"
+    auto_switch = bool(auto_switch_rk4) and not use_rk4
+
+    def _integrate_chunk(t_start: float, y_start: np.ndarray, t_end: float) -> np.ndarray:
+        nonlocal use_rk4
+        if use_rk4:
+            return _integrate_chunk_rk4(rhs_aug, t_start, y_start, t_end, dt)
+        if auto_switch:
+            y_next, nfev = _integrate_chunk_ivp(
+                rhs_aug,
+                t_start,
+                y_start,
+                t_end,
+                solve_options=solve_options,
+                return_nfev=True,
+            )
+            rk4_cost = _rk4_cost_estimate(t_start, t_end, dt)
+            if rk4_cost > 0 and nfev > rk4_cost_ratio * rk4_cost:
+                use_rk4 = True
+            return y_next
+        return _integrate_chunk_ivp(rhs_aug, t_start, y_start, t_end, solve_options=solve_options)
 
     # -----------------------
     # 1) Transient phase
@@ -243,14 +354,14 @@ def compute_lyapunov_spectrum(
     rem = float(t_transient) - n_full * chunk_dt
 
     for _ in range(n_full):
-        y_aug = _integrate_chunk_ivp(rhs_aug, t, y_aug, t + chunk_dt, solve_options=solve_options)
+        y_aug = _integrate_chunk(t, y_aug, t + chunk_dt)
         t += chunk_dt
         x, Q = _unpack_augmented(y_aug, n)
         Q, _ = np.linalg.qr(Q)  # keep conditioning
         y_aug = _pack_augmented(x, Q)
 
     if rem > 1e-15:
-        y_aug = _integrate_chunk_ivp(rhs_aug, t, y_aug, t + rem, solve_options=solve_options)
+        y_aug = _integrate_chunk(t, y_aug, t + rem)
         t += rem
         x, Q = _unpack_augmented(y_aug, n)
         Q, _ = np.linalg.qr(Q)
@@ -266,7 +377,7 @@ def compute_lyapunov_spectrum(
     rem = float(t_measure) - n_full * chunk_dt
 
     for _ in range(n_full):
-        y_aug = _integrate_chunk_ivp(rhs_aug, t, y_aug, t + chunk_dt, solve_options=solve_options)
+        y_aug = _integrate_chunk(t, y_aug, t + chunk_dt)
         t += chunk_dt
 
         x, Q = _unpack_augmented(y_aug, n)
@@ -275,7 +386,7 @@ def compute_lyapunov_spectrum(
         y_aug = _pack_augmented(x, Q)
 
     if rem > 1e-15:
-        y_aug = _integrate_chunk_ivp(rhs_aug, t, y_aug, t + rem, solve_options=solve_options)
+        y_aug = _integrate_chunk(t, y_aug, t + rem)
         t += rem
 
         x, Q = _unpack_augmented(y_aug, n)

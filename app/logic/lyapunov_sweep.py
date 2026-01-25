@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import concurrent.futures
 import itertools
@@ -40,7 +40,9 @@ def _run_lyapunov_chunk(
     t_transient: float,
     t_measure: float,
     qr_every_steps: int,
-    solve_options: Dict[str, float],
+    solver_kind: str,
+    auto_switch_rk4: bool,
+    solve_options: Dict[str, Any],
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     y0_base_arr = np.array(y0_base, dtype=float)
     errors: List[str] = []
@@ -122,6 +124,8 @@ def _run_lyapunov_chunk(
                 t_measure=float(t_measure),
                 qr_every_steps=int(qr_every_steps),
                 solve_options=solve_options,
+                solver_kind=solver_kind,
+                auto_switch_rk4=auto_switch_rk4,
                 jac=jac,
             )
             l_sorted = np.sort(np.array(res.lambdas, dtype=float))[::-1]
@@ -171,7 +175,16 @@ def _run_lyapunov_sweep(
     else:
         raise ValueError(f"Unknown system_key: {system.key}")
 
-    solve_options = solve_tols.to_dict()
+    solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
+    solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
+    method = None
+    if solver_kind in ("rk45", "ivp"):
+        method = "RK45"
+    elif solver_kind == "dop853":
+        method = "DOP853"
+    if method is not None:
+        solve_options["method"] = method
+    auto_switch_rk4 = solver_kind in ("rk45", "dop853", "ivp")
     var_names = list(system.custom.var_names)
     eq_lines = list(system.custom.eq_lines)
     custom_auto_jac = bool(system.custom.auto_jacobian)
@@ -220,6 +233,8 @@ def _run_lyapunov_sweep(
                 itertools.repeat(float(t_transient)),
                 itertools.repeat(float(t_measure)),
                 itertools.repeat(qr_every_steps),
+                itertools.repeat(solver_kind),
+                itertools.repeat(auto_switch_rk4),
                 itertools.repeat(solve_options),
             ))
 
@@ -314,6 +329,8 @@ def _run_lyapunov_sweep(
                 t_measure=float(t_measure),
                 qr_every_steps=qr_every_steps,
                 solve_options=solve_options,
+                solver_kind=solver_kind,
+                auto_switch_rk4=auto_switch_rk4,
                 jac=jac,
             )
             l_sorted = np.sort(np.array(res.lambdas, dtype=float))[::-1]

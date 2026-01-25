@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 import numpy as np
 import streamlit as st
@@ -49,8 +49,15 @@ def solve_cached(
       y: shape (n_vars, n_steps)
     """
     y0 = np.array(initial.y0, dtype=float)
-    solve_options = solve_tols.to_dict()
+    solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
     solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
+    method = None
+    if solver_kind in ("rk45", "ivp"):
+        method = "RK45"
+    elif solver_kind == "dop853":
+        method = "DOP853"
+    if method is not None:
+        solve_options["method"] = method
 
     if system.key == "lorenz":
         params = system.lorenz
@@ -144,7 +151,16 @@ def sweep_cached(
     import pandas as pd
 
     y0 = np.array(initial.y0, dtype=float)
-    solve_options = solve_tols.to_dict()
+    solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
+    solver_kind = str(solver_kind).lower()
+    method = None
+    if solver_kind in ("rk45", "ivp"):
+        method = "RK45"
+    elif solver_kind == "dop853":
+        method = "DOP853"
+    if method is not None:
+        solve_options["method"] = method
+    sweep_solver_kind = "ivp" if solver_kind in ("ivp", "rk45", "dop853") else solver_kind
 
     # Build base rhs + base_params (everything except swept param)
     if system.key == "lorenz":
@@ -261,7 +277,7 @@ def sweep_cached(
         raise ValueError(f"Unknown system_key: {system.key}")
 
     # Event-based fast path (only for ivp + crossing)
-    if str(solver_kind).lower() == "ivp" and str(poincare.method).lower() == "crossing":
+    if sweep_solver_kind == "ivp" and str(poincare.method).lower() == "crossing":
         df = sweep_poincare_events_ivp(
             rhs=rhs_fn,
             y0=tuple(y0),
@@ -287,7 +303,7 @@ def sweep_cached(
             base_params=base_params,
             sweep=sweep,
             poincare=poincare,
-            solver_kind=str(solver_kind),
+            solver_kind=str(sweep_solver_kind),
             t_step=float(integration.dt),
             solve_options=solve_options,
             output_indices=[int(run_cfg.output_index)],

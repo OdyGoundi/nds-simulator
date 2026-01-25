@@ -90,18 +90,20 @@ with st.sidebar:
 
     st.markdown("**Solver kind**")
     solver_kind_labels = [
-        "RK45 (adaptive, solve_ivp)",
+        "RK45 (adaptive)",
+        "DOP853 (non-stiff, high order)",
         "RK4 (fixed step)",
         "Symplectic Verlet (2nd order)",
         "Symplectic Forest-Ruth (4th order)",
     ]
     solver_kind_map = {
-        "RK45 (adaptive, solve_ivp)": "ivp",
+        "RK45 (adaptive)": "rk45",
+        "DOP853 (non-stiff, high order)": "dop853",
         "RK4 (fixed step)": "rk4",
         "Symplectic Verlet (2nd order)": "symplectic_verlet",
         "Symplectic Forest-Ruth (4th order)": "symplectic_fr",
     }
-    solver_default = "Symplectic Verlet (2nd order)" if system_key == "henon_heiles" else "RK45 (adaptive, solve_ivp)"
+    solver_default = "Symplectic Verlet (2nd order)" if system_key == "henon_heiles" else "RK45 (adaptive)"
     solver_kind_label = st.selectbox(
         "Solver kind",
         solver_kind_labels,
@@ -110,6 +112,7 @@ with st.sidebar:
     solver_kind = solver_kind_map[solver_kind_label]
     st.markdown(
         "- RK45 adaptive: default choice, uses rtol/atol.\n"
+        "- DOP853: high-order solver for non-stiff problems, uses rtol/atol.\n"
         "- RK4 fixed: fixed dt, faster but needs smaller dt for accuracy.\n"
         "- Symplectic Verlet: separable Hamiltonians, state = [q..., p...], dq/dt uses p only, dp/dt uses q only.\n"
         "- Symplectic Forest-Ruth: higher-order symplectic, same assumptions, more accurate."
@@ -118,10 +121,10 @@ with st.sidebar:
     if solver_kind.startswith("symplectic"):
         if system_key not in ("custom", "henon_heiles"):
             st.warning("Symplectic solvers require Hamiltonian systems. Using RK45 instead.")
-            solver_kind_effective = "ivp"
+            solver_kind_effective = "rk45"
         elif int(n_vars) % 2 != 0:
             st.warning("Symplectic solvers require an even number of variables [q..., p...]. Using RK45 instead.")
-            solver_kind_effective = "ivp"
+            solver_kind_effective = "rk45"
     elif system_key == "henon_heiles":
         st.caption("Henon-Heiles is Hamiltonian: symplectic solvers are recommended.")
 
@@ -394,8 +397,8 @@ try:
                 format="%.1e",
                 key="atol",
             )
-            if str(solver_kind_effective) != "ivp":
-                st.caption("Note: rtol/atol are used only by RK45 (adaptive).")
+            if str(solver_kind_effective) not in ("rk45", "dop853", "ivp"):
+                st.caption("Note: rtol/atol are used only by RK45/DOP853.")
             solve_tols = SolverTolerances(rtol=float(rtol), atol=float(atol))
 
             st.divider()

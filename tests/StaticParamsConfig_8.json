@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "app": {
+    "name": "nlds-simulator",
+    "commit": "82e38998cc06a98ee4ac67f7c9d6b238102077f4"
+  },
+  "timestamp_utc": "2026-01-24T00:24:06Z",
+  "system": {
+    "system_key": "custom",
+    "var_names": [
+      "x",
+      "y",
+      "z"
+    ],
+    "eq_lines": [
+      "y - x**3 + a * x**2 - z + l",
+      "c - d*x**2 - y",
+      "r*s*x + r*s*b - r*z"
+    ],
+    "params": {
+      "a": 3.1,
+      "b": 1.9,
+      "c": 1.2,
+      "d": 5.8,
+      "l": 6.0,
+      "r": 0.01,
+      "s": 4.9
+    },
+    "params_text": "a = 3.1\nb = 1.9\nc = 1.2\nd = 5.8\nl = 6\nr = 0.01\ns = 4.9",
+    "auto_jacobian": true,
+    "use_jacobian": true
+  },
+  "integration": {
+    "t0": 0.0,
+    "tf": 2500.0,
+    "dt": 0.01,
+    "y0": [
+      2.0,
+      0.5,
+      0.08
+    ],
+    "solver_kind": "rk4",
+    "solve_options": {
+      "rtol": 1e-06,
+      "atol": 1e-08
+    }
+  },
+  "postprocess": {
+    "transient_steps": 2000
+  },
+  "plots": {
+    "plot_mode": "2D phase plane",
+    "phase_axes": {
+      "x_idx": 0,
+      "y_idx": 2,
+      "z_idx": null
+    }
+  },
+  "lyapunov": {
+    "enabled": true,
+    "settings": {
+      "dt": 0.01,
+      "t_transient": 750.0,
+      "t_measure": 1750.0,
+      "transient_steps": 75000,
+      "transient_fraction": 0.3,
+      "qr_every_steps": 10,
+      "qr_interval": 0.1,
+      "jacobian": "analytic",
+      "fd_eps": 1e-08
+    }
+  }
+}

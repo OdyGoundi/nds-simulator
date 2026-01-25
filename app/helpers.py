@@ -9,6 +9,7 @@ import sympy as sp
 SAFE_FUNCS = {
     "sin": sp.sin, "cos": sp.cos, "tan": sp.tan,
     "exp": sp.exp, "log": sp.log, "sqrt": sp.sqrt,
+    "sinh": sp.sinh, "cosh": sp.cosh, "tanh": sp.tanh,
     "abs": sp.Abs,
 }
 
@@ -22,14 +23,14 @@ def parse_params(text: str) -> Dict[str, float]:
     """
     params: Dict[str, float] = {}
     for line in (text or "").splitlines():
-        line = line.strip()
+        line = line.replace("\u00a0", " ").strip()
         if not line:
             continue
         if "=" not in line:
             raise ValueError(f"Parameter line must be name=value. Got: '{line}'")
         name, val = line.split("=", 1)
-        name = name.strip()
-        val = val.strip()
+        name = name.replace("\u00a0", " ").strip()
+        val = val.replace("\u00a0", " ").strip()
         if name.lower() == "t":
             raise ValueError("Parameter name 't' is reserved for the independent variable; use other symbols for constants.")
         params[name] = float(val)
@@ -83,6 +84,16 @@ def build_custom_rhs(var_names: List[str], eq_lines: List[str], params: Dict[str
             raise ValueError(f"Equation {i+1} is empty.")
         expr = sp.sympify(s, locals=locals_dict)
         exprs.append(expr)
+
+    missing = (
+        set().union(*(e.free_symbols for e in exprs))
+        - {t_sym}
+        - set(var_syms)
+        - set(param_syms.values())
+    )
+    if missing:
+        missing_names = ", ".join(sorted(sym.name for sym in missing))
+        raise ValueError(f"Missing parameters in equations: {missing_names}")
 
     args = [t_sym] + list(var_syms) + [param_syms[k] for k in params.keys()]
     f = sp.lambdify(args, exprs, modules=["numpy"])
@@ -220,6 +231,16 @@ def build_custom_rhs_and_jacobian(
         if not s:
             raise ValueError(f"Equation {i+1} is empty.")
         exprs.append(sp.sympify(s, locals=locals_dict))
+
+    missing = (
+        set().union(*(e.free_symbols for e in exprs))
+        - {t_sym}
+        - set(var_syms)
+        - set(param_syms.values())
+    )
+    if missing:
+        missing_names = ", ".join(sorted(sym.name for sym in missing))
+        raise ValueError(f"Missing parameters in equations: {missing_names}")
 
     J = sp.Matrix(exprs).jacobian(var_syms)
 

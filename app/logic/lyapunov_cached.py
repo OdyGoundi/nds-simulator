@@ -1,3 +1,5 @@
+from typing import Any, Dict
+
 import numpy as np
 import streamlit as st
 
@@ -24,7 +26,16 @@ def compute_lyapunov_cached(
     lyapunov: LyapunovConfig,
     solve_tols: SolverTolerances,
 ) -> np.ndarray:
-    solve_options = solve_tols.to_dict()
+    solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
+    solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
+    method = None
+    if solver_kind in ("rk45", "ivp"):
+        method = "RK45"
+    elif solver_kind == "dop853":
+        method = "DOP853"
+    if method is not None:
+        solve_options["method"] = method
+    auto_switch_rk4 = solver_kind in ("rk45", "dop853", "ivp")
     y0 = np.array(initial.y0, dtype=float)
 
     if system.key == "lorenz":
@@ -111,6 +122,8 @@ def compute_lyapunov_cached(
         t_measure=float(t_measure),
         qr_every_steps=qr_every_steps,
         solve_options=solve_options,
+        solver_kind=solver_kind,
+        auto_switch_rk4=auto_switch_rk4,
         jac=jac,
     )
     return result.lambdas
