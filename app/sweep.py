@@ -2,6 +2,16 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
+try:
+    import pandas as pd  # type: ignore
+except Exception:  # pragma: no cover
+    pd = None
+
+try:  # optional C++ backend
+    import nlds_cpp as _nlds_cpp  # type: ignore
+except Exception:  # pragma: no cover
+    _nlds_cpp = None
+
 from core.henon_heiles_system_rhs import henon_heiles_rhs
 from core.lorenz_system_rhs import lorenz_rhs
 from core.rossler_system_rhs import rossler_rhs
@@ -141,8 +151,82 @@ def run_sweep_chunk(
     else:
         raise ValueError(f"Unknown system_key: {system.key}")
 
+    use_cpp_sweep = (
+        _nlds_cpp is not None
+        and sweep_solver_kind == "rk4"
+        and str(poincare.section_expr or "").strip() == ""
+    )
+    if use_cpp_sweep:
+        method_lc = str(poincare.method or "").lower()
+        if method_lc not in ("crossing", "slab"):
+            use_cpp_sweep = False
+
+    if use_cpp_sweep:
+        if system.key == "lorenz":
+            param_map = {"sigma": 0, "rho": 1, "beta": 2}
+            base_params_arr = np.array(
+                [float(system.lorenz.sigma), float(system.lorenz.rho), float(system.lorenz.beta)],
+                dtype=float,
+            )
+        elif system.key == "rossler":
+            param_map = {"a": 0, "b": 1, "c": 2}
+            base_params_arr = np.array(
+                [float(system.rossler.a), float(system.rossler.b), float(system.rossler.c)],
+                dtype=float,
+            )
+        elif system.key == "henon_heiles":
+            param_map = {"lambda": 0}
+            base_params_arr = np.array([float(system.henon_heiles.lam)], dtype=float)
+        else:
+            use_cpp_sweep = False
+
+    if use_cpp_sweep:
+        sweep_param_name = str(sweep.param_name)
+        param_index = param_map.get(sweep_param_name)
+        if param_index is None:
+            use_cpp_sweep = False
+
+    if use_cpp_sweep:
+        # Keep behavior aligned with sweep_poincare(): it caps at 100 hits per pv.
+        max_keep = 100
+        res = _nlds_cpp.sweep_poincare_rk4(
+            str(system.key),
+            base_params_arr,
+            int(param_index),
+            np.asarray(initial.y0, dtype=float),
+            float(integration.t0),
+            float(integration.tf),
+            float(integration.dt),
+            float(sweep.start),
+            float(sweep.stop),
+            float(sweep.step),
+            int(poincare.section_index),
+            float(poincare.section_value),
+            int(poincare.direction),
+            str(poincare.method).lower(),
+            float(poincare.tol),
+            int(poincare.transient_steps),
+            int(run_cfg.output_index),
+            bool(run_cfg.warm_start),
+            int(max_keep),
+        )
+        param_vals = np.asarray(res.get("param_vals", []), dtype=float)
+        t_hit = np.asarray(res.get("t_hit", []), dtype=float)
+        y_hit = np.asarray(res.get("y_hit", []), dtype=float)
+        ycol = f"y{int(run_cfg.output_index)}"
+        if pd is not None:
+            return pd.DataFrame({
+                str(sweep.param_name): param_vals,
+                "t_hit": t_hit,
+                ycol: y_hit,
+            })
+        return [
+            {str(sweep.param_name): float(p), "t_hit": float(t), ycol: float(y)}
+            for p, t, y in zip(param_vals, t_hit, y_hit)
+        ]
+
     # use fast events only for ivp+crossing
-    if str(poincare.method).lower() == "crossing":
+    if str(poincare.method).lower() == "crossing" and sweep_solver_kind == "ivp":
         return sweep_poincare_events_ivp(
             rhs=rhs_fn,
             y0=tuple(initial.y0),

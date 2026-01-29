@@ -12,7 +12,6 @@ from app.logic.bifurcation_sweep import _run_bifurcation_parallel
 from app.logic.lyapunov_sweep import _run_lyapunov_sweep
 from app.logic.sweep_utils import (
     _default_worker_count,
-    _is_streamlit_cloud,
     _sweep_settings_fingerprint,
 )
 from app.params import (
@@ -25,6 +24,7 @@ from app.params import (
 )
 from app.sweep import run_sweep_chunk
 from core.poincare_sweep import PoincareConfig, SweepConfig
+from core.lyapunov import cpp_backend_available
 
 
 COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
@@ -68,6 +68,7 @@ def render_bifurcation_tab(
         t0 = float(integration.t0)
         tf = float(integration.tf)
         dt = float(integration.dt)
+        cpp_available = cpp_backend_available()
         var_names = list(system.custom.var_names)
         params_text = system.custom.params_text
 
@@ -174,18 +175,16 @@ def render_bifurcation_tab(
 
         with left_col:
             st.markdown("**Bifurcation sweep settings**")
-            on_cloud_bif = _is_streamlit_cloud()
-            parallel_bif_disabled = bool(warm_start or on_cloud_bif)
+            if not cpp_available:
+                st.caption("C++ backend unavailable; sweep runs in Python.")
+            parallel_bif_disabled = bool(warm_start)
             parallel_bif = st.checkbox(
-                "Parallel sweep (local only)",
+                "Parallel sweep",
                 value=False,
                 disabled=parallel_bif_disabled,
                 key="bif_parallel_tab3",
-                help="On Streamlit Cloud this may not speed up.",
             )
-            if on_cloud_bif:
-                st.warning("Parallel sweep is disabled on Streamlit Cloud.")
-            elif warm_start:
+            if warm_start:
                 st.caption("Continuation mode: sequential (smooth).")
             elif parallel_bif:
                 st.caption("Parallel independent mode: faster (no warm start).")
@@ -343,18 +342,18 @@ def render_bifurcation_tab(
 
         with right_col:
             st.markdown("**Lyapunov sweep settings**")
-            on_cloud = _is_streamlit_cloud()
-            parallel_disabled = bool(warm_start or on_cloud)
+            if cpp_available:
+                st.caption("Lyapunov C++ backend: available (used when solver is RK4).")
+            else:
+                st.caption("Lyapunov C++ backend: unavailable (nlds_cpp not built).")
+            parallel_disabled = bool(warm_start)
             parallel_lya = st.checkbox(
-                "Parallel sweep (local only)",
+                "Parallel sweep",
                 value=False,
                 disabled=parallel_disabled,
                 key="lya_parallel_tab3",
-                help="On Streamlit Cloud this may not speed up.",
             )
-            if on_cloud:
-                st.warning("Parallel sweep is disabled on Streamlit Cloud.")
-            elif warm_start:
+            if warm_start:
                 st.caption("Continuation mode: sequential (smooth).")
             elif parallel_lya:
                 st.caption("Parallel independent mode: faster (no warm start).")
@@ -496,6 +495,7 @@ def render_bifurcation_tab(
         lya_meta.pop("transient_frac", None)
         lya_meta["lyapunov_transient_frac"] = float(transient_frac_lya)
         lya_meta["lyapunov_qr_interval"] = float(lyapunov_cfg.qr_interval)
+        lya_meta["lyapunov_solver_kind"] = str(getattr(integration, "solver_kind", "ivp"))
         lya_meta["parallel"] = parallel_enabled
         lya_meta["parallel_workers"] = int(workers) if parallel_enabled else None
 

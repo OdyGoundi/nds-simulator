@@ -43,6 +43,7 @@ from app.params import (
     SystemConfig,
 )
 from app.ui.bifurcation_tab import render_bifurcation_tab
+from core.lyapunov import cpp_backend_available
 
 APP_NAME = "nlds-simulator"
 HENON_HEILES_VAR_NAMES = ["q1", "q2", "p1", "p2"]
@@ -331,12 +332,17 @@ try:
                 format="%.4f",
                 help="Time between orthonormalizations during Lyapunov computation.",
             )
+            cpp_available = cpp_backend_available()
+            if cpp_available:
+                st.caption("Lyapunov C++ backend: available (used when solver is RK4).")
+            else:
+                st.caption("Lyapunov C++ backend: unavailable (nlds_cpp not built).")
             lya_c1, lya_c2 = st.columns([1, 1], gap="small")
             with lya_c1:
                 lyapunov_transient_frac = st.slider(
                     "Lyapunov transient fraction",
                     min_value=0.0,
-                    max_value=0.95,
+                    max_value=0.99,
                     value=0.30,
                     step=0.05,
                     help="Fraction of integration steps discarded before Lyapunov accumulation.",

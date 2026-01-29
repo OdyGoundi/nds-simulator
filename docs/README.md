@@ -1,4 +1,4 @@
-# 📚 NLDS Documentation
+# NLDS Documentation
 
 Short index of the docs in this repo.
 
@@ -18,7 +18,7 @@ Short index of the docs in this repo.
 
 - Bifurcation vs continuation: `docs/theory/bifurcation-vs-continuation.md`
 - Poincare sections: `docs/theory/poincare-section.md`
-- Numerical notes: `docs/theory/numerical-notes.md`
+- Numerical techniques: `docs/theory/numerical-notes.md`
 
 ## Developer notes
 
@@ -26,3 +26,8 @@ Short index of the docs in this repo.
 - Sweep engine: `docs/developer/sweep-engine.md`
 - Session state: `docs/developer/session-state.md`
 - Performance: `docs/developer/performance.md`
+
+## Deployment notes (Streamlit Cloud)
+
+- Streamlit Cloud reads `requirements.txt` and `packages.txt` from the repo root,
+  even when the app entry point is `app/nlds_app.py`.

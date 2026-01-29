@@ -7,10 +7,12 @@ Minimal recipe to generate **bifurcation (Poincare)** and **Lyapunov** diagrams.
 ## Bifurcation sweep (left column)
 
 1) Choose sweep parameter, range, and step.  
-2) Set Poincare section variable/value and crossing direction.  
-3) Pick sweep mode: **Bifurcation (reset ICs)** or **Continuation (warm start)**.  
-4) Optional: enable **Parallel sweep (local only)** and set **Workers**.  
-5) Click **Generate Bifurcation Diagram** or **Continue Bifurcation**.
+2) Set Poincare section variable/value and crossing direction (or enter a section equation).  
+3) Choose method: **crossing** (sign change + interpolation) or **slab** (tolerance band).  
+4) Pick sweep mode: **Bifurcation (reset ICs)** or **Continuation (warm start)**.  
+5) Optional: enable **Parallel sweep (local only)** and set **Workers**.  
+6) Optional: enable **Early stop (events)** and set **Max hits**.  
+7) Click **Generate Bifurcation Diagram** or **Continue Bifurcation**.
 
 ## Lyapunov sweep (right column)
 
