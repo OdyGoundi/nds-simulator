@@ -7,11 +7,6 @@ try:
 except Exception:  # pragma: no cover
     pd = None
 
-try:  # optional C++ backend
-    import nlds_cpp as _nlds_cpp  # type: ignore
-except Exception:  # pragma: no cover
-    _nlds_cpp = None
-
 from core.henon_heiles_system_rhs import henon_heiles_rhs
 from core.lorenz_system_rhs import lorenz_rhs
 from core.rossler_system_rhs import rossler_rhs
@@ -95,42 +90,74 @@ def run_sweep_chunk(
 
         y0_base = np.array(initial.y0, dtype=float).copy()
         y0_curr = y0_base.copy()
+        use_numba_rk4 = False
+        rk4_nb = None
+        param_names = list(base_params.keys())
+
+        if sweep_solver_kind == "rk4":
+            try:
+                from core import numba_backend
+                if numba_backend.numba_available():
+                    from app import numba_custom
+                    rhs_nb = numba_custom.build_custom_numba_rhs(
+                        list(system.custom.var_names),
+                        list(system.custom.eq_lines),
+                        param_names,
+                    )
+                    rk4_nb = numba_backend.build_rk4_integrator(rhs_nb)
+                    use_numba_rk4 = True
+            except Exception:
+                use_numba_rk4 = False
 
         for pv in param_vals:
             params2 = dict(base_params)
             params2[str(sweep.param_name)] = float(pv)
 
-            rhs2 = build_custom_rhs(
-                list(system.custom.var_names),
-                list(system.custom.eq_lines),
-                params2,
-            )
-
-            if sweep_solver_kind == "rk4":
-                sol = integrate_system_rk4(
-                    rhs2,
-                    t_span=(float(integration.t0), float(integration.tf)),
-                    y0=y0_curr,
-                    t_step=float(integration.dt),
+            if use_numba_rk4 and rk4_nb is not None:
+                params_arr = np.array([float(params2[name]) for name in param_names], dtype=float)
+                t_arr, y_arr = rk4_nb(
+                    y0_curr,
+                    float(integration.t0),
+                    float(integration.tf),
+                    float(integration.dt),
+                    0,
+                    params_arr,
                 )
             else:
-                sol = integrate_system(
-                    rhs2,
-                    t_span=(float(integration.t0), float(integration.tf)),
-                    y0=y0_curr,
-                    t_step=float(integration.dt),
-                    **solve_options_any,
+                rhs2 = build_custom_rhs(
+                    list(system.custom.var_names),
+                    list(system.custom.eq_lines),
+                    params2,
                 )
-            if not sol.success:
-                if not run_cfg.warm_start:
-                    y0_curr = y0_base.copy()
-                continue
+
+                if sweep_solver_kind == "rk4":
+                    sol = integrate_system_rk4(
+                        rhs2,
+                        t_span=(float(integration.t0), float(integration.tf)),
+                        y0=y0_curr,
+                        t_step=float(integration.dt),
+                    )
+                else:
+                    sol = integrate_system(
+                        rhs2,
+                        t_span=(float(integration.t0), float(integration.tf)),
+                        y0=y0_curr,
+                        t_step=float(integration.dt),
+                        **solve_options_any,
+                    )
+                if not sol.success:
+                    if not run_cfg.warm_start:
+                        y0_curr = y0_base.copy()
+                    continue
+                t_arr = sol.t
+                y_arr = sol.y
+
             if run_cfg.warm_start:
-                y0_curr = np.array(sol.y[:, -1], dtype=float).copy()
+                y0_curr = np.array(y_arr[:, -1], dtype=float).copy()
             else:
                 y0_curr = y0_base.copy()
 
-            t_hits, y_hits = poincare_section(sol.t, sol.y, poincare, params=params2)
+            t_hits, y_hits = poincare_section(t_arr, y_arr, poincare, params=params2)
 
             if t_hits.size > max_keep:
                 t_hits = t_hits[-max_keep:]
@@ -151,79 +178,75 @@ def run_sweep_chunk(
     else:
         raise ValueError(f"Unknown system_key: {system.key}")
 
-    use_cpp_sweep = (
-        _nlds_cpp is not None
-        and sweep_solver_kind == "rk4"
+    use_numba_sweep = (
+        sweep_solver_kind == "rk4"
         and str(poincare.section_expr or "").strip() == ""
     )
-    if use_cpp_sweep:
-        method_lc = str(poincare.method or "").lower()
-        if method_lc not in ("crossing", "slab"):
-            use_cpp_sweep = False
+    method_lc = str(poincare.method or "").lower()
+    if use_numba_sweep and method_lc not in ("crossing", "slab"):
+        use_numba_sweep = False
 
-    if use_cpp_sweep:
-        if system.key == "lorenz":
-            param_map = {"sigma": 0, "rho": 1, "beta": 2}
-            base_params_arr = np.array(
-                [float(system.lorenz.sigma), float(system.lorenz.rho), float(system.lorenz.beta)],
-                dtype=float,
-            )
-        elif system.key == "rossler":
-            param_map = {"a": 0, "b": 1, "c": 2}
-            base_params_arr = np.array(
-                [float(system.rossler.a), float(system.rossler.b), float(system.rossler.c)],
-                dtype=float,
-            )
-        elif system.key == "henon_heiles":
-            param_map = {"lambda": 0}
-            base_params_arr = np.array([float(system.henon_heiles.lam)], dtype=float)
-        else:
-            use_cpp_sweep = False
+    if use_numba_sweep:
+        dim = 3 if system.key in ("lorenz", "rossler") else 4
+        if int(poincare.section_index) < 0 or int(poincare.section_index) >= dim:
+            use_numba_sweep = False
+        if int(run_cfg.output_index) < 0 or int(run_cfg.output_index) >= dim:
+            use_numba_sweep = False
+        if int(poincare.direction) not in (-1, 0, 1):
+            use_numba_sweep = False
 
-    if use_cpp_sweep:
-        sweep_param_name = str(sweep.param_name)
-        param_index = param_map.get(sweep_param_name)
-        if param_index is None:
-            use_cpp_sweep = False
-
-    if use_cpp_sweep:
-        # Keep behavior aligned with sweep_poincare(): it caps at 100 hits per pv.
-        max_keep = 100
-        res = _nlds_cpp.sweep_poincare_rk4(
-            str(system.key),
-            base_params_arr,
-            int(param_index),
-            np.asarray(initial.y0, dtype=float),
-            float(integration.t0),
-            float(integration.tf),
-            float(integration.dt),
-            float(sweep.start),
-            float(sweep.stop),
-            float(sweep.step),
-            int(poincare.section_index),
-            float(poincare.section_value),
-            int(poincare.direction),
-            str(poincare.method).lower(),
-            float(poincare.tol),
-            int(poincare.transient_steps),
-            int(run_cfg.output_index),
-            bool(run_cfg.warm_start),
-            int(max_keep),
-        )
-        param_vals = np.asarray(res.get("param_vals", []), dtype=float)
-        t_hit = np.asarray(res.get("t_hit", []), dtype=float)
-        y_hit = np.asarray(res.get("y_hit", []), dtype=float)
-        ycol = f"y{int(run_cfg.output_index)}"
-        if pd is not None:
-            return pd.DataFrame({
-                str(sweep.param_name): param_vals,
-                "t_hit": t_hit,
-                ycol: y_hit,
-            })
-        return [
-            {str(sweep.param_name): float(p), "t_hit": float(t), ycol: float(y)}
-            for p, t, y in zip(param_vals, t_hit, y_hit)
-        ]
+    if use_numba_sweep:
+        try:
+            from core import numba_backend
+            if numba_backend.numba_available():
+                rhs_nb, _jac_nb, param_names = numba_backend.build_builtin_system(system.key)
+                param_names_list = list(param_names)
+                sweep_param_name = str(sweep.param_name)
+                if sweep_param_name in param_names_list:
+                    base_params_arr = np.array(
+                        [float(base_params[name]) for name in param_names_list],
+                        dtype=float,
+                    )
+                    param_index = param_names_list.index(sweep_param_name)
+                    sweep_nb = numba_backend.build_poincare_sweep_rk4(rhs_nb)
+                    method_id = 0 if method_lc == "crossing" else 1
+                    max_keep = int(run_cfg.max_hits) if run_cfg.max_hits is not None else 100
+                    params_out, t_hit, y_hit, count = sweep_nb(
+                        np.asarray(initial.y0, dtype=float),
+                        float(integration.t0),
+                        float(integration.tf),
+                        float(integration.dt),
+                        base_params_arr,
+                        int(param_index),
+                        float(sweep.start),
+                        float(sweep.stop),
+                        float(sweep.step),
+                        int(poincare.section_index),
+                        float(poincare.section_value),
+                        int(poincare.direction),
+                        int(method_id),
+                        float(poincare.tol),
+                        int(poincare.transient_steps),
+                        int(run_cfg.output_index),
+                        bool(run_cfg.warm_start),
+                        int(max_keep),
+                    )
+                    params_out = np.asarray(params_out[:count], dtype=float)
+                    t_hit = np.asarray(t_hit[:count], dtype=float)
+                    y_hit = np.asarray(y_hit[:count], dtype=float)
+                    ycol = f"y{int(run_cfg.output_index)}"
+                    if pd is not None:
+                        return pd.DataFrame({
+                            str(sweep.param_name): params_out,
+                            "t_hit": t_hit,
+                            ycol: y_hit,
+                        })
+                    return [
+                        {str(sweep.param_name): float(p), "t_hit": float(t), ycol: float(y)}
+                        for p, t, y in zip(params_out, t_hit, y_hit)
+                    ]
+        except Exception:
+            pass
 
     # use fast events only for ivp+crossing
     if str(poincare.method).lower() == "crossing" and sweep_solver_kind == "ivp":

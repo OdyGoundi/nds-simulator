@@ -1,2 +1,0 @@
-g++
-libeigen3-dev

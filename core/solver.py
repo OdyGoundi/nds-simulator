@@ -1,11 +1,6 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 
-try:  # optional C++ backend
-    import nlds_cpp as _nlds_cpp  # type: ignore
-except Exception:  # pragma: no cover
-    _nlds_cpp = None
-
 class OdeSolution:
     """
     Simple container class for the solution of an ODE system.
@@ -115,23 +110,6 @@ def integrate_system_rk4(rhs, t_span, y0, t_step=0.01, max_steps=None):
 
     # Convert to numpy array (as in the solve_ivp solver)
     y0_arr = np.array(y0, dtype=float)
-
-    if _nlds_cpp is not None:
-        max_steps_cpp = 0 if max_steps is None else int(max_steps)
-        res = _nlds_cpp.integrate_rk4(
-            rhs,
-            y0_arr,
-            float(t0),
-            float(tf),
-            float(t_step),
-            int(max_steps_cpp),
-        )
-        return OdeSolution(
-            t=np.asarray(res.get("t"), dtype=float),
-            y=np.asarray(res.get("y"), dtype=float),
-            success=bool(res.get("success", True)),
-            message=str(res.get("message", "")),
-        )
 
     n_steps = _compute_n_steps(t0, tf, t_step, max_steps)
 

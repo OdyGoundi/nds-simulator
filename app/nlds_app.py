@@ -43,7 +43,7 @@ from app.params import (
     SystemConfig,
 )
 from app.ui.bifurcation_tab import render_bifurcation_tab
-from core.lyapunov import cpp_backend_available
+from core import numba_backend
 
 APP_NAME = "nlds-simulator"
 HENON_HEILES_VAR_NAMES = ["q1", "q2", "p1", "p2"]
@@ -94,17 +94,15 @@ with st.sidebar:
         "RK45 (adaptive)",
         "DOP853 (non-stiff, high order)",
         "RK4 (fixed step)",
-        "Symplectic Verlet (2nd order)",
         "Symplectic Forest-Ruth (4th order)",
     ]
     solver_kind_map = {
         "RK45 (adaptive)": "rk45",
         "DOP853 (non-stiff, high order)": "dop853",
         "RK4 (fixed step)": "rk4",
-        "Symplectic Verlet (2nd order)": "symplectic_verlet",
         "Symplectic Forest-Ruth (4th order)": "symplectic_fr",
     }
-    solver_default = "Symplectic Verlet (2nd order)" if system_key == "henon_heiles" else "RK45 (adaptive)"
+    solver_default = "Symplectic Forest-Ruth (4th order)" if system_key == "henon_heiles" else "RK45 (adaptive)"
     solver_kind_label = st.selectbox(
         "Solver kind",
         solver_kind_labels,
@@ -115,8 +113,7 @@ with st.sidebar:
         "- RK45 adaptive: default choice, uses rtol/atol.\n"
         "- DOP853: high-order solver for non-stiff problems, uses rtol/atol.\n"
         "- RK4 fixed: fixed dt, faster but needs smaller dt for accuracy.\n"
-        "- Symplectic Verlet: separable Hamiltonians, state = [q..., p...], dq/dt uses p only, dp/dt uses q only.\n"
-        "- Symplectic Forest-Ruth: higher-order symplectic, same assumptions, more accurate."
+        "- Symplectic Forest-Ruth: separable Hamiltonians, state = [q..., p...], dq/dt uses p only, dp/dt uses q only."
     )
     solver_kind_effective = solver_kind
     if solver_kind.startswith("symplectic"):
@@ -332,11 +329,11 @@ try:
                 format="%.4f",
                 help="Time between orthonormalizations during Lyapunov computation.",
             )
-            cpp_available = cpp_backend_available()
-            if cpp_available:
-                st.caption("Lyapunov C++ backend: available (used when solver is RK4).")
+            numba_available = numba_backend.numba_available()
+            if numba_available:
+                st.caption("Lyapunov Numba backend: available (used when solver is RK4).")
             else:
-                st.caption("Lyapunov C++ backend: unavailable (nlds_cpp not built).")
+                st.caption("Lyapunov Numba backend: unavailable (install numba).")
             lya_c1, lya_c2 = st.columns([1, 1], gap="small")
             with lya_c1:
                 lyapunov_transient_frac = st.slider(

@@ -1,7 +1,8 @@
 streamlit
-numpy
+numpy>=1.21
 scipy
 matplotlib
 pandas
 sympy
+numba
 psutil

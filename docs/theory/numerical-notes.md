@@ -10,7 +10,6 @@ This note summarizes what is implemented and when it is used.
 - **RK45 (adaptive)**: SciPy `solve_ivp` with RK45. Good default for general systems.
 - **DOP853 (adaptive)**: High-order explicit solver for smooth, non-stiff problems.
 - **RK4 (fixed step)**: Classic fixed-step Runge-Kutta; faster per step but needs smaller `dt`.
-- **Symplectic Verlet (2nd order)**: For separable Hamiltonians; state = `[q..., p...]`.
 - **Symplectic Forest-Ruth (4th order)**: Higher-order symplectic method, same assumptions.
 
 Symplectic methods require an even number of variables and Hamiltonian structure.
@@ -30,8 +29,7 @@ If the system is not compatible, the app falls back to RK45.
 
 **Backend behavior**:
 - Python path uses the selected solver: RK4 fixed step or adaptive `solve_ivp`.
-- C++ backend (optional) uses fixed-step RK4 and Householder QR (Eigen), and is
-  used when solver kind is RK4.
+- Numba backend (when available) accelerates fixed-step RK4 and Lyapunov QR loops.
 
 ---
 

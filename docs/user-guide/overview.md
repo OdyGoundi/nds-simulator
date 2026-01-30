@@ -8,7 +8,7 @@ Minimal steps to get value from the Streamlit app.
 
 - Simulate Lorenz, Rossler, Henon-Heiles (Hamiltonian), or custom nD systems.
 - Plot phase portraits (2D/3D) and time series.
-- Choose solvers: RK45, DOP853, fixed-step RK4, or symplectic Verlet/Forest-Ruth.
+- Choose solvers: RK45, DOP853, fixed-step RK4, or symplectic Forest-Ruth.
 - Compute Lyapunov exponents for a single trajectory (Tab 1), with optional analytic/symbolic Jacobian for custom systems.
 - Generate parameter sweeps (bifurcation + Lyapunov) with continuation or independent runs.
 - Speed up independent sweeps with local parallel workers.

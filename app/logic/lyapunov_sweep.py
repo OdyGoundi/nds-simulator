@@ -47,10 +47,60 @@ def _run_lyapunov_chunk(
     y0_base_arr = np.array(y0_base, dtype=float)
     errors: List[str] = []
     lambdas_list: List[np.ndarray] = []
+    use_numba = False
+    lyap_nb = None
+    param_names: List[str] | None = None
+
+    if str(solver_kind).lower() == "rk4":
+        try:
+            from core import numba_backend
+            if numba_backend.numba_available():
+                if system_key in ("lorenz", "rossler", "henon_heiles"):
+                    rhs_nb, jac_nb, param_names_tpl = numba_backend.build_builtin_system(system_key)
+                    param_names = list(param_names_tpl)
+                    lyap_nb = numba_backend.build_lyapunov_solver(rhs_nb, jac_nb, use_fd_jac=False)
+                elif system_key == "custom":
+                    from app import numba_custom
+                    param_names = list(base_params.keys())
+                    if custom_auto_jac and custom_use_jac:
+                        rhs_nb, jac_nb = numba_custom.build_custom_numba_rhs_and_jacobian(
+                            var_names, eq_lines, param_names
+                        )
+                        lyap_nb = numba_backend.build_lyapunov_solver(rhs_nb, jac_nb, use_fd_jac=False)
+                    else:
+                        rhs_nb = numba_custom.build_custom_numba_rhs(
+                            var_names, eq_lines, param_names
+                        )
+                        lyap_nb = numba_backend.build_lyapunov_solver(rhs_nb, None, use_fd_jac=True)
+                use_numba = lyap_nb is not None and param_names is not None
+        except Exception:
+            use_numba = False
 
     for pv in param_vals:
         params = dict(base_params)
         params[str(sweep_param)] = float(pv)
+
+        if use_numba and lyap_nb is not None and param_names is not None:
+            try:
+                params_arr = np.array([float(params[name]) for name in param_names], dtype=float)
+                lambdas, _sums, _t_meas, n_qr, _x_final = lyap_nb(
+                    y0_base_arr,
+                    float(t0),
+                    float(dt),
+                    float(t_transient),
+                    float(t_measure),
+                    int(qr_every_steps),
+                    float(1e-8),
+                    params_arr,
+                )
+                if int(n_qr) <= 0:
+                    raise ValueError("No QR steps performed. Increase t_measure or reduce qr_every_steps.")
+                l_sorted = np.sort(np.array(lambdas, dtype=float))[::-1]
+                lambdas_list.append(l_sorted)
+            except Exception as exc:
+                errors.append(f"{sweep_param}={float(pv):g}: {exc}")
+                lambdas_list.append(np.full(y0_base_arr.shape[0], np.nan))
+            continue
 
         rhs: RhsFn
         jac: JacFn | None
@@ -252,10 +302,65 @@ def _run_lyapunov_sweep(
 
     errors: List[str] = []
     lambdas_list: List[np.ndarray] = []
+    use_numba = False
+    lyap_nb = None
+    param_names: List[str] | None = None
+
+    if str(solver_kind).lower() == "rk4":
+        try:
+            from core import numba_backend
+            if numba_backend.numba_available():
+                if system.key in ("lorenz", "rossler", "henon_heiles"):
+                    rhs_nb, jac_nb, param_names_tpl = numba_backend.build_builtin_system(system.key)
+                    param_names = list(param_names_tpl)
+                    lyap_nb = numba_backend.build_lyapunov_solver(rhs_nb, jac_nb, use_fd_jac=False)
+                elif system.key == "custom":
+                    from app import numba_custom
+                    param_names = list(base_params.keys())
+                    if custom_auto_jac and custom_use_jac:
+                        rhs_nb, jac_nb = numba_custom.build_custom_numba_rhs_and_jacobian(
+                            var_names, eq_lines, param_names
+                        )
+                        lyap_nb = numba_backend.build_lyapunov_solver(rhs_nb, jac_nb, use_fd_jac=False)
+                    else:
+                        rhs_nb = numba_custom.build_custom_numba_rhs(
+                            var_names, eq_lines, param_names
+                        )
+                        lyap_nb = numba_backend.build_lyapunov_solver(rhs_nb, None, use_fd_jac=True)
+                use_numba = lyap_nb is not None and param_names is not None
+        except Exception:
+            use_numba = False
 
     for pv in param_vals:
         params = dict(base_params)
         params[str(sweep.param_name)] = float(pv)
+
+        if use_numba and lyap_nb is not None and param_names is not None:
+            try:
+                params_arr = np.array([float(params[name]) for name in param_names], dtype=float)
+                lambdas, _sums, _t_meas, n_qr, x_final = lyap_nb(
+                    np.asarray(y0_curr, dtype=float),
+                    float(integration.t0),
+                    float(integration.dt),
+                    float(t_transient),
+                    float(t_measure),
+                    int(qr_every_steps),
+                    float(1e-8),
+                    params_arr,
+                )
+                if int(n_qr) <= 0:
+                    raise ValueError("No QR steps performed. Increase t_measure or reduce qr_every_steps.")
+                l_sorted = np.sort(np.array(lambdas, dtype=float))[::-1]
+                lambdas_list.append(l_sorted)
+                if warm_start:
+                    y0_curr = np.array(x_final, dtype=float).copy()
+                else:
+                    y0_curr = y0_base.copy()
+            except Exception as exc:
+                errors.append(f"{sweep.param_name}={float(pv):g}: {exc}")
+                lambdas_list.append(np.full(y0_base.shape[0], np.nan))
+                y0_curr = y0_base.copy()
+            continue
 
         rhs: RhsFn
         jac: JacFn | None

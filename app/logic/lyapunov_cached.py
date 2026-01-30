@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import streamlit as st
@@ -38,47 +38,82 @@ def compute_lyapunov_cached(
     auto_switch_rk4 = solver_kind in ("rk45", "dop853", "ivp")
     y0 = np.array(initial.y0, dtype=float)
 
+    rhs = None
+    jac = None
+    var_names: List[str] = []
+    eq_lines: List[str] = []
+    custom_params: Optional[Dict[str, float]] = None
+    auto_jac = False
+    use_jac = False
+    lorenz_params = None
+    rossler_params = None
+    henon_params = None
+
     if system.key == "lorenz":
-        params = system.lorenz
+        lorenz_params = system.lorenz
 
         def rhs_lorenz(tt, xx):
-            return lorenz_rhs(tt, xx, sigma=params.sigma, rho=params.rho, beta=params.beta)
+            return lorenz_rhs(
+                tt,
+                xx,
+                sigma=lorenz_params.sigma,
+                rho=lorenz_params.rho,
+                beta=lorenz_params.beta,
+            )
 
         rhs = rhs_lorenz
-        jac = lambda tt, xx: lorenz_jac(tt, xx, sigma=params.sigma, rho=params.rho, beta=params.beta)
+        jac = lambda tt, xx: lorenz_jac(
+            tt,
+            xx,
+            sigma=lorenz_params.sigma,
+            rho=lorenz_params.rho,
+            beta=lorenz_params.beta,
+        )
 
     elif system.key == "rossler":
-        params = system.rossler
+        rossler_params = system.rossler
 
         def rhs_rossler(tt, xx):
-            return rossler_rhs(tt, xx, a=params.a, b=params.b, c=params.c)
+            return rossler_rhs(
+                tt,
+                xx,
+                a=rossler_params.a,
+                b=rossler_params.b,
+                c=rossler_params.c,
+            )
 
         rhs = rhs_rossler
-        jac = lambda tt, xx: rossler_jac(tt, xx, a=params.a, b=params.b, c=params.c)
+        jac = lambda tt, xx: rossler_jac(
+            tt,
+            xx,
+            a=rossler_params.a,
+            b=rossler_params.b,
+            c=rossler_params.c,
+        )
 
     elif system.key == "henon_heiles":
-        params = system.henon_heiles
+        henon_params = system.henon_heiles
 
         def rhs_henon(tt, xx):
-            return henon_heiles_rhs(tt, xx, lam=params.lam)
+            return henon_heiles_rhs(tt, xx, lam=henon_params.lam)
 
         rhs = rhs_henon
-        jac = lambda tt, xx: henon_heiles_jac(tt, xx, lam=params.lam)
+        jac = lambda tt, xx: henon_heiles_jac(tt, xx, lam=henon_params.lam)
 
     elif system.key == "custom":
         var_names = list(system.custom.var_names)
         eq_lines = list(system.custom.eq_lines)
-        params = parse_params(system.custom.params_text)
+        custom_params = parse_params(system.custom.params_text)
         auto_jac = bool(system.custom.auto_jacobian)
         use_jac = bool(system.custom.use_jacobian)
 
         jac_custom_func = None
         if auto_jac:
             rhs_custom_func, jac_custom_func = build_custom_rhs_and_jacobian(
-                var_names, eq_lines, params
+                var_names, eq_lines, custom_params
             )
         else:
-            rhs_custom_func = build_custom_rhs(var_names, eq_lines, params)
+            rhs_custom_func = build_custom_rhs(var_names, eq_lines, custom_params)
 
         def rhs_custom_wrapper(tt, xx):
             return rhs_custom_func(tt, xx)
@@ -112,6 +147,68 @@ def compute_lyapunov_cached(
         raise ValueError("Lyapunov QR interval must be > 0.")
     target_chunk = float(lyapunov.qr_interval)
     qr_every_steps = max(1, int(round(target_chunk / float(integration.dt))))
+
+    if solver_kind == "rk4":
+        try:
+            from core import numba_backend
+            if numba_backend.numba_available():
+                lyap_nb = None
+                params_arr = None
+                if system.key in ("lorenz", "rossler", "henon_heiles"):
+                    rhs_nb, jac_nb, param_names = numba_backend.build_builtin_system(system.key)
+                    if system.key == "lorenz":
+                        if lorenz_params is None:
+                            raise ValueError("Lorenz parameters not initialized.")
+                        params_arr = np.array(
+                            [float(getattr(lorenz_params, name)) for name in param_names],
+                            dtype=float,
+                        )
+                    elif system.key == "rossler":
+                        if rossler_params is None:
+                            raise ValueError("Rossler parameters not initialized.")
+                        params_arr = np.array(
+                            [float(getattr(rossler_params, name)) for name in param_names],
+                            dtype=float,
+                        )
+                    else:
+                        if henon_params is None:
+                            raise ValueError("Henon-Heiles parameters not initialized.")
+                        params_arr = np.array(
+                            [float(getattr(henon_params, "lam" if name == "lambda" else name)) for name in param_names],
+                            dtype=float,
+                        )
+                    lyap_nb = numba_backend.build_lyapunov_solver(rhs_nb, jac_nb, use_fd_jac=False)
+                elif system.key == "custom":
+                    from app import numba_custom
+                    if custom_params is None:
+                        raise ValueError("Custom parameters not initialized.")
+                    param_names = list(custom_params.keys())
+                    if auto_jac and use_jac:
+                        rhs_nb, jac_nb = numba_custom.build_custom_numba_rhs_and_jacobian(
+                            var_names, eq_lines, param_names
+                        )
+                        lyap_nb = numba_backend.build_lyapunov_solver(rhs_nb, jac_nb, use_fd_jac=False)
+                    else:
+                        rhs_nb = numba_custom.build_custom_numba_rhs(var_names, eq_lines, param_names)
+                        lyap_nb = numba_backend.build_lyapunov_solver(rhs_nb, None, use_fd_jac=True)
+                    params_arr = np.array([float(custom_params[name]) for name in param_names], dtype=float)
+
+                if lyap_nb is not None and params_arr is not None:
+                    lambdas, _sums, _t_meas, n_qr, _x_final = lyap_nb(
+                        np.asarray(y0, dtype=float),
+                        float(integration.t0),
+                        float(integration.dt),
+                        float(t_transient),
+                        float(t_measure),
+                        int(qr_every_steps),
+                        float(1e-8),
+                        params_arr,
+                    )
+                    if int(n_qr) <= 0:
+                        raise ValueError("No QR steps performed. Increase t_measure or reduce qr_every_steps.")
+                    return np.asarray(lambdas, dtype=float)
+        except Exception:
+            pass
 
     result = compute_lyapunov_spectrum(
         rhs=rhs,

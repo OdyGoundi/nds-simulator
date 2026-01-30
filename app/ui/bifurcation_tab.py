@@ -24,7 +24,7 @@ from app.params import (
 )
 from app.sweep import run_sweep_chunk
 from core.poincare_sweep import PoincareConfig, SweepConfig
-from core.lyapunov import cpp_backend_available
+from core import numba_backend
 
 
 COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
@@ -68,7 +68,7 @@ def render_bifurcation_tab(
         t0 = float(integration.t0)
         tf = float(integration.tf)
         dt = float(integration.dt)
-        cpp_available = cpp_backend_available()
+        numba_available = numba_backend.numba_available()
         var_names = list(system.custom.var_names)
         params_text = system.custom.params_text
 
@@ -175,8 +175,8 @@ def render_bifurcation_tab(
 
         with left_col:
             st.markdown("**Bifurcation sweep settings**")
-            if not cpp_available:
-                st.caption("C++ backend unavailable; sweep runs in Python.")
+            if not numba_available:
+                st.caption("Numba backend unavailable; sweep runs in Python.")
             parallel_bif_disabled = bool(warm_start)
             parallel_bif = st.checkbox(
                 "Parallel sweep",
@@ -342,10 +342,10 @@ def render_bifurcation_tab(
 
         with right_col:
             st.markdown("**Lyapunov sweep settings**")
-            if cpp_available:
-                st.caption("Lyapunov C++ backend: available (used when solver is RK4).")
+            if numba_available:
+                st.caption("Lyapunov Numba backend: available (used when solver is RK4).")
             else:
-                st.caption("Lyapunov C++ backend: unavailable (nlds_cpp not built).")
+                st.caption("Lyapunov Numba backend: unavailable (install numba).")
             parallel_disabled = bool(warm_start)
             parallel_lya = st.checkbox(
                 "Parallel sweep",

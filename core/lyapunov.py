@@ -27,16 +27,6 @@ try:
 except Exception:  # pragma: no cover
     solve_ivp = None
 
-try:  # optional C++ backend
-    import nlds_cpp as _nlds_cpp  # type: ignore
-except Exception:  # pragma: no cover
-    _nlds_cpp = None
-
-
-def cpp_backend_available() -> bool:
-    """Return True when the optional C++ backend is available."""
-    return _nlds_cpp is not None
-
 
 # ----------------------------
 # Protocol-based callable types (Pyright-friendly)
@@ -307,25 +297,6 @@ def compute_lyapunov_spectrum(
         raise ValueError("rk4_cost_ratio must be > 0.")
 
     solver_kind_norm = str(solver_kind or "ivp").lower()
-    if _nlds_cpp is not None and solver_kind_norm == "rk4":
-        res = _nlds_cpp.compute_lyapunov_spectrum(
-            rhs,
-            x,
-            float(t0),
-            float(dt),
-            float(t_transient),
-            float(t_measure),
-            int(qr_every_steps),
-            jac if jac is not None else None,
-            float(fd_eps),
-        )
-        return LyapunovResult(
-            lambdas=np.asarray(res["lambdas"], dtype=float),
-            sums_log=np.asarray(res["sums_log"], dtype=float),
-            t_meas=float(res["t_meas"]),
-            n_qr=int(res["n_qr"]),
-            x_final=np.asarray(res["x_final"], dtype=float),
-        )
 
     # Jacobian provider
     if jac is None:

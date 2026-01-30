@@ -22,6 +22,7 @@ Short index of the docs in this repo.
 
 ## Developer notes
 
+- Developer README (execution map): `docs/developer/README.md`
 - Architecture: `docs/developer/architecture.md`
 - Sweep engine: `docs/developer/sweep-engine.md`
 - Session state: `docs/developer/session-state.md`
