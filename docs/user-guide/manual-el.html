@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="el">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Εγχειρίδιο dynaSim · Non-linear Dynamical System Simulator</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #151922;
+        --panel-2: #10141d;
+        --text: #e6e9ef;
+        --muted: #b9c0d0;
+        --accent: #4fd1c5;
+        --accent-2: #f6c177;
+        --line: #252b39;
+        --ok: #7ee787;
+        --warn: #fbbf24;
+        --bad: #fb7185;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1000px 420px at 20% -10%, #1b2130 0%, transparent 60%),
+                    radial-gradient(900px 480px at 120% -20%, #20293a 0%, transparent 55%),
+                    var(--bg);
+        color: var(--text);
+        font-family: "Source Sans 3", "Segoe UI", Arial, sans-serif;
+        line-height: 1.55;
+      }
+
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 32px 24px 48px;
+      }
+
+      .hero {
+        background: linear-gradient(120deg, #1a2130, #101623 55%, #0f1115);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 28px 28px 20px;
+        box-shadow: 0 16px 60px rgba(0, 0, 0, 0.35);
+      }
+      .hero h1 {
+        margin: 0 0 6px;
+        font-size: 28px;
+        letter-spacing: 0.3px;
+      }
+      .hero p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 18px;
+      }
+
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .card h3 {
+        margin: 14px 0 8px;
+        font-size: 15px;
+        color: var(--accent);
+      }
+
+      .note {
+        border-left: 3px solid var(--accent);
+        background: var(--panel-2);
+        padding: 10px 12px;
+        border-radius: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        letter-spacing: 0.2px;
+        background: #1f2a3b;
+        color: var(--accent);
+        border: 1px solid #2a3548;
+      }
+
+      .list {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+      }
+      .list li { margin: 6px 0; }
+
+      .steps {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .steps li {
+        display: grid;
+        grid-template-columns: 28px 1fr;
+        gap: 10px;
+        padding: 10px 0;
+        border-bottom: 1px dashed var(--line);
+      }
+      .steps li:last-child { border-bottom: none; }
+      .step-num {
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        background: #1f2a3b;
+        color: var(--accent-2);
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: 13px;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      .table th,
+      .table td {
+        border-bottom: 1px solid var(--line);
+        padding: 8px 6px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .table th { color: var(--text); font-weight: 600; }
+      .table td { color: var(--muted); }
+
+      code, pre {
+        font-family: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: #dbe2f0;
+      }
+      pre {
+        background: #0f1420;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        overflow: auto;
+        margin: 8px 0 0;
+      }
+
+      .footer {
+        margin-top: 20px;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+      }
+
+      @media (max-width: 900px) {
+        .grid { grid-template-columns: repeat(1, 1fr); }
+        .two-col { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <h1>Εγχειρίδιο dynaSim</h1>
+        <p>Γρήγορος, πρακτικός οδηγός για να ορίζετε δυναμικά συστήματα, να επιλέγετε αριθμητικούς ολοκληρωτές και να δημιουργείτε πορτρέτα φάσης, να υπολογίσετε εκθέτες Lyapunov και να μελετήσετε παραμετρικές σαρώσεις.</p>
+      </div>
+
+      <div class="grid">
+        <section class="card" style="grid-column: span 7;">
+          <h2>Γρήγορη Έναρξη</h2>
+          <ol class="steps">
+            <li><span class="step-num">1</span><div><strong>Επιλέξτε σύστημα</strong> (sidebar). Ενσωματωμένα: Lorenz, Rossler, Henon-Heiles. Ή δημιουργήστε ένα Προσαρμοσμένο σύστημα με τις δικές σας μεταβλητές και εξισώσεις.</div></li>
+            <li><span class="step-num">2</span><div><strong>Επιλέξτε ολοκληρωτή</strong>. Χρησιμοποιήστε RK45/DOP853 για ακρίβεια ή RK4 για ταχύτητα. Το Symplectic Forest-Ruth είναι μόνο για Χαμιλτονιανά συστήματα.</div></li>
+            <li><span class="step-num">3</span><div><strong>Ρυθμίστε ολοκλήρωση</strong> (Tab 1): initial time(αρχικός χρόνος), final time(τελικός χρόνος), time step(χρονικό βήμα), καθώς και παραμέτρους. Ρυθμίστε την επιλογή αξόνων για 2D/3D διαγράμματα φάσης.</div></li>
+            <li><span class="step-num">4</span><div><strong>Υπολογίστε Lyapunov</strong> (Tab 1): ορίστε QR interval και transient fraction, έπειτα πατήστε Compute.</div></li>
+            <li><span class="step-num">5</span><div><strong>Αναλύστε σαρώσεις</strong> (Tab 3): επιλέξτε παράμετρο σάρωσης, τομή Poincaré, μέθοδο και mode (reset vs continuation).</div></li>
+            <li><span class="step-num">6</span><div><strong>Εξαγωγή</strong> (Tab 4): κατεβάστε τροχιές, σαρώσεις και αποτελέσματα Lyapunov.</div></li>
+          </ol>
+        </section>
+
+        <section class="card" style="grid-column: span 5;">
+          <h2>Προσαρμοσμένο Σύστημα</h2>
+          <div class="note">Ορίστε μεταβλητές, εξισώσεις και παραμέτρους στο sidebar. Όλες οι εκφράσεις χρησιμοποιούν σύνταξη Python/SymPy.</div>
+          <h3>Μεταβλητές</h3>
+          <pre>y1
+y2
+y3</pre>
+          <h3>Εξισώσεις</h3>
+          <pre>sigma * (y2 - y1)
+y1 * (rho - y3) - y2
+y1 * y2 - beta * y3</pre>
+          <h3>Παράμετροι</h3>
+          <pre>sigma=10
+rho=28
+beta=2.6666667</pre>
+          <h3>Προσαρμοσμένος Ιακωβιανός (Lyapunov)</h3>
+          <ul class="list">
+            <li>Ενεργοποιήστε <strong>Auto-compute Jacobian (symbolic)</strong>.</li>
+            <li>Ενεργοποιήστε <strong>Use analytic Jacobian</strong> για να επιταχύνετε το Lyapunov.</li>
+          </ul>
+        </section>
+
+        <section class="card" style="grid-column: span 6;">
+          <h2>Οδηγός Αριθμητικής Ολοκλήρωσης</h2>
+          <table class="table">
+            <thead>
+              <tr><th>Solver</th><th>Κατάλληλο για</th><th>Σημειώσεις</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>RK45</td><td>Γενική χρήση</td><td>Προσαρμοστικό βήμα, αξιόπιστη προεπιλογή</td></tr>
+              <tr><td>DOP853</td><td>non-stiff, ομαλά συστήματα</td><td>Υψηλής τάξης, ακριβής</td></tr>
+              <tr><td>RK4</td><td>Ταχύτητα / σαρώσεις</td><td>Σταθερό dt, επιτάχυνση Numba</td></tr>
+              <tr><td>Symplectic Forest-Ruth</td><td>Χαμιλτονιανά συστήματα</td><td>Κατάσταση είναι [q..., p...], άρτια διάσταση· επιτάχυνση Numba όταν είναι διαθέσιμο</td></tr>
+            </tbody>
+          </table>
+          <div class="note" style="margin-top: 10px;">Συμβουλή: Για σαρώσεις, το RK4 με τομή επιπέδου είναι η ταχύτερη επιλογή.</div>
+        </section>
+
+        <section class="card" style="grid-column: span 6;">
+          <h2>Πορτρέτο Φάσης (Tab 1)</h2>
+          <ul class="list">
+            <li>Ορίστε <strong>t0, tf, dt</strong> και παραμέτρους συστήματος.</li>
+            <li>Επιλέξτε άξονες 2D ή 3D.</li>
+            <li>Χρησιμοποιήστε <strong>Transient cut</strong> για να αφαιρέσετε την αρχική δυναμική.</li>
+          </ul>
+          <h3>Lyapunov (Tab 1)</h3>
+          <ul class="list">
+            <li>Ορίστε <strong>QR interval (time)</strong>.</li>
+            <li>Ορίστε <strong>Transient fraction</strong> για τη συσσώρευση Lyapunov.</li>
+            <li>Πατήστε <strong>Compute Lyapunov exponents</strong>.</li>
+          </ul>
+        </section>
+
+        <section class="card" style="grid-column: span 6;">
+          <h2>Χρονοσειρές (Tab 2)</h2>
+          <ul class="list">
+            <li>Σχεδιάστε οποιαδήποτε μεταβλητή ως προς τον χρόνο.</li>
+            <li>Συγκρίνετε συνιστώσες και ελέγξτε τη σταθερότητα.</li>
+          </ul>
+          <h3>Τομή Poincaré (Tab 3)</h3>
+          <ul class="list">
+            <li>Τομή επιπέδου: επιλέξτε μεταβλητή τομής και τιμή.</li>
+            <li>Τομή εξίσωσης: εισαγάγετε μια έκφραση (υπερισχύει της τομής επιπέδου).</li>
+            <li>Μέθοδος: <strong>crossing</strong> ή <strong>slab</strong> (ζώνη ανοχής).</li>
+          </ul>
+        </section>
+
+        <section class="card" style="grid-column: span 6;">
+          <h2>Σαρώσεις Παραμέτρων (Tab 3)</h2>
+          <div class="two-col">
+            <div>
+              <h3>Σάρωση Διακλάδωσης</h3>
+              <ul class="list">
+                <li>Επιλέξτε παράμετρο σάρωσης, εύρος και βήμα.</li>
+                <li>Επιλέξτε μέθοδο και κατεύθυνση.</li>
+                <li>Λειτουργία: reset ICs ή continuation (warm start).</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Σάρωση Lyapunov</h3>
+              <ul class="list">
+                <li>Χρησιμοποιεί το ίδιο εύρος παραμέτρων.</li>
+                <li>Ορίστε QR interval και transient fraction.</li>
+                <li>Παράλληλα μόνο σε independent mode.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" style="grid-column: span 6;">
+          <h2>Εξαγωγή (Tab 4)</h2>
+          <ul class="list">
+            <li>Κατεβάστε τροχιές (CSV).</li>
+            <li>Κατεβάστε αποτελέσματα σάρωσης (CSV).</li>
+            <li>Εξαγωγή αποτελεσμάτων Lyapunov και ρυθμίσεων.</li>
+          </ul>
+          <h3>Αντιμετώπιση Προβλημάτων</h3>
+          <ul class="list">
+            <li><span class="badge">Αργό</span> Μειώστε το max steps ή αυξήστε προσεκτικά το dt.</li>
+            <li><span class="badge">Καμία τομή</span> Ρυθμίστε την τιμή ή την κατεύθυνση της τομής.</li>
+            <li><span class="badge">Θορυβώδες</span> Αυξήστε το tf ή μειώστε το dt.</li>
+          </ul>
+        </section>
+      </div>
+
+      <div class="footer">Εγχειρίδιο dynaSim · Non-linear Dynamical System Simulator · επεξεργασία αυτού του αρχείου στο docs/user-guide/manual-el.html</div>
+    </div>
+  </body>
+</html>

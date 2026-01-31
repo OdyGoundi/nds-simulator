@@ -1,9 +1,10 @@
+import base64
 import io
 import json
 import sys
 import zipfile
 from pathlib import Path
-from typing import Dict, List
+from typing import Callable, Dict, List, Optional, cast
 
 # Ensure project root import works
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 
 from app.cache import solve_cached
@@ -45,7 +47,8 @@ from app.params import (
 from app.ui.bifurcation_tab import render_bifurcation_tab
 from core import numba_backend
 
-APP_NAME = "nlds-simulator"
+APP_NAME = "dynaSim"
+APP_SUBTITLE = "non-linear dynamical systems simulator"
 HENON_HEILES_VAR_NAMES = ["q1", "q2", "p1", "p2"]
 HENON_HEILES_EQ_LINES = [
     "p1",
@@ -63,8 +66,130 @@ def _zip_bytes(file_map: Dict[str, bytes]) -> bytes:
             zf.writestr(name, data)
     return buf.getvalue()
 
-st.set_page_config(page_title="Non Linear Dynamics Simulator", layout="wide")
-st.title("Non Linear Dynamics Simulator (NLDS)")
+st.set_page_config(page_title="dynaSim", layout="wide")
+st.title("dynaSim")
+st.caption(APP_SUBTITLE)
+
+def _render_manual(manual_html_path: Path, manual_pdf_path: Path, fallback_markdown: str) -> None:
+    if manual_html_path.exists():
+        html = manual_html_path.read_text(encoding="utf-8")
+        components.html(html, height=640, scrolling=True)
+        return
+    if manual_pdf_path.exists():
+        pdf_bytes = manual_pdf_path.read_bytes()
+        b64 = base64.b64encode(pdf_bytes).decode("ascii")
+        pdf_html = (
+            "<iframe "
+            f"src=\"data:application/pdf;base64,{b64}\" "
+            "width=\"100%\" height=\"640\" style=\"border:0;\" "
+            "></iframe>"
+        )
+        components.html(pdf_html, height=640, scrolling=True)
+        return
+    st.markdown(fallback_markdown)
+
+
+def _render_quick_manual_eng() -> None:
+    manual_html_path = PROJECT_ROOT / "docs" / "user-guide" / "manual.html"
+    manual_pdf_path = PROJECT_ROOT / "docs" / "user-guide" / "manual.pdf"
+    _render_manual(
+        manual_html_path,
+        manual_pdf_path,
+        """
+**Manual not available**
+
+Please check that `docs/user-guide/manual.html` (or `manual.pdf`) exists.
+        """,
+    )
+
+
+def _render_quick_manual_el() -> None:
+    manual_html_path = PROJECT_ROOT / "docs" / "user-guide" / "manual-el.html"
+    manual_pdf_path = PROJECT_ROOT / "docs" / "user-guide" / "manual-el.pdf"
+    _render_manual(
+        manual_html_path,
+        manual_pdf_path,
+        """
+**Το εγχειρίδιο δεν είναι διαθέσιμο**
+
+Ελέγξτε ότι υπάρχει το `docs/user-guide/manual-el.html` (ή `manual-el.pdf`).
+        """,
+    )
+
+
+DialogDecorator = Callable[[str], Callable[[Callable[[], None]], Callable[[], None]]]
+
+
+def _get_dialog_decorator() -> Optional[DialogDecorator]:
+    dialog = getattr(st, "dialog", None)
+    if callable(dialog):
+        return cast(DialogDecorator, dialog)
+    dialog = getattr(st, "experimental_dialog", None)
+    if callable(dialog):
+        return cast(DialogDecorator, dialog)
+    return None
+
+
+if "show_quick_manual_eng" not in st.session_state:
+    st.session_state["show_quick_manual_eng"] = False
+if "show_quick_manual_el" not in st.session_state:
+    st.session_state["show_quick_manual_el"] = False
+
+manual_cols = st.columns(2)
+with manual_cols[0]:
+    open_manual_eng = st.button("Help (Eng)", key="open_quick_manual_btn")
+with manual_cols[1]:
+    open_manual_el = st.button("Help(Ελλ)", key="open_quick_manual_el_btn")
+
+if open_manual_eng:
+    st.session_state["show_quick_manual_eng"] = True
+    st.session_state["show_quick_manual_el"] = False
+if open_manual_el:
+    st.session_state["show_quick_manual_el"] = True
+    st.session_state["show_quick_manual_eng"] = False
+
+dialog_decorator = _get_dialog_decorator()
+_quick_manual_eng_dialog: Optional[Callable[[], None]] = None
+_quick_manual_el_dialog: Optional[Callable[[], None]] = None
+if dialog_decorator is not None:
+
+    @dialog_decorator("Quick Start Manual")
+    def _quick_manual_eng_dialog_impl() -> None:
+        _render_quick_manual_eng()
+        if st.button("Close manual", key="close_quick_manual_btn"):
+            st.session_state["show_quick_manual_eng"] = False
+            st.rerun()
+
+    _quick_manual_eng_dialog = _quick_manual_eng_dialog_impl
+
+    @dialog_decorator("Σύντομο Εγχειρίδιο")
+    def _quick_manual_el_dialog_impl() -> None:
+        _render_quick_manual_el()
+        if st.button("Κλείσιμο εγχειριδίου", key="close_quick_manual_el_btn"):
+            st.session_state["show_quick_manual_el"] = False
+            st.rerun()
+
+    _quick_manual_el_dialog = _quick_manual_el_dialog_impl
+
+if st.session_state.get("show_quick_manual_eng", False):
+    if _quick_manual_eng_dialog is not None:
+        _quick_manual_eng_dialog()
+        st.session_state["show_quick_manual_eng"] = False
+    else:
+        with st.expander("Quick Start Manual", expanded=True):
+            _render_quick_manual_eng()
+            if st.button("Hide manual", key="hide_quick_manual_btn"):
+                st.session_state["show_quick_manual_eng"] = False
+
+if st.session_state.get("show_quick_manual_el", False):
+    if _quick_manual_el_dialog is not None:
+        _quick_manual_el_dialog()
+        st.session_state["show_quick_manual_el"] = False
+    else:
+        with st.expander("Σύντομο Εγχειρίδιο", expanded=True):
+            _render_quick_manual_el()
+            if st.button("Απόκρυψη εγχειριδίου", key="hide_quick_manual_el_btn"):
+                st.session_state["show_quick_manual_el"] = False
 
 # -------- Sidebar: system + initial conditions --------
 with st.sidebar:
@@ -329,11 +454,6 @@ try:
                 format="%.4f",
                 help="Time between orthonormalizations during Lyapunov computation.",
             )
-            numba_available = numba_backend.numba_available()
-            if numba_available:
-                st.caption("Lyapunov Numba backend: available (used when solver is RK4).")
-            else:
-                st.caption("Lyapunov Numba backend: unavailable (install numba).")
             lya_c1, lya_c2 = st.columns([1, 1], gap="small")
             with lya_c1:
                 lyapunov_transient_frac = st.slider(

@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NLDS Simulator Manual</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #151922;
+        --panel-2: #10141d;
+        --text: #e6e9ef;
+        --muted: #b9c0d0;
+        --accent: #4fd1c5;
+        --accent-2: #f6c177;
+        --line: #252b39;
+        --ok: #7ee787;
+        --warn: #fbbf24;
+        --bad: #fb7185;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1000px 420px at 20% -10%, #1b2130 0%, transparent 60%),
+                    radial-gradient(900px 480px at 120% -20%, #20293a 0%, transparent 55%),
+                    var(--bg);
+        color: var(--text);
+        font-family: "Source Sans 3", "Segoe UI", Arial, sans-serif;
+        line-height: 1.55;
+      }
+
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 32px 24px 48px;
+      }
+
+      .hero {
+        background: linear-gradient(120deg, #1a2130, #101623 55%, #0f1115);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 28px 28px 20px;
+        box-shadow: 0 16px 60px rgba(0, 0, 0, 0.35);
+      }
+      .hero h1 {
+        margin: 0 0 6px;
+        font-size: 28px;
+        letter-spacing: 0.3px;
+      }
+      .hero p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 18px;
+      }
+
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .card h3 {
+        margin: 14px 0 8px;
+        font-size: 15px;
+        color: var(--accent);
+      }
+
+      .note {
+        border-left: 3px solid var(--accent);
+        background: var(--panel-2);
+        padding: 10px 12px;
+        border-radius: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        letter-spacing: 0.2px;
+        background: #1f2a3b;
+        color: var(--accent);
+        border: 1px solid #2a3548;
+      }
+
+      .list {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+      }
+      .list li { margin: 6px 0; }
+
+      .steps {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .steps li {
+        display: grid;
+        grid-template-columns: 28px 1fr;
+        gap: 10px;
+        padding: 10px 0;
+        border-bottom: 1px dashed var(--line);
+      }
+      .steps li:last-child { border-bottom: none; }
+      .step-num {
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        background: #1f2a3b;
+        color: var(--accent-2);
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: 13px;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      .table th,
+      .table td {
+        border-bottom: 1px solid var(--line);
+        padding: 8px 6px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .table th { color: var(--text); font-weight: 600; }
+      .table td { color: var(--muted); }
+
+      code, pre {
+        font-family: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: #dbe2f0;
+      }
+      pre {
+        background: #0f1420;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        overflow: auto;
+        margin: 8px 0 0;
+      }
+
+      .footer {
+        margin-top: 20px;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+      }
+
+      @media (max-width: 900px) {
+        .grid { grid-template-columns: repeat(1, 1fr); }
+        .two-col { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <h1>NLDS Simulator Manual</h1>
+        <p>Quick, practical guide to build systems, choose solvers, and generate phase portraits, Lyapunov exponents, and sweeps.</p>
+      </div>
+
+      <div class="grid">
+        <section class="card" style="grid-column: span 7;">
+          <h2>Quick Start</h2>
+          <ol class="steps">
+            <li><span class="step-num">1</span><div><strong>Choose a system</strong> (sidebar). Built-in: Lorenz, Rossler, Henon-Heiles. Or create a Custom system with your own variables and equations.</div></li>
+            <li><span class="step-num">2</span><div><strong>Pick a solver</strong>. Use RK45/DOP853 for accuracy or RK4 for speed. Symplectic Forest-Ruth is for Hamiltonian systems only.</div></li>
+            <li><span class="step-num">3</span><div><strong>Set integration</strong> (Tab 1): t0, tf, dt, plus parameters. Adjust axis selection for 2D/3D phase plots.</div></li>
+            <li><span class="step-num">4</span><div><strong>Compute Lyapunov</strong> (Tab 1): set QR interval and transient fraction, then click Compute.</div></li>
+            <li><span class="step-num">5</span><div><strong>Analyze sweeps</strong> (Tab 3): select sweep parameter, Poincare section, method, and mode (reset vs continuation).</div></li>
+            <li><span class="step-num">6</span><div><strong>Export</strong> (Tab 4): download trajectories, sweeps, and Lyapunov results.</div></li>
+          </ol>
+        </section>
+
+        <section class="card" style="grid-column: span 5;">
+          <h2>Custom System</h2>
+          <div class="note">Define variables, equations, and parameters in the sidebar. All expressions use Python/SymPy syntax.</div>
+          <h3>Variables</h3>
+          <pre>y1
+y2
+y3</pre>
+          <h3>Equations</h3>
+          <pre>sigma * (y2 - y1)
+y1 * (rho - y3) - y2
+y1 * y2 - beta * y3</pre>
+          <h3>Parameters</h3>
+          <pre>sigma=10
+rho=28
+beta=2.6666667</pre>
+          <h3>Custom Jacobian (Lyapunov)</h3>
+          <ul class="list">
+            <li>Enable <strong>Auto-compute Jacobian (symbolic)</strong>.</li>
+            <li>Toggle <strong>Use analytic Jacobian</strong> to speed up Lyapunov.</li>
+          </ul>
+        </section>
+
+        <section class="card" style="grid-column: span 6;">
+          <h2>Solver Guide</h2>
+          <table class="table">
+            <thead>
+              <tr><th>Solver</th><th>Best for</th><th>Notes</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>RK45</td><td>General use</td><td>Adaptive step, reliable default</td></tr>
+              <tr><td>DOP853</td><td>Non-stiff, smooth systems</td><td>High order, accurate</td></tr>
+              <tr><td>RK4</td><td>Speed / sweeps</td><td>Fixed dt, Numba accelerated</td></tr>
+              <tr><td>Symplectic Forest-Ruth</td><td>Hamiltonian systems</td><td>State is [q..., p...], even dimension; Numba accelerated when available</td></tr>
+            </tbody>
+          </table>
+          <div class="note" style="margin-top: 10px;">Tip: For sweeps, RK4 with a plane section is the fastest path.</div>
+        </section>
+
+        <section class="card" style="grid-column: span 6;">
+          <h2>Phase Portrait (Tab 1)</h2>
+          <ul class="list">
+            <li>Set <strong>t0, tf, dt</strong> and system parameters.</li>
+            <li>Choose 2D or 3D axes.</li>
+            <li>Use <strong>Transient cut</strong> to remove early dynamics.</li>
+          </ul>
+          <h3>Lyapunov (Tab 1)</h3>
+          <ul class="list">
+            <li>Set <strong>QR interval (time)</strong>.</li>
+            <li>Set <strong>Transient fraction</strong> for Lyapunov accumulation.</li>
+            <li>Click <strong>Compute Lyapunov exponents</strong>.</li>
+          </ul>
+        </section>
+
+        <section class="card" style="grid-column: span 6;">
+          <h2>Time Series (Tab 2)</h2>
+          <ul class="list">
+            <li>Plot any variable vs time.</li>
+            <li>Compare components and check stability.</li>
+          </ul>
+          <h3>Poincare Section (Tab 3)</h3>
+          <ul class="list">
+            <li>Plane section: choose section variable and value.</li>
+            <li>Equation section: enter an expression (overrides plane).</li>
+            <li>Method: <strong>crossing</strong> or <strong>slab</strong> (tolerance band).</li>
+          </ul>
+        </section>
+
+        <section class="card" style="grid-column: span 6;">
+          <h2>Parameter Sweeps (Tab 3)</h2>
+          <div class="two-col">
+            <div>
+              <h3>Bifurcation Sweep</h3>
+              <ul class="list">
+                <li>Select sweep parameter, range, and step.</li>
+                <li>Choose method and direction.</li>
+                <li>Mode: reset ICs or continuation (warm start).</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Lyapunov Sweep</h3>
+              <ul class="list">
+                <li>Uses same parameter range.</li>
+                <li>Set QR interval and transient fraction.</li>
+                <li>Parallel only in independent mode.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" style="grid-column: span 6;">
+          <h2>Export (Tab 4)</h2>
+          <ul class="list">
+            <li>Download trajectories (CSV).</li>
+            <li>Download sweep results (CSV).</li>
+            <li>Export Lyapunov results and configs.</li>
+          </ul>
+          <h3>Troubleshooting</h3>
+          <ul class="list">
+            <li><span class="badge">Slow</span> Reduce max steps or increase dt carefully.</li>
+            <li><span class="badge">No section hits</span> Adjust section value or direction.</li>
+            <li><span class="badge">Noisy Lyapunov</span> Increase tf or reduce dt.</li>
+          </ul>
+        </section>
+      </div>
+
+      <div class="footer">NLDS Simulator Manual · edit this file at docs/user-guide/manual.html</div>
+    </div>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 import io
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Protocol, Tuple
 
 import numpy as np
 import streamlit as st
@@ -12,6 +12,16 @@ SAFE_FUNCS = {
     "sinh": sp.sinh, "cosh": sp.cosh, "tanh": sp.tanh,
     "abs": sp.Abs,
 }
+
+
+class DQDT(Protocol):
+    def __call__(self, t: float, p: np.ndarray) -> np.ndarray:
+        ...
+
+
+class DPDT(Protocol):
+    def __call__(self, t: float, q: np.ndarray) -> np.ndarray:
+        ...
 
 
 def parse_params(text: str) -> Dict[str, float]:
@@ -111,7 +121,7 @@ def build_custom_symplectic_functions(
     var_names: List[str],
     eq_lines: List[str],
     params: Dict[str, float],
-) -> Tuple[Callable[[float, np.ndarray], np.ndarray], Callable[[float, np.ndarray], np.ndarray]]:
+) -> Tuple[DQDT, DPDT]:
     """
     Build dq_dt(t, p) and dp_dt(t, q) for separable Hamiltonian systems.
 

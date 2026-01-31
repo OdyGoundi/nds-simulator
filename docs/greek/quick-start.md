@@ -11,6 +11,7 @@
 3) Ρύθμισε παραμέτρους συστήματος (sidebar) και άξονες στο Tab 1.  
 4) Εξερεύνησε τα tabs: Phase portrait (μαζί με Lyapunov), Time series, Parameter Sweep Analysis (διακλάδωση + Lyapunov).  
 5) Κατέβασε CSV από το tab Export (τροχιές, διακλάδωση, Lyapunov).
+6) Άνοιξε Help (Eng) / Help(Ελλ) για το πλήρες manual.
 
 ## Συμβουλές
 
@@ -18,3 +19,4 @@
 - Χρησιμοποίησε transient cut για να αγνοήσεις αρχικές μεταβατικές καταστάσεις.  
 - Αν δεις σφάλμα, έλεγξε το μήκος `y0` στα `initial` και σωστή γραφή εξισώσεων/παραμέτρων.  
 - Τα parallel workers δουλεύουν μόνο τοπικά και μόνο σε independent mode (όχι Continuation).
+- Για RK4 ή Symplectic Forest-Ruth, το Numba ενεργοποιείται αυτόματα όταν είναι διαθέσιμο.

@@ -27,3 +27,10 @@ Minimal recipe to generate **bifurcation (Poincare)** and **Lyapunov** diagrams.
 - Continuation is smooth but sequential; parallel only works in independent mode (no warm start).  
 - If Lyapunov curves are noisy, increase `final time` and reduce `time step`.  
 - Reset accumulated data if you change key settings (sweep param, section, solver mode).
+
+## Solver notes
+
+- Sweeps use the solver selected in the sidebar (same as Tab 1).  
+- Event-based crossings run only for IVP solvers (RK45/DOP853) + crossing method.  
+- RK4 and Symplectic Forest-Ruth use fixed-step integration; Numba is used automatically when available.  
+- Expression-based sections disable the fast Numba sweep path for built-in systems.

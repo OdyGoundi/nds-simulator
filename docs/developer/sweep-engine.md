@@ -12,6 +12,7 @@
 
 - **Event-based IVP** (default when method = crossing): fast, early stop.  
 - **Fallback sweep**: uses dense sampling; slower but robust.
+- **Fixed-step sweep** (RK4 / Symplectic FR): integrates full trajectories; Numba is used when available.
 - **Lyapunov sweep**: computes spectrum per parameter value (QR-based; optional parallel).
 
 ## Performance knobs

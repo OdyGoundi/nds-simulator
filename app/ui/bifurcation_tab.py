@@ -172,6 +172,7 @@ def render_bifurcation_tab(
         st.divider()
 
         left_col, right_col = st.columns([1, 1], gap="large")
+        save_sweep_cfg = False
 
         with left_col:
             st.markdown("**Bifurcation sweep settings**")
@@ -342,10 +343,6 @@ def render_bifurcation_tab(
 
         with right_col:
             st.markdown("**Lyapunov sweep settings**")
-            if numba_available:
-                st.caption("Lyapunov Numba backend: available (used when solver is RK4).")
-            else:
-                st.caption("Lyapunov Numba backend: unavailable (install numba).")
             parallel_disabled = bool(warm_start)
             parallel_lya = st.checkbox(
                 "Parallel sweep",
@@ -421,7 +418,6 @@ def render_bifurcation_tab(
                 reset_lya = st.button("Reset Lyapunov data", type="secondary", key="reset_acc_lya")
             with lbtn3:
                 run_lya_cont = st.button("Continue Lyapunov", type="secondary", key="run_cont_lya")
-            save_sweep_cfg = st.button("Save configuration", key="save_cfg_lya_tab3")
             if reset_lya:
                 st.session_state["lya_acc_data"] = None
                 st.session_state["lya_last_pv"] = None
@@ -444,6 +440,8 @@ def render_bifurcation_tab(
                     key="continue_stop_lya_tab3",
                     help="Sets the new stop for Continue Lyapunov. Start is last_pv + step."
                 )
+
+        save_sweep_cfg = st.button("Save configuration", key="save_cfg_lya_tab3")
 
         sweep_cfg = SweepConfig(
             param_name=str(sweep_param),
@@ -543,8 +541,7 @@ def render_bifurcation_tab(
                 lya_fingerprint=lya_meta,
             )
             st.session_state["sweep_config"] = sweep_config
-            with right_col:
-                st.success("Sweep configuration saved. Download from the Export tab.")
+            st.success("Sweep configuration saved. Download from the Export tab.")
 
         df_plot = None
 

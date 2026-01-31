@@ -19,6 +19,7 @@ Minimal map of the NLDS app, matching the structure used in `performance.md`.
 
 - Deterministic RHS functions (Lorenz, Rossler, custom).
 - Integration via `integrate_system` and Poincaré sweep utilities.
+- Numba backend accelerates fixed-step RK4 and symplectic Forest-Ruth when available.
 - Event-based sweep path for fast bifurcation diagrams; fallback keeps API stable.
 
 ## 4. Caching and reuse

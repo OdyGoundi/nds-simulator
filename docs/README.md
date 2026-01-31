@@ -9,6 +9,11 @@ Short index of the docs in this repo.
 - Time series (Tab 2): `docs/user-guide/time-series.md`
 - Parameter sweep (bifurcation + Lyapunov, Tab 3): `docs/user-guide/bifurcation-tab3.md`
 
+## In-app manuals (HTML)
+
+- English: `docs/user-guide/manual.html` (Help (Eng))
+- Greek: `docs/user-guide/manual-el.html` (Help(Ελλ))
+
 ## Greek quick guides
 
 - Γρήγορη εκκίνηση: `docs/greek/quick-start.md`

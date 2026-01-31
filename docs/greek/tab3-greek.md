@@ -25,3 +25,10 @@
 - Continuation = ομαλή συνέχεια αλλά σειριακό (χωρίς parallel).  
 - Μικρό `tf_sweep` + λίγα `max_hits` για γρήγορο preview.  
 - Κάνε reset όταν αλλάζεις βασικές ρυθμίσεις (παράμετρος, τομή, μέθοδος).
+
+## Σημειώσεις για λύτη
+
+- Οι σαρώσεις χρησιμοποιούν τον solver που έχεις επιλέξει στο sidebar.  
+- Τα event-based crossings δουλεύουν μόνο για IVP solvers (RK45/DOP853) + crossing.  
+- RK4 και Symplectic Forest‑Ruth είναι fixed‑step· το Numba ενεργοποιείται αυτόματα όταν είναι διαθέσιμο.  
+- Οι expression-based τομές απενεργοποιούν το fast Numba sweep path για built‑in συστήματα.

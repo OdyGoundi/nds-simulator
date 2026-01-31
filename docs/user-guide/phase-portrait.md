@@ -23,3 +23,4 @@ Minimal steps to view phase diagrams.
 - 3D plots follow the selected axes order.  
 - If a variable is flat, try different ICs or parameters.  
 - For chaotic regimes, increase `final time` for more stable Lyapunov estimates.
+- RK4 and Symplectic Forest-Ruth are fixed-step; use a smaller `dt` if accuracy looks off (Numba accelerates these when available).

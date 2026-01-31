@@ -197,6 +197,20 @@ terminates early, the computational cost depends on the number of
 -> This is the key reason why sweeps that originally took **tens of minutes**
 now complete in **a few minutes**.
 
+## 9. Numba acceleration (fixed-step)
+
+### What
+When the user selects **RK4** or **Symplectic Forest-Ruth**, the app attempts to
+use the Numba backend for the fixed-step integrators.
+
+### Why
+- JIT-compiled loops are significantly faster for long fixed-step runs.
+- Particularly helpful for dense sweeps and Hamiltonian systems.
+
+### Notes
+- The first run pays a compilation cost; later runs are fast.
+- Event-based IVP acceleration still applies only to RK45/DOP853 + crossing.
+
 
 ## 9. Practical tuning guidelines
 
@@ -236,4 +250,3 @@ bifurcation diagrams from a **brute-force numerical task** into a
 
 As a result, **NLDS remains interactive**, even for large parameter
 sweeps and chaotic regimes.
-

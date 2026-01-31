@@ -9,10 +9,12 @@ Minimal steps to get value from the Streamlit app.
 - Simulate Lorenz, Rossler, Henon-Heiles (Hamiltonian), or custom nD systems.
 - Plot phase portraits (2D/3D) and time series.
 - Choose solvers: RK45, DOP853, fixed-step RK4, or symplectic Forest-Ruth.
+- Numba acceleration is used automatically for fixed-step RK4 and symplectic Forest-Ruth when available.
 - Compute Lyapunov exponents for a single trajectory (Tab 1), with optional analytic/symbolic Jacobian for custom systems.
 - Generate parameter sweeps (bifurcation + Lyapunov) with continuation or independent runs.
 - Speed up independent sweeps with local parallel workers.
 - Export trajectories, Poincare/bifurcation sweeps, and Lyapunov sweeps.
+- Open the in-app manuals via Help (Eng) / Help(Ελλ).
 
 ## Quick start
 
@@ -21,3 +23,4 @@ Minimal steps to get value from the Streamlit app.
 3) Adjust system parameters (sidebar) and axes (Tab 1 controls).  
 4) Explore tabs: Phase portrait (incl. Lyapunov), Time series, Parameter Sweep Analysis (bifurcation + Lyapunov).  
 5) Export CSVs from the Export tab (trajectory, sweep, Lyapunov).
+6) Optional: open Help (Eng) / Help(Ελλ) for the full manual.

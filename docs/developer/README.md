@@ -57,6 +57,9 @@ UI -> run_sweep_chunk(...)  [app/sweep.py]
   ├─ system = custom
   │    ├─ solver_kind = rk4 and Numba available?
   │    │    └─ build_custom_numba_rhs() -> build_rk4_integrator()  [Numba]
+  │    ├─ solver_kind = symplectic_fr and Numba available?
+  │    │    └─ build_custom_numba_symplectic_functions()
+  │    │         -> build_symplectic_fr_integrator()             [Numba]
   │    └─ fallback:
   │         ├─ core/solver.integrate_system_rk4()  [Python]
   │         └─ or core/solver.integrate_system()  [Python]
@@ -64,6 +67,10 @@ UI -> run_sweep_chunk(...)  [app/sweep.py]
   └─ system = built-in (lorenz/rossler/henon)
        ├─ solver_kind = rk4 + crossing/slab + no section_expr?
        │    └─ build_poincare_sweep_rk4() -> Numba sweep                  [Numba]
+       ├─ solver_kind = symplectic_fr (henon_heiles only)
+       │    ├─ Numba available? build_builtin_symplectic()
+       │    │      -> build_symplectic_fr_integrator()                   [Numba]
+       │    └─ fallback: core/symplectic_solver.integrate_system_symplectic_fr()  [Python]
        └─ fallback:
             ├─ core/poincare_sweep.sweep_poincare_events_ivp() (ivp + crossing)
             └─ core/poincare_sweep.sweep_poincare()                       [Python]
@@ -93,3 +100,4 @@ tests/benchmark_lyapunov_cpp_vs_python.py
 - Numba compilation happens on first use; benchmark after the first run.
 - The app uses `@st.cache_data` in `app/cache.py` and `app/logic/lyapunov_cached.py` to reuse results.
 - Symplectic solvers in the app are Forest-Ruth (4th order) only.
+- When users select RK4 or Symplectic Forest-Ruth, the Numba path is attempted automatically if available.

@@ -29,7 +29,9 @@ flowchart LR
 - Lyapunov spectrum: variational equations + periodic QR; analytic/symbolic or FD Jacobians.
 - Poincare sections: plane or expression-based sections; crossing or slab methods.
 - Sweeps: bifurcation (reset ICs) and continuation (warm start), with optional local parallelism.
+- Numba acceleration: auto-used for fixed-step RK4 and symplectic Forest-Ruth (and Lyapunov) when available.
 - Export: trajectories, sweeps, and Lyapunov results (CSV).
+- In-app manuals: Help (Eng) / Help(Ελλ) open HTML manuals in `docs/user-guide/`.
 
 ---
 
@@ -44,6 +46,7 @@ streamlit run app/nlds_app.py
 ## Docs
 
 - User guide: `docs/user-guide/` (overview, phase portrait, time series, sweeps).
+- Manuals (HTML): `docs/user-guide/manual.html` (English), `docs/user-guide/manual-el.html` (Greek).
 - Theory notes: `docs/theory/` (numerical techniques, Poincare sections, bifurcation vs continuation).
 - Developer: `docs/developer/` (architecture, sweep engine, session state, performance).
 - Greek guides: `docs/greek/` (quick start, Tab 3).
