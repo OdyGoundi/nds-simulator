@@ -21,9 +21,9 @@
     ],
     "params": {
       "c": 2.7,
-      "d": 0.44
+      "d": 0.05
     },
-    "params_text": "c = 2.7\nd = 0.44",
+    "params_text": "c = 2.7\nd = 0.05",
     "auto_jacobian": true,
     "use_jacobian": true
   },

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>dynaSim · Info</title>
+  <style>
+    :root{
+      --bg:#0f1115;
+      --panel:#151922;
+      --panel-2:#10141d;
+      --text:#e6e9ef;
+      --muted:#b9c0d0;
+      --accent:#4fd1c5;
+      --accent-2:#f6c177;
+      --line:#252b39;
+    }
+
+    *{ box-sizing:border-box; }
+
+    body{
+      margin:0;
+      background:
+        radial-gradient(1000px 420px at 20% -10%, #1b2130 0%, transparent 60%),
+        radial-gradient(900px 480px at 120% -20%, #20293a 0%, transparent 55%),
+        var(--bg);
+      color:var(--text);
+      font-family:"Source Sans 3","Segoe UI",Arial,sans-serif;
+      line-height:1.6;
+    }
+
+    a{ color:var(--accent); text-decoration:none; }
+    a:hover{ text-decoration:underline; }
+
+    .wrap{
+      max-width:760px;
+      margin:0 auto;
+      padding:28px 20px 36px;
+    }
+
+    .card{
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:20px;
+      margin-bottom:14px;
+      box-shadow:0 16px 60px rgba(0,0,0,.25);
+    }
+
+    .card h1{
+      margin:0 0 10px;
+      font-size:20px;
+      letter-spacing:.3px;
+    }
+
+    .card h2{
+      margin:16px 0 8px;
+      font-size:14px;
+      color:var(--accent-2);
+      text-transform:uppercase;
+      letter-spacing:.6px;
+    }
+
+    .lead{
+      color:var(--muted);
+      margin:0 0 10px;
+      font-size:13px;
+    }
+
+    .list{
+      margin:6px 0 0;
+      padding-left:18px;
+      color:var(--muted);
+    }
+    .list li{ margin:7px 0; }
+
+    .note{
+      margin:12px 0 0;
+      padding:10px 12px;
+      background:var(--panel-2);
+      border:1px solid var(--line);
+      border-left:3px solid var(--accent);
+      border-radius:10px;
+      color:var(--muted);
+      font-size:13px;
+    }
+    .note strong{ color:var(--text); }
+
+    .hr{
+      height:1px;
+      background:var(--line);
+      margin:16px 0 12px;
+      border:0;
+    }
+
+    .license{
+      margin-top:12px;
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    .tiny{
+      color:var(--muted);
+      font-size:12px;
+      margin:10px 0 0;
+    }
+
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: var(--text);
+      background: #0f1420;
+      border: 1px solid var(--line);
+      padding: 1px 6px;
+      border-radius: 7px;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Info</h1>
+      <p class="lead">
+        About / License information for <span class="mono">dynaSim</span>.
+      </p>
+
+      <h2>Ελληνικά</h2>
+      <ul class="list">
+        <li>
+          Η συγκεκριμένη εφαρμογή αναπτύχθηκε στο πλαίσιο πτυχιακής εργασίας του
+          <strong>Οδυσσέα Γκουντινάκου</strong>.
+        </li>
+        <li>
+          <strong>Μεταπτυχιακό Πρόγραμμα <em>Υπολογιστικής Φυσικής</em></strong>, Τμήμα Φυσικής,
+          Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης (Α.Π.Θ.).
+        </li>
+        <li>Επιβλέπων καθηγητής: <strong>Χρήστος Βόλος</strong></li>
+        <li>
+          Πλήρης πηγαίος κώδικας:
+          <a href="https://github.com/OdyGoundi/nds-simulator" target="_blank" rel="noreferrer">
+            https://github.com/OdyGoundi/nds-simulator
+          </a>
+        </li>
+        <li>
+          <strong>Επικοινωνία:</strong>
+          <a href="mailto:ody.gkount@gmail.com">ody.gkount@gmail.com</a>
+        </li>
+      </ul>
+
+      <div class="note">
+        Η εφαρμογή διανέμεται ως <strong>ελεύθερο λογισμικό</strong>.
+        Επιτρέπεται η χρήση, μελέτη, τροποποίηση και αναδιανομή του πηγαίου κώδικα,
+        σύμφωνα με τους όρους της άδειας <strong>GNU General Public License v3.0</strong>.
+      </div>
+
+      <hr class="hr">
+
+      <h2>English</h2>
+      <ul class="list">
+        <li>
+          This application was developed as part of the undergraduate thesis of
+          <strong>Odysseas Gkountinakos</strong>.
+        </li>
+        <li>
+          <strong>Master's Program in <em>Computational Physics</em></strong>, Department of Physics,
+          Aristotle University of Thessaloniki (A.U.Th.).
+        </li>
+        <li>Supervisor: <strong>Christos Volos</strong></li>
+        <li>
+          Complete source code:
+          <a href="https://github.com/OdyGoundi/nds-simulator" target="_blank" rel="noreferrer">
+            https://github.com/OdyGoundi/nds-simulator
+          </a>
+        </li>
+        <li>
+          <strong>Contact:</strong>
+          <a href="mailto:ody.gkount@gmail.com">ody.gkount@gmail.com</a>
+        </li>
+      </ul>
+
+      <div class="note">
+        This application is distributed as <strong>free software</strong>.
+        You are free to use, study, modify, and redistribute the source code
+        under the terms of the <strong>GNU General Public License v3.0</strong>.
+      </div>
+
+      <p class="tiny">
+        License text:
+        <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noreferrer">
+          GNU GPL v3.0
+        </a>
+      </p>
+
+      <p class="license">
+        Licensed under the <strong>GNU GPL v3.0</strong><br>
+        © 2026 Odysseas Gkountinakos
+      </p>
+    </div>
+  </div>
+</body>
+</html>

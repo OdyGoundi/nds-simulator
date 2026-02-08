@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.helpers import build_custom_rhs, build_custom_rhs_and_jacobian, parse_params
+from core import numba_backend
 from core.henon_heiles_system_rhs import henon_heiles_rhs
 from core.jacobians_fixed_systems import henon_heiles_jac, lorenz_jac, rossler_jac
 from core.lorenz_system_rhs import lorenz_rhs
@@ -28,8 +29,6 @@ TF_LIST = [
     30000.0,
     40000.0,
     50000.0,
-    60000.0,
-    100000.0,
 ]
 
 
@@ -37,8 +36,7 @@ def load_config(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
-
-def build_rhs_and_jac(sys_cfg: dict):
+def build_python_rhs_and_jac(sys_cfg: dict):
     key = str(sys_cfg.get("system_key", "")).lower().strip()
     params = sys_cfg.get("params") or {}
     params_text = sys_cfg.get("params_text")
@@ -47,23 +45,29 @@ def build_rhs_and_jac(sys_cfg: dict):
     params = {str(k): float(v) for k, v in (params or {}).items()}
 
     if key == "lorenz":
-        return (
-            lambda t, y: lorenz_rhs(t, y, **params),
-            lambda t, y: lorenz_jac(t, y, **params),
-            params,
-        )
+        def rhs(tt: float, xx: np.ndarray) -> np.ndarray:
+            return lorenz_rhs(tt, xx, **params)
+
+        def jac(tt: float, xx: np.ndarray) -> np.ndarray:
+            return lorenz_jac(tt, xx, **params)
+
+        return rhs, jac
     if key == "rossler":
-        return (
-            lambda t, y: rossler_rhs(t, y, **params),
-            lambda t, y: rossler_jac(t, y, **params),
-            params,
-        )
+        def rhs(tt: float, xx: np.ndarray) -> np.ndarray:
+            return rossler_rhs(tt, xx, **params)
+
+        def jac(tt: float, xx: np.ndarray) -> np.ndarray:
+            return rossler_jac(tt, xx, **params)
+
+        return rhs, jac
     if key == "henon_heiles":
-        return (
-            lambda t, y: henon_heiles_rhs(t, y, **params),
-            lambda t, y: henon_heiles_jac(t, y, **params),
-            params,
-        )
+        def rhs(tt: float, xx: np.ndarray) -> np.ndarray:
+            return henon_heiles_rhs(tt, xx, **params)
+
+        def jac(tt: float, xx: np.ndarray) -> np.ndarray:
+            return henon_heiles_jac(tt, xx, **params)
+
+        return rhs, jac
     if key == "custom":
         var_names = list(sys_cfg.get("var_names") or [])
         eq_lines = list(sys_cfg.get("eq_lines") or [])
@@ -74,13 +78,72 @@ def build_rhs_and_jac(sys_cfg: dict):
         auto_jac = bool(sys_cfg.get("auto_jacobian", False))
         use_jac = bool(sys_cfg.get("use_jacobian", False))
         if auto_jac:
-            rhs, jac = build_custom_rhs_and_jacobian(var_names, eq_lines, params)
+            rhs_raw, jac_raw = build_custom_rhs_and_jacobian(var_names, eq_lines, params)
             if not use_jac:
-                jac = None
+                jac_raw = None
         else:
-            rhs = build_custom_rhs(var_names, eq_lines, params)
-            jac = None
-        return rhs, jac, params
+            rhs_raw = build_custom_rhs(var_names, eq_lines, params)
+            jac_raw = None
+
+        def rhs(tt: float, xx: np.ndarray) -> np.ndarray:
+            return rhs_raw(tt, xx)
+
+        if jac_raw is None:
+            return rhs, None
+
+        def jac(tt: float, xx: np.ndarray) -> np.ndarray:
+            return jac_raw(tt, xx)
+
+        return rhs, jac
+
+    raise ValueError(f"Unknown system_key: {key!r}")
+
+
+def build_numba_rhs_and_params(sys_cfg: dict):
+    key = str(sys_cfg.get("system_key", "")).lower().strip()
+    params = sys_cfg.get("params") or {}
+    params_text = sys_cfg.get("params_text")
+    if not params and isinstance(params_text, str) and params_text.strip():
+        params = parse_params(params_text)
+    params = {str(k): float(v) for k, v in (params or {}).items()}
+
+    if key in ("lorenz", "rossler", "henon_heiles"):
+        rhs_nb, jac_nb, param_names = numba_backend.build_builtin_system(key)
+        values = []
+        for name in param_names:
+            if name in params:
+                values.append(float(params[name]))
+            elif name == "lambda" and "lam" in params:
+                values.append(float(params["lam"]))
+            else:
+                raise ValueError(f"Missing parameter {name!r} for system {key!r}.")
+        params_arr = np.array(values, dtype=float)
+        return rhs_nb, jac_nb, params_arr, False
+
+    if key == "custom":
+        var_names = list(sys_cfg.get("var_names") or [])
+        eq_lines = list(sys_cfg.get("eq_lines") or [])
+        if len(var_names) == 0 or len(eq_lines) == 0:
+            raise ValueError("Custom system requires var_names and eq_lines.")
+        if len(eq_lines) != len(var_names):
+            raise ValueError("Custom system: eq_lines must match var_names length.")
+        param_names = list(params.keys())
+        if len(param_names) == 0:
+            raise ValueError("Custom system requires parameters for Numba compilation.")
+        auto_jac = bool(sys_cfg.get("auto_jacobian", False))
+        use_jac = bool(sys_cfg.get("use_jacobian", False))
+        from app import numba_custom
+        if auto_jac and use_jac:
+            rhs_nb, jac_nb = numba_custom.build_custom_numba_rhs_and_jacobian(
+                var_names, eq_lines, param_names
+            )
+            use_fd_jac = False
+        else:
+            rhs_nb = numba_custom.build_custom_numba_rhs(var_names, eq_lines, param_names)
+            jac_nb = None
+            use_fd_jac = True
+        params_arr = np.array([float(params[name]) for name in param_names], dtype=float)
+        return rhs_nb, jac_nb, params_arr, use_fd_jac
 
     raise ValueError(f"Unknown system_key: {key!r}")
 
@@ -125,20 +188,12 @@ def main() -> int:
     t0 = float(integ.get("t0", 0.0))
     dt = float(integ.get("dt", 0.01))
     y0 = np.asarray(integ.get("y0", []), dtype=float)
-    solver_kind = str(integ.get("solver_kind", "rk45")).lower().strip()
-    solve_opts = dict(integ.get("solve_options") or {})
+    if not numba_backend.numba_available():
+        print("[SKIP] numba backend not available.")
+        return 0
 
-    if solver_kind == "ivp":
-        solver_kind = "rk45"
-    if solver_kind == "rk45":
-        solve_opts.setdefault("method", "RK45")
-    elif solver_kind == "dop853":
-        solve_opts.setdefault("method", "DOP853")
-
-    rhs_raw, jac_raw, _params = build_rhs_and_jac(sys_cfg)
-
-    def rhs_fn(tt: float, xx: np.ndarray) -> np.ndarray:
-        return rhs_raw(tt, xx)
+    rhs_nb, jac_nb, params_arr, use_fd_jac = build_numba_rhs_and_params(sys_cfg)
+    rhs_py, jac_py = build_python_rhs_and_jac(sys_cfg)
 
     lyap_cfg = cfg.get("lyapunov") or {}
     s = lyap_cfg.get("settings") or {}
@@ -152,28 +207,28 @@ def main() -> int:
 
     jac_mode = str(s.get("jacobian", "")).lower().strip()
     fd_eps = float(s.get("fd_eps", 1e-8))
-    jac_to_use = None
-    if jac_mode == "analytic" and jac_raw is not None:
-        def jac_fn(tt: float, xx: np.ndarray) -> np.ndarray:
-            return jac_raw(tt, xx)
-        jac_to_use = jac_fn
+    lyap_nb = numba_backend.build_lyapunov_solver(
+        rhs_nb,
+        jac_nb,
+        use_fd_jac=use_fd_jac,
+    )
 
     results = []
     for tf in TF_LIST:
         t_transient, t_measure = lyapunov_window_for_tf(cfg, t0, tf, lyap_dt)
-        res = compute_lyapunov_spectrum(
-            rhs=rhs_fn,
-            x0=y0,
-            t0=t0,
-            dt=lyap_dt,
-            t_transient=t_transient,
-            t_measure=t_measure,
-            qr_every_steps=qr_every_steps,
-            solve_options=solve_opts,
-            jac=jac_to_use,
-            fd_eps=fd_eps,
+        lambdas, _sums, _t_meas, n_qr, _x_final = lyap_nb(
+            np.asarray(y0, dtype=float),
+            float(t0),
+            float(lyap_dt),
+            float(t_transient),
+            float(t_measure),
+            int(qr_every_steps),
+            float(fd_eps),
+            params_arr,
         )
-        lambdas = res.lambdas
+        if int(n_qr) <= 0:
+            raise ValueError("No QR steps performed. Increase t_measure or reduce qr_every_steps.")
+        lambdas = np.asarray(lambdas, dtype=float)
         lmax = float(np.max(lambdas))
         results.append((tf, lmax, lambdas))
 
@@ -182,6 +237,31 @@ def main() -> int:
             f"tf={tf:.1f} | t_transient={t_transient:.3f} | "
             f"t_measure={t_measure:.3f} | lmax={lmax:.6f} | lambdas={lambdas_str}"
         )
+
+        if tf in (5000.0, 10000.0):
+            jac_to_use = None
+            if jac_mode == "analytic" and jac_py is not None:
+                jac_to_use = jac_py
+            res_py = compute_lyapunov_spectrum(
+                rhs=rhs_py,
+                x0=y0,
+                t0=t0,
+                dt=lyap_dt,
+                t_transient=t_transient,
+                t_measure=t_measure,
+                qr_every_steps=qr_every_steps,
+                jac=jac_to_use,
+                fd_eps=fd_eps,
+                solver_kind="rk4",
+            )
+            lambdas_py = np.asarray(res_py.lambdas, dtype=float)
+            lmax_py = float(np.max(lambdas_py))
+            lambdas_py_str = np.array2string(lambdas_py, precision=6, separator=", ")
+            print(
+                f"[COMPARE] tf={tf:.1f} | lmax_numba={lmax:.6f} | "
+                f"lmax_rk4={lmax_py:.6f} | lambdas_numba={lambdas_str} | "
+                f"lambdas_rk4={lambdas_py_str}"
+            )
 
     print("tf,lambda_max")
     for tf, lmax, _ in results:

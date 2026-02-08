@@ -116,6 +116,20 @@ def _render_quick_manual_el() -> None:
         """,
     )
 
+def _render_info() -> None:
+    info_html_path = PROJECT_ROOT / "docs" / "user-guide" / "info.html"
+    if info_html_path.exists():
+        html = info_html_path.read_text(encoding="utf-8")
+        components.html(html, height=520, scrolling=True)
+        return
+    st.markdown(
+        """
+**Info not available**
+
+Please check that `docs/user-guide/info.html` exists.
+        """
+    )
+
 
 DialogDecorator = Callable[[str], Callable[[Callable[[], None]], Callable[[], None]]]
 
@@ -134,23 +148,34 @@ if "show_quick_manual_eng" not in st.session_state:
     st.session_state["show_quick_manual_eng"] = False
 if "show_quick_manual_el" not in st.session_state:
     st.session_state["show_quick_manual_el"] = False
+if "show_info_popup" not in st.session_state:
+    st.session_state["show_info_popup"] = False
 
-manual_cols = st.columns(2)
+manual_cols = st.columns(3)
 with manual_cols[0]:
     open_manual_eng = st.button("Help (Eng)", key="open_quick_manual_btn")
 with manual_cols[1]:
     open_manual_el = st.button("Help(Ελλ)", key="open_quick_manual_el_btn")
+with manual_cols[2]:
+    open_info = st.button("Info", key="open_info_btn")
 
 if open_manual_eng:
     st.session_state["show_quick_manual_eng"] = True
     st.session_state["show_quick_manual_el"] = False
+    st.session_state["show_info_popup"] = False
 if open_manual_el:
     st.session_state["show_quick_manual_el"] = True
     st.session_state["show_quick_manual_eng"] = False
+    st.session_state["show_info_popup"] = False
+if open_info:
+    st.session_state["show_info_popup"] = True
+    st.session_state["show_quick_manual_eng"] = False
+    st.session_state["show_quick_manual_el"] = False
 
 dialog_decorator = _get_dialog_decorator()
 _quick_manual_eng_dialog: Optional[Callable[[], None]] = None
 _quick_manual_el_dialog: Optional[Callable[[], None]] = None
+_info_dialog: Optional[Callable[[], None]] = None
 if dialog_decorator is not None:
 
     @dialog_decorator("Quick Start Manual")
@@ -171,6 +196,15 @@ if dialog_decorator is not None:
 
     _quick_manual_el_dialog = _quick_manual_el_dialog_impl
 
+    @dialog_decorator("Info")
+    def _info_dialog_impl() -> None:
+        _render_info()
+        if st.button("Close info", key="close_info_btn"):
+            st.session_state["show_info_popup"] = False
+            st.rerun()
+
+    _info_dialog = _info_dialog_impl
+
 if st.session_state.get("show_quick_manual_eng", False):
     if _quick_manual_eng_dialog is not None:
         _quick_manual_eng_dialog()
@@ -190,6 +224,16 @@ if st.session_state.get("show_quick_manual_el", False):
             _render_quick_manual_el()
             if st.button("Απόκρυψη εγχειριδίου", key="hide_quick_manual_el_btn"):
                 st.session_state["show_quick_manual_el"] = False
+
+if st.session_state.get("show_info_popup", False):
+    if _info_dialog is not None:
+        _info_dialog()
+        st.session_state["show_info_popup"] = False
+    else:
+        with st.expander("Info", expanded=True):
+            _render_info()
+            if st.button("Hide info", key="hide_info_btn"):
+                st.session_state["show_info_popup"] = False
 
 # -------- Sidebar: system + initial conditions --------
 with st.sidebar:

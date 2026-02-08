@@ -1,26 +1,37 @@
-# NLDS User Guide (Overview)
+# Οδηγός χρήσης NLDS (Επισκόπηση)
 
-Minimal steps to get value from the Streamlit app.
+Ελάχιστα βήματα για να αξιοποιήσετε την εφαρμογή Streamlit.
 
 ---
 
-## What you can do
+## Τι μπορείτε να κάνετε
 
-- Simulate Lorenz, Rossler, Henon-Heiles (Hamiltonian), or custom nD systems.
-- Plot phase portraits (2D/3D) and time series.
-- Choose solvers: RK45, DOP853, fixed-step RK4, or symplectic Forest-Ruth.
-- Numba acceleration is used automatically for fixed-step RK4 and symplectic Forest-Ruth when available.
-- Compute Lyapunov exponents for a single trajectory (Tab 1), with optional analytic/symbolic Jacobian for custom systems.
-- Generate parameter sweeps (bifurcation + Lyapunov) with continuation or independent runs.
-- Speed up independent sweeps with local parallel workers.
-- Export trajectories, Poincare/bifurcation sweeps, and Lyapunov sweeps.
-- Open the in-app manuals via Help (Eng) / Help(Ελλ).
+- Προσομοίωση Lorenz, Rossler, Henon-Heiles (Hamiltonian) ή custom nD συστημάτων.
+- Πλοκή πορτρέτων φάσης (2D/3D) και χρονοσειρών.
+- Επιλογή ολοκληρωτών: RK45, DOP853, σταθερού βήματος RK4, ή συμμεπλεκτικός Forest-Ruth.
+- Η επιτάχυνση Numba χρησιμοποιείται αυτόματα για σταθερού βήματος RK4 και συμμεπλεκτικό Forest-Ruth όταν είναι διαθέσιμη.
+- Υπολογισμός εκθετών Lyapunov για μία τροχιά (Tab 1), με προαιρετικό αναλυτικό/συμβολικό Ιακωβιανό για custom συστήματα.
+- Δημιουργία σαρώσεων παραμέτρων (διακλάδωσης + Lyapunov) με continuation ή ανεξάρτητα runs.
+- Επιτάχυνση ανεξάρτητων sweeps με τοπικούς parallel workers.
+- Εξαγωγή τροχιών, σαρώσεων Poincare/διακλάδωσης, και σαρώσεων Lyapunov.
+- Άνοιγμα του in-app manual μέσω Help (Eng) / Help(Ελλ).
 
-## Quick start
+## Γρήγορη εκκίνηση
 
-1) Launch: `streamlit run app/nlds_app.py`.  
-2) Pick system + integration settings in the sidebar.  
-3) Adjust system parameters (sidebar) and axes (Tab 1 controls).  
-4) Explore tabs: Phase portrait (incl. Lyapunov), Time series, Parameter Sweep Analysis (bifurcation + Lyapunov).  
-5) Export CSVs from the Export tab (trajectory, sweep, Lyapunov).
-6) Optional: open Help (Eng) / Help(Ελλ) for the full manual.
+1) Εκκίνηση: `streamlit run app/nlds_app.py`.  
+2) Επιλέξτε σύστημα + ρυθμίσεις ολοκλήρωσης στο sidebar.  
+3) Ρυθμίστε παραμέτρους συστήματος (sidebar) και άξονες (controls του Tab 1).  
+4) Εξερευνήστε tabs: Phase portrait (incl. Lyapunov), Time series, Parameter Sweep Analysis (διακλάδωση + Lyapunov).  
+5) Εξαγωγή CSVs από το Export tab (trajectory, sweep, Lyapunov).
+6) Προαιρετικά: ανοίξτε Help (Eng) / Help(Ελλ) για το πλήρες manual.
+
+## Οδηγίες μελέτης δυναμικών συστημάτων (χαοτική + παραμετρική συμπεριφορά)
+
+Παρακάτω είναι ένα σύντομο πακέτο οδηγιών για μελέτη χαοτικής και παραμετρικής συμπεριφοράς. Τα βήματα ταιριάζουν τόσο για single-run όσο και για sweeps.
+
+- Μετά το setup των εξισώσεων, επιλέξτε ρυθμίσεις ολοκλήρωσης που να επιτρέπουν επαρκή εξέλιξη του συστήματος.
+- Για υπολογισμό εκθετών Lyapunov σε συγκεκριμένες τιμές παραμέτρων, χρησιμοποιήστε σχετικά μεγάλο χρονικό ορίζοντα. Ενδεικτικά, με time step 0.01, time final 10000 είναι συνήθως αρκετά ασφαλές.
+- Για παραμετρική μελέτη (διαγράμματα διακλάδωσης και Lyapunov ανά τιμή παραμέτρου), ξεκινήστε με λίγες τιμές παραμέτρων και αυξήστε σταδιακά την ανάλυση.
+- Με βάση τις χρονοσειρές των μεταβλητών, επιλέξτε κατάλληλη εξίσωση επιπέδου για την τομή Poincaré, ώστε να πάρετε έγκυρες crossing τιμές. Με τον ίδιο τρόπο μπορείτε να παραγάγετε και το διάγραμμα Lyapunov.
+- Ισορροπήστε ποιότητα και χρόνο εκτέλεσης μειώνοντας/αυξάνοντας το time final μέχρι να έχετε ικανοποιητική αποτύπωση της συμπεριφοράς χωρίς υπερβολικό κόστος.
+- Αν δεν χρησιμοποιείτε warm start (όπου οι αρχικές συνθήκες κάθε run είναι οι τελικές του προηγούμενου), μπορείτε να παραλληλοποιήσετε με το workers slider και να εφαρμόσετε reset ICs για κάθε παράμετρο ώστε να μειώσετε τον συνολικό χρόνο.

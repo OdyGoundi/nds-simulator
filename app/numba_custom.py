@@ -34,7 +34,11 @@ def _require_numba():
 
 
 def _expr_to_code(expr: sp.Expr) -> str:
-    code = cast(str, pycode(expr, standard="numpy"))
+    try:
+        code = cast(str, pycode(expr, standard="numpy"))
+    except ValueError:
+        # Sympy >= 1.14 accepts only "python3" as standard.
+        code = cast(str, pycode(expr, standard="python3"))
     return str(code).replace("numpy.", "np.")
 
 
@@ -132,7 +136,7 @@ def build_custom_numba_rhs(
     }
     exec(src, ns)
     rhs_py = ns["rhs"]
-    rhs_nb = nb.njit(cache=True, fastmath=True)(rhs_py)
+    rhs_nb = nb.njit(cache=False, fastmath=True)(rhs_py)
 
     _CUSTOM_CACHE[key] = (rhs_nb, cached[1] if cached is not None else None)
     return rhs_nb
@@ -193,8 +197,8 @@ def build_custom_numba_rhs_and_jacobian(
     rhs_py = ns["rhs"]
     jac_py = ns["jac"]
 
-    rhs_nb = nb.njit(cache=True, fastmath=True)(rhs_py)
-    jac_nb = nb.njit(cache=True, fastmath=True)(jac_py)
+    rhs_nb = nb.njit(cache=False, fastmath=True)(rhs_py)
+    jac_nb = nb.njit(cache=False, fastmath=True)(jac_py)
 
     _CUSTOM_CACHE[key] = (rhs_nb, jac_nb)
     return rhs_nb, jac_nb
@@ -325,8 +329,8 @@ def build_custom_numba_symplectic_functions(
     dq_dt_py = ns["dq_dt"]
     dp_dt_py = ns["dp_dt"]
 
-    dq_dt_nb = nb.njit(cache=True, fastmath=True)(dq_dt_py)
-    dp_dt_nb = nb.njit(cache=True, fastmath=True)(dp_dt_py)
+    dq_dt_nb = nb.njit(cache=False, fastmath=True)(dq_dt_py)
+    dp_dt_nb = nb.njit(cache=False, fastmath=True)(dp_dt_py)
 
     _CUSTOM_SYMPLECTIC_CACHE[key] = (dq_dt_nb, dp_dt_nb)
     return dq_dt_nb, dp_dt_nb

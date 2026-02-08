@@ -28,6 +28,7 @@ from core import numba_backend
 
 
 COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
+DT_WARNING_THRESHOLD = 0.05
 
 
 def _init_sweep_state():
@@ -165,7 +166,6 @@ def render_bifurcation_tab(
 
         warm_start = sweep_mode.startswith("Continuation")
         solve_tols_sweep = SolverTolerances(rtol=float(rtol_sweep), atol=float(atol_sweep))
-
         continue_stop = None
         continue_stop_lya = None
 
@@ -178,6 +178,11 @@ def render_bifurcation_tab(
             st.markdown("**Bifurcation sweep settings**")
             if not numba_available:
                 st.caption("Numba backend unavailable; sweep runs in Python.")
+            if system_key in ("lorenz", "rossler") and float(dt_sweep) >= float(DT_WARNING_THRESHOLD):
+                st.warning(
+                    f"Warning: dt >= {DT_WARNING_THRESHOLD:g} may be too large for stable "
+                    f"{system_key.capitalize()} bifurcation sweeps."
+                )
             parallel_bif_disabled = bool(warm_start)
             parallel_bif = st.checkbox(
                 "Parallel sweep",
