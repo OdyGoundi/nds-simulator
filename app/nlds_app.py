@@ -47,8 +47,8 @@ from app.params import (
 from app.ui.bifurcation_tab import render_bifurcation_tab
 from core import numba_backend
 
-APP_NAME = "dynaSim"
-APP_SUBTITLE = "non-linear dynamical systems simulator"
+APP_NAME = "DynaSim"
+APP_SUBTITLE = "Non-linear Dynamical Systems Simulator"
 HENON_HEILES_VAR_NAMES = ["q1", "q2", "p1", "p2"]
 HENON_HEILES_EQ_LINES = [
     "p1",
@@ -153,9 +153,9 @@ if "show_info_popup" not in st.session_state:
 
 manual_cols = st.columns(3)
 with manual_cols[0]:
-    open_manual_eng = st.button("Help (Eng)", key="open_quick_manual_btn")
+    open_manual_eng = st.button("Help (English)", key="open_quick_manual_btn")
 with manual_cols[1]:
-    open_manual_el = st.button("Help(Ελλ)", key="open_quick_manual_el_btn")
+    open_manual_el = st.button("Help(Ελληνικά)", key="open_quick_manual_el_btn")
 with manual_cols[2]:
     open_info = st.button("Info", key="open_info_btn")
 

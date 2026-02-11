@@ -6,6 +6,12 @@ Lyapunov exponents; and generates Poincare-based bifurcation and Lyapunov sweeps
 with continuation and optional local parallelism. A Numba backend accelerates
 fixed-step RK4, Lyapunov, and symplectic integration.
 
+## dynaSim at a glance
+
+- **What it does:** Simulates nonlinear dynamical systems (Lorenz, Rossler, Henon-Heiles, and custom nD), computes trajectories and Lyapunov exponents, and runs Poincare-based parameter sweeps.
+- **Numerical methods:** RK45, DOP853, fixed-step RK4, symplectic Forest-Ruth, variational equations with periodic QR for Lyapunov spectra, and continuation-aware sweep workflows.
+- **Visualization:** Interactive phase portraits, time series, bifurcation diagrams, Lyapunov-vs-parameter plots, plus CSV export for post-processing.
+
 ---
 
 ## Architecture (high level)
@@ -63,6 +69,7 @@ Licensed under the GNU GPL v3.0
 ## Ways to use the app (4 modes)
 
 1) Cloud (online)  
+   https://nlds-simulator.streamlit.app  
    dynasim.streamlit.app  
    Recommended for overview, educational use and quick experiments without installation. There may be runtime/resource limits (running time limits).
 

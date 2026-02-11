@@ -212,11 +212,11 @@
     <div class="hero">
       <h1>Εγχειρίδιο dynaSim</h1>
       <p>
-        Γρήγορος οδηγός για ορισμό δυναμικών συστημάτων, επιλογή ολοκληρωτών,
-        πορτρέτα φάσης, χρονοσειρές, εκθέτες Lyapunov και παραμετρικές σαρώσεις με τομές Poincaré.
+       Γρήγορος οδηγός για ορισμό δυναμικών συστημάτων, επιλογή της μεθόδου αριθμητικής ολοκλήρωσης, 
+       των πορτραίτων φάσης, των χρονοσειρών, των εκθετών Lyapunov και των παραμετρικών σαρώσεων με τομές Poincaré. 
       </p>
       <div class="meta">
-        <span class="badge">Έκδοση: 3.1.1</span>
+        <span class="badge">Έκδοση: 3.1.2</span>
         <span class="badge">Τελευταία ενημέρωση: Φεβρουάριος 2026</span>
       </div>
     </div>
@@ -227,8 +227,8 @@
         <li><span class="step-num">1</span><div><strong>Επιλέξτε σύστημα</strong> από το sidebar (ενσωματωμένο ή <strong>Custom nD</strong>).</div></li>
         <li><span class="step-num">2</span><div><strong>Επιλέξτε ολοκληρωτή</strong> (RK45/DOP853 για μεγάλη ακρίβεια τροχιών, RK4 για ταχύτητα, symplectic μόνο για Hamiltonian).</div></li>
         <li><span class="step-num">3</span><div><strong>Ρυθμίστε ολοκλήρωση</strong>: <span class="kbd">initial time</span>, <span class="kbd">final time</span>, <span class="kbd">time step</span>, <span class="kbd">initial values</span> και παραμέτρους συστήματος.</div></li>
-        <li><span class="step-num">4</span><div><strong>Phase portrait</strong> (Tab 1) και <strong>χρόνος</strong> (Tab 2). Χρησιμοποιήστε <strong>Transient cut</strong> για να αφαιρέσετε τα πρώτα χρονικά βήματα ως μεταβατικό καθεστώς.</div></li>
-        <li><span class="step-num">5</span><div><strong>Lyapunov</strong>: ορίστε transient και QR interval (ανά πόσα χρονικά βήματα εφαρμόζουμε ορθοκανονικοποίηση) στο Tab 1 και πατήστε <strong>Compute Lyapunov exponents</strong>.</div></li>
+        <li><span class="step-num">4</span><div><strong>Phase portrait</strong> (Tab 1) και <strong>χρόνος</strong> (Tab 2). Χρησιμοποιήστε <strong>Transient cut</strong> για να αφαιρέσετε τα πρώτα χρονικά βήματα ως μεταβατική κατάσταση.</div></li>
+        <li><span class="step-num">5</span><div><strong>Lyapunov</strong>: ορίστε transient και QR interval (ανά πόσα χρονικά βήματα εφαρμόζεται ορθοκανονικοποίηση) στο Tab 1 και πατήστε <strong>Compute Lyapunov exponents</strong>.</div></li>
         <li><span class="step-num">6</span><div><strong>Sweeps / Poincaré</strong> (Tab 3): παράμετρος σάρωσης, τομή, μέθοδος, mode (reset vs continuation).</div></li>
         <li><span class="step-num">7</span><div><strong>Export</strong> (Tab 4): τροχιές, sweep results, Lyapunov και configs/ρυθμίσεις.</div></li>
       </ol>
@@ -258,7 +258,7 @@
 
       <h3>3) Jupyter Notebook A — Phase portrait / Lyapunov / Time series</h3>
       <p>
-        Notebook για παραγωγή τροχιών, πορτρέτων φάσης, χρονοσειρών και υπολογισμό εκθετών Lyapunov.<br/>
+        Notebook για παραγωγή τροχιών, πορτραίτων φάσης, χρονοσειρών και υπολογισμό εκθετών Lyapunov.<br/>
         <strong>Link (pending):</strong> <a href="NOTEBOOK_A_LINK_PENDING">NOTEBOOK_A_LINK_PENDING</a>
       </p>
       <ul class="list">
@@ -330,7 +330,7 @@ beta=2.6666667</pre>
       <h3>Πώς επιλέγω dt / tolerances;</h3>
       <ul class="list">
         <li><strong>Fixed-step (RK4):</strong> μειώστε το <span class="kbd">time step</span> μέχρι να σταθεροποιούνται τα βασικά χαρακτηριστικά (γεωμετρία ελκυστή, Poincaré points).</li>
-        <li><strong>Adaptive (RK45/DOP853):</strong> ξεκινήστε με “μεσαίες” τιμές <span class="kbd">rtol/atol</span> και σφίξτε μόνο αν χρειάζεται (drift/artefacts).</li>
+        <li><strong>Adaptive (RK45/DOP853):</strong> ξεκινήστε με “μεσαίες” τιμές <span class="kbd">rtol/atol</span> και μειώστε τα επίπεδα ανοχής μόνο αν χρειάζεται (drift/artefacts).</li>
         <li><strong>Chaos note:</strong> σε χαοτικά συστήματα οι τροχιές αποκλίνουν pointwise· κρίνουμε με γεωμετρία/στατιστικά/παρατηρήσιμα.</li>
       </ul>
 
@@ -374,14 +374,14 @@ beta=2.6666667</pre>
       <h3>Τομή Poincaré</h3>
       <ul class="list">
         <li><strong>Τομή επιπέδου:</strong> επιλέξτε μεταβλητή τομής και τιμή.</li>
-        <li><strong>Τομή εξίσωσης:</strong> εισαγάγετε έκφραση (υπερισχύει της τομής επιπέδου).</li>
+        <li><strong>Εξίσωση τομής:</strong> εισαγάγετε έκφραση (σε περίπτωση εισαγωγής εξίωσης, η μεταβλητή τομής και η τιμή της που επιλέξατε παραπάνω παρακάμπτονται).</li>
         <li><strong>Μέθοδος:</strong> <strong>crossing</strong> (διέλευση) ή <strong>slab</strong> (ζώνη ανοχής).</li>
       </ul>
 
       <h3>Σαρώσεις παραμέτρων</h3>
       <ul class="list">
         <li>Επιλέξτε παράμετρο σάρωσης, εύρος και βήμα.</li>
-        <li><strong>Mode:</strong> reset ICs ή continuation (warm start).</li>
+        <li><strong>Mode:</strong> bifucartion (reset ICs) ή continuation (warm start).</li>
         <li>Για ταχύτερα bifurcation diagrams χρησιμοποιήστε RK4 και κατάλληλο αριθμό Poincaré hits / early stop όπου υπάρχει.</li>
       </ul>
 
