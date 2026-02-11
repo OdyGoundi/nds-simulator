@@ -31,6 +31,32 @@ COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 DT_WARNING_THRESHOLD = 0.05
 
 
+def _render_tab3_quick_guide() -> None:
+    with st.expander("Quick guide: Parameter Sweep Analysis", expanded=False):
+        st.markdown(
+            """
+**Recommended workflow**
+1. In **Parameter sweep setup**, choose `Sweep param` and set `start`, `stop`, `step`.
+2. In **Sweep performance settings**, choose `dt`, `final time`, and `Sweep mode`.
+3. For the left panel (**Bifurcation sweep settings**), set the Poincare section and click **Generate Bifurcation Diagram**.
+4. For the right panel (**Lyapunov sweep settings**), set `QR interval` and click **Generate Lyapunov Diagram**.
+5. Use **Continue ...** only when settings are unchanged; otherwise click **Generate ...** to restart.
+"""
+        )
+        st.markdown(
+            """
+**Mode selection**
+- **Bifurcation (reset ICs)**: independent runs, standard reference diagrams.
+- **Continuation (warm start)**: smoother/faster continuation, runs sequentially (parallel disabled).
+"""
+        )
+        st.markdown(
+            """
+**Fast first pass**
+- Start with a larger `step`, smaller `final time`, and lower `Max hits kept`.
+- Increase resolution after you verify the overall structure.
+"""
+        )
 def _init_sweep_state():
     if "sweep_stop_internal" not in st.session_state:
         st.session_state["sweep_stop_internal"] = float(
@@ -90,6 +116,8 @@ def render_bifurcation_tab(
         if not sweep_choices:
             st.warning("No sweep parameters available (check parameters).")
             st.stop()
+
+        _render_tab3_quick_guide()
 
         top_c1, top_c2, top_c3 = st.columns([2, 2, 1], gap="large")
         with top_c1:

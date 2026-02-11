@@ -712,6 +712,78 @@ try:
     with tabs[1]:
         st.markdown("**Time series (post-transient)**")
 
+        t_min = float(t_plot[0])
+        t_max = float(t_plot[-1])
+        time_step_ui = max(float(dt), 1e-6)
+        current_ts_range = (float(t_min), float(t_max))
+
+        if "ts_window_start_tab2" not in st.session_state:
+            st.session_state["ts_window_start_tab2"] = t_min
+        if "ts_window_end_tab2" not in st.session_state:
+            st.session_state["ts_window_end_tab2"] = t_max
+        if "ts_window_range_tab2" not in st.session_state:
+            st.session_state["ts_window_range_tab2"] = current_ts_range
+
+        # Reset to full range whenever the available integration window changes.
+        if tuple(st.session_state.get("ts_window_range_tab2", ())) != current_ts_range:
+            st.session_state["ts_window_start_tab2"] = t_min
+            st.session_state["ts_window_end_tab2"] = t_max
+            st.session_state["ts_window_range_tab2"] = current_ts_range
+
+        # Keep persisted values inside current bounds when t0/tf/transient changes.
+        st.session_state["ts_window_start_tab2"] = min(
+            max(float(st.session_state["ts_window_start_tab2"]), t_min),
+            t_max,
+        )
+        st.session_state["ts_window_end_tab2"] = min(
+            max(float(st.session_state["ts_window_end_tab2"]), t_min),
+            t_max,
+        )
+
+        tw_header_col, twc1, twc2 = st.columns([1.2, 1, 1], gap="small")
+        with tw_header_col:
+            st.markdown("**Time window**")
+            st.caption(
+                f"Available range from Tab 1 integration: [{t_min:.3f}, {t_max:.3f}]"
+            )
+        with twc1:
+            t_view_start = st.number_input(
+                "start time",
+                min_value=t_min,
+                max_value=t_max,
+                value=float(st.session_state["ts_window_start_tab2"]),
+                step=time_step_ui,
+                format="%.6f",
+                key="ts_window_start_tab2",
+            )
+        with twc2:
+            t_view_end = st.number_input(
+                "end time",
+                min_value=t_min,
+                max_value=t_max,
+                value=float(st.session_state["ts_window_end_tab2"]),
+                step=time_step_ui,
+                format="%.6f",
+                key="ts_window_end_tab2",
+            )
+
+        if float(t_view_start) >= float(t_view_end):
+            st.warning("Invalid time window: 'start time' must be smaller than 'end time'. Showing full range.")
+            t_view_start = t_min
+            t_view_end = t_max
+
+        ts_mask = (t_plot >= float(t_view_start)) & (t_plot <= float(t_view_end))
+        if int(np.count_nonzero(ts_mask)) < 2:
+            st.warning("Time window contains fewer than 2 samples. Showing full range.")
+            ts_mask = np.ones_like(t_plot, dtype=bool)
+
+        t_ts = t_plot[ts_mask]
+        y_ts = y_plot[:, ts_mask]
+        st.caption(
+            f"Showing t in [{float(t_view_start):.3f}, {float(t_view_end):.3f}] | "
+            f"samples: {len(t_ts)}/{len(t_plot)}"
+        )
+
         # Variable selection
         default_sel = [0] if len(var_names) > 0 else []
         selected_names = st.multiselect(
@@ -726,8 +798,8 @@ try:
             selected_indices = [var_names.index(name) for name in selected_names]
 
             fig_ts = plot_time_seiries_functional(
-                t=t_plot,
-                y=y_plot,
+                t=t_ts,
+                y=y_ts,
                 indices=selected_indices,
                 var_names=var_names,
                 title=f"{system_label} – time series",
@@ -754,8 +826,8 @@ try:
             color = COLORS[plot_pos % len(COLORS)]
 
             ax.plot(
-                t_plot,
-                y_plot[var_idx, :],
+                t_ts,
+                y_ts[var_idx, :],
                 linewidth=0.9,
                 label=var_names[var_idx],
                 color=color,
