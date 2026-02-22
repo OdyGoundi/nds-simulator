@@ -4,7 +4,7 @@ import json
 import sys
 import zipfile
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, cast
+from typing import Any, Callable, Dict, List, Optional, cast
 
 # Ensure project root import works
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +57,188 @@ HENON_HEILES_EQ_LINES = [
     "-q2 - lambda*(q1**2 - q2**2)",
 ]
 HENON_HEILES_PARAMS_TEXT = "lambda=1.0"
+SYSTEM_LABEL_BY_KEY = {
+    "lorenz": "Lorenz (3D)",
+    "rossler": "Rossler (3D)",
+    "henon_heiles": "Henon-Heiles (4D Hamiltonian)",
+    "custom": "Custom (nD)",
+}
+SOLVER_LABEL_BY_KIND = {
+    "ivp": "RK45 (adaptive)",
+    "rk45": "RK45 (adaptive)",
+    "dop853": "DOP853 (non-stiff, high order)",
+    "rk4": "RK4 (fixed step)",
+    "symplectic_fr": "Symplectic Forest-Ruth (4th order)",
+}
+
+
+def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
+    arr = np.asarray(values, dtype=float).ravel()
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return -1.0, 1.0
+    vmin = float(np.min(finite))
+    vmax = float(np.max(finite))
+    if np.isclose(vmin, vmax):
+        delta = max(1e-6, 0.05 * max(1.0, abs(vmin)))
+        return vmin - delta, vmax + delta
+    return vmin, vmax
+
+
+def _to_float(value: Any, default: Any) -> float:
+    try:
+        return float(value)
+    except Exception:
+        try:
+            return float(default)
+        except Exception:
+            return 0.0
+
+
+def _to_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _clamp_int(value: int, low: int, high: int) -> int:
+    return max(int(low), min(int(value), int(high)))
+
+
+def _params_dict_to_text(params_obj: object) -> str:
+    if not isinstance(params_obj, dict):
+        return ""
+    lines: List[str] = []
+    for key, val in params_obj.items():
+        try:
+            lines.append(f"{str(key)}={float(val):g}")
+        except Exception:
+            continue
+    return "\n".join(lines)
+
+
+def _apply_static_config_to_state(cfg: Dict[str, object]) -> None:
+    system_obj = cfg.get("system")
+    integration_obj = cfg.get("integration")
+    postprocess_obj = cfg.get("postprocess")
+    plots_obj = cfg.get("plots")
+    lyapunov_obj = cfg.get("lyapunov")
+    if not isinstance(system_obj, dict) or not isinstance(integration_obj, dict):
+        raise ValueError("Invalid config: missing 'system' or 'integration' blocks.")
+
+    system_key = str(system_obj.get("system_key", "")).strip().lower()
+    system_label = SYSTEM_LABEL_BY_KEY.get(system_key)
+    if system_label is not None:
+        st.session_state["system_label_sidebar"] = system_label
+
+    if system_key == "lorenz":
+        params = system_obj.get("params") if isinstance(system_obj.get("params"), dict) else {}
+        st.session_state["sigma"] = _to_float((params or {}).get("sigma", 10.0), 10.0)
+        st.session_state["rho"] = _to_float((params or {}).get("rho", 28.0), 28.0)
+        st.session_state["beta"] = _to_float((params or {}).get("beta", 8.0 / 3.0), 8.0 / 3.0)
+    elif system_key == "rossler":
+        params = system_obj.get("params") if isinstance(system_obj.get("params"), dict) else {}
+        st.session_state["ross_a"] = _to_float((params or {}).get("a", 0.2), 0.2)
+        st.session_state["ross_b"] = _to_float((params or {}).get("b", 0.2), 0.2)
+        st.session_state["ross_c"] = _to_float((params or {}).get("c", 5.7), 5.7)
+    elif system_key == "henon_heiles":
+        params = system_obj.get("params") if isinstance(system_obj.get("params"), dict) else {}
+        st.session_state["hh_lambda"] = _to_float((params or {}).get("lambda", 1.0), 1.0)
+    elif system_key == "custom":
+        var_names = system_obj.get("var_names") if isinstance(system_obj.get("var_names"), list) else []
+        eq_lines = system_obj.get("eq_lines") if isinstance(system_obj.get("eq_lines"), list) else []
+        params_text = str(system_obj.get("params_text", "") or "").strip()
+        if not params_text:
+            params_text = _params_dict_to_text(system_obj.get("params"))
+        var_names_list = var_names if isinstance(var_names, list) else []
+        eq_lines_list = eq_lines if isinstance(eq_lines, list) else []
+        n_vars_custom = len(var_names_list) if len(var_names_list) > 0 else len(eq_lines_list)
+        if n_vars_custom > 0:
+            st.session_state["n_vars_sidebar"] = int(n_vars_custom)
+        if var_names_list and len(var_names_list) > 0:
+            st.session_state["var_names_text_sidebar"] = "\n".join(str(v) for v in var_names_list)
+        if eq_lines_list and len(eq_lines_list) > 0:
+            st.session_state["eqs_text_sidebar"] = "\n".join(str(v) for v in eq_lines_list)
+        st.session_state["params_text_sidebar"] = params_text
+        auto_jac = bool(system_obj.get("auto_jacobian", False))
+        use_jac = bool(system_obj.get("use_jacobian", auto_jac))
+        st.session_state["custom_auto_jac_sidebar"] = auto_jac
+        st.session_state["custom_use_jac_sidebar"] = bool(use_jac and auto_jac)
+
+    t0 = _to_float(integration_obj.get("t0", 0.0), 0.0)
+    tf = _to_float(integration_obj.get("tf", 50.0), 50.0)
+    dt = max(1e-12, _to_float(integration_obj.get("dt", 0.01), 0.01))
+    st.session_state["t0_tab1"] = float(t0)
+    st.session_state["tf_tab1"] = float(tf)
+    st.session_state["dt_tab1"] = float(dt)
+
+    y0 = integration_obj.get("y0")
+    if isinstance(y0, list) and len(y0) > 0:
+        try:
+            y0_text = ", ".join(f"{float(v):g}" for v in y0)
+            st.session_state["y0_text_sidebar"] = y0_text
+        except Exception:
+            pass
+
+    solver_kind = str(integration_obj.get("solver_kind", "")).strip().lower()
+    solver_label = SOLVER_LABEL_BY_KIND.get(solver_kind)
+    if solver_label is not None:
+        st.session_state["solver_kind_label_sidebar"] = solver_label
+
+    solve_opts = integration_obj.get("solve_options")
+    if isinstance(solve_opts, dict):
+        if "rtol" in solve_opts:
+            st.session_state["rtol"] = _to_float(solve_opts.get("rtol"), 1e-6)
+        if "atol" in solve_opts:
+            st.session_state["atol"] = _to_float(solve_opts.get("atol"), 1e-8)
+
+    if isinstance(postprocess_obj, dict):
+        transient_steps_cfg = max(0, _to_int(postprocess_obj.get("transient_steps", 0), 0))
+        st.session_state["transient_cut_time_tab1"] = float(transient_steps_cfg) * float(dt)
+
+    n_vars_axes = 3
+    if system_key == "henon_heiles":
+        n_vars_axes = 4
+    elif system_key == "custom":
+        var_names_obj = system_obj.get("var_names")
+        var_names_count = len(var_names_obj) if isinstance(var_names_obj, (list, tuple)) else 0
+        n_vars_axes = max(
+            1,
+            _to_int(st.session_state.get("n_vars_sidebar", 0), 0),
+            var_names_count,
+        )
+
+    if isinstance(plots_obj, dict):
+        plot_mode = str(plots_obj.get("plot_mode", "")).strip()
+        if plot_mode in ("2D phase plane", "3D phase plot"):
+            st.session_state["plot_mode_tab1"] = plot_mode
+        phase_axes_obj = plots_obj.get("phase_axes")
+        phase_axes = phase_axes_obj if isinstance(phase_axes_obj, dict) else {}
+        x_idx_cfg = _to_int(phase_axes.get("x_idx", 0), 0)
+        y_default = 1 if n_vars_axes > 1 else 0
+        y_idx_cfg = _to_int(phase_axes.get("y_idx", y_default), y_default)
+        z_default = 2 if n_vars_axes > 2 else 0
+        z_idx_cfg = _to_int(phase_axes.get("z_idx", z_default), z_default)
+        st.session_state["phase_x_idx_tab1"] = _clamp_int(x_idx_cfg, 0, n_vars_axes - 1)
+        st.session_state["phase_y_idx_tab1"] = _clamp_int(y_idx_cfg, 0, n_vars_axes - 1)
+        st.session_state["phase_z_idx_tab1"] = _clamp_int(z_idx_cfg, 0, n_vars_axes - 1)
+
+    if isinstance(lyapunov_obj, dict):
+        lya_settings = lyapunov_obj.get("settings")
+        if isinstance(lya_settings, dict):
+            if "qr_interval" in lya_settings:
+                st.session_state["qr_interval_tab1"] = max(
+                    1e-6, _to_float(lya_settings.get("qr_interval", 0.1), 0.1)
+                )
+            frac = None
+            if "transient_fraction" in lya_settings:
+                frac = _to_float(lya_settings.get("transient_fraction", 0.3), 0.3)
+            elif "transient_steps" in lya_settings:
+                n_steps_est = max(1.0, (float(tf) - float(t0)) / float(dt))
+                frac = _to_float(lya_settings.get("transient_steps", 0), 0.0) / float(n_steps_est)
+            if frac is not None:
+                st.session_state["lya_transient_frac_tab1"] = float(max(0.0, min(0.99, frac)))
 
 
 def _zip_bytes(file_map: Dict[str, bytes]) -> bytes:
@@ -242,7 +424,8 @@ with st.sidebar:
     system_label = st.selectbox(
         "Choose system",
         ["Lorenz (3D)", "Rossler (3D)", "Henon-Heiles (4D Hamiltonian)", "Custom (nD)"],
-        index=0
+        index=0,
+        key="system_label_sidebar",
     )
 
     if system_label.startswith("Lorenz"):
@@ -256,7 +439,14 @@ with st.sidebar:
         n_vars = 4
     else:
         system_key = "custom"
-        n_vars = st.number_input("Number of equations (n)", min_value=1, max_value=12, value=3, step=1)
+        n_vars = st.number_input(
+            "Number of equations (n)",
+            min_value=1,
+            max_value=12,
+            value=3,
+            step=1,
+            key="n_vars_sidebar",
+        )
 
     st.markdown("**Solver kind**")
     solver_kind_labels = [
@@ -271,11 +461,12 @@ with st.sidebar:
         "RK4 (fixed step)": "rk4",
         "Symplectic Forest-Ruth (4th order)": "symplectic_fr",
     }
-    solver_default = "Symplectic Forest-Ruth (4th order)" if system_key == "henon_heiles" else "RK45 (adaptive)"
+    solver_default = "RK4 (fixed step)"
     solver_kind_label = st.selectbox(
         "Solver kind",
         solver_kind_labels,
         index=solver_kind_labels.index(solver_default),
+        key="solver_kind_label_sidebar",
     )
     solver_kind = solver_kind_map[solver_kind_label]
     st.markdown(
@@ -308,6 +499,7 @@ with st.sidebar:
         "y0 values (comma/space/newline separated)",
         value=y0_default,
         height=90,
+        key="y0_text_sidebar",
     )
 
     ## Optional "run" button (Streamlit reruns anyway)
@@ -342,6 +534,7 @@ else:
             "Variable names (one per line)",
             value=default_names,
             height=120,
+            key="var_names_text_sidebar",
         )
         tmp_names = [ln.strip() for ln in (var_names_text or "").splitlines() if ln.strip()]
         if len(tmp_names) != int(n_vars):
@@ -355,12 +548,14 @@ else:
             "Equations dy/dt (one per line)",
             value=default_eq,
             height=180,
+            key="eqs_text_sidebar",
         )
 
         params_text = st.text_area(
             "Parameters (name=value per line)",
             value="",
             height=120,
+            key="params_text_sidebar",
         )
 
         eq_lines = [ln.strip() for ln in (eqs_text or "").splitlines()]
@@ -370,11 +565,13 @@ else:
         custom_auto_jac = st.checkbox(
             "Auto-compute Jacobian (symbolic)",
             value=False,
+            key="custom_auto_jac_sidebar",
             help="Builds a symbolic Jacobian for Lyapunov on custom systems.",
         )
         custom_use_jac = st.checkbox(
             "Use analytic Jacobian",
             value=custom_auto_jac,
+            key="custom_use_jac_sidebar",
             disabled=not custom_auto_jac,
             help="When off, Lyapunov uses finite differences as before.",
         )
@@ -432,7 +629,7 @@ hh_lambda = 1.0
 # -------- Main layout: outputs only --------
 st.subheader("Outputs")
 
-tabs = st.tabs(["Phase portrait", "Time series", "Parameter Sweep Analysis", "Export"])
+tabs = st.tabs(["Phase portrait & Lyapunov exponents", "Time series", "Parameter Sweep Analysis", "Export"])
 
 # Solve once, then all outputs derive from (t, y)
 try:
@@ -442,9 +639,9 @@ try:
 
         with phase_col_controls:
             st.header("Integration")
-            t0 = st.number_input("initial time", value=0.0, step=1.0)
-            tf = st.number_input("final time", value=50.0, step=1.0)
-            dt = st.number_input("time step", value=0.01, step=0.01, format="%.5f")
+            t0 = st.number_input("initial time", value=0.0, step=1.0, key="t0_tab1")
+            tf = st.number_input("final time", value=50.0, step=1.0, key="tf_tab1")
+            dt = st.number_input("time step", value=0.01, step=0.01, format="%.5f", key="dt_tab1")
 
             st.divider()
             st.header("System parameters")
@@ -479,23 +676,41 @@ try:
 
             st.divider()
             st.header("Plot settings")
-            plot_mode = st.selectbox("Plot mode", ["2D phase plane", "3D phase plot"], index=0)
-
-            transient_steps = st.number_input(
-                "Transient cut (steps to skip)",
-                min_value=0,
-                value=0,
-                step=100,
-                help="Ignores the first N integration samples before plotting/export. Does not affect Lyapunov."
+            plot_mode = st.selectbox(
+                "Plot mode",
+                ["2D phase plane", "3D phase plot"],
+                index=0,
+                key="plot_mode_tab1",
             )
 
-            st.markdown("**Lyapunov exponents calculation settings**")
+            tc_c1, tc_c2 = st.columns([1.2, 1], gap="small")
+            with tc_c1:
+                transient_cut_time = st.number_input(
+                    "Transient cut (time to skip)",
+                    min_value=0.0,
+                    value=0.0,
+                    step=1.0,
+                    format="%.6f",
+                    key="transient_cut_time_tab1",
+                    help=(
+                        "Skips trajectory samples from t0 up to t0 + this duration before plotting/export. "
+                        "The equivalent number of steps is shown on the right. Does not affect Lyapunov."
+                    ),
+                )
+            with tc_c2:
+                dt_abs = max(abs(float(dt)), 1e-12)
+                transient_steps = int(max(0.0, float(transient_cut_time)) / dt_abs)
+                st.metric("Equivalent transient steps", transient_steps)
+
+            st.divider()
+            st.header("Lyapunov exponents calculation settings")
             qr_interval = st.number_input(
                 "QR interval (time)",
                 min_value=1e-6,
                 value=0.1,
                 step=0.01,
                 format="%.4f",
+                key="qr_interval_tab1",
                 help="Time between orthonormalizations during Lyapunov computation.",
             )
             lya_c1, lya_c2 = st.columns([1, 1], gap="small")
@@ -506,6 +721,7 @@ try:
                     max_value=0.99,
                     value=0.30,
                     step=0.05,
+                    key="lya_transient_frac_tab1",
                     help="Fraction of integration steps discarded before Lyapunov accumulation.",
                 )
             with lya_c2:
@@ -527,6 +743,7 @@ try:
                 options=idx_list,
                 format_func=lambda i: axis_options[i][0],
                 index=0 if len(idx_list) > 0 else 0,
+                key="phase_x_idx_tab1",
             )
 
             y_default = 1 if len(idx_list) > 1 else 0
@@ -535,6 +752,7 @@ try:
                 options=idx_list,
                 format_func=lambda i: axis_options[i][0],
                 index=y_default,
+                key="phase_y_idx_tab1",
             )
 
             z_idx = 2 if len(idx_list) > 2 else 0
@@ -544,6 +762,7 @@ try:
                     options=idx_list,
                     format_func=lambda i: axis_options[i][0],
                     index=2 if len(idx_list) > 2 else 0,
+                    key="phase_z_idx_tab1",
                 )
             
             st.divider()
@@ -570,6 +789,28 @@ try:
 
             st.divider()
             st.markdown("**Configuration**")
+            static_cfg_upload = st.file_uploader(
+                "Upload StaticParamsConfig.json",
+                type=["json"],
+                key="upload_static_cfg_tab1",
+                help="Load settings from a previously exported static configuration file.",
+            )
+            apply_static_cfg = st.button(
+                "Apply uploaded configuration",
+                key="apply_static_cfg_tab1",
+                disabled=static_cfg_upload is None,
+            )
+            if apply_static_cfg and static_cfg_upload is not None:
+                try:
+                    loaded_static_cfg = json.loads(static_cfg_upload.getvalue().decode("utf-8"))
+                    if not isinstance(loaded_static_cfg, dict):
+                        raise ValueError("JSON root must be an object.")
+                    _apply_static_config_to_state(loaded_static_cfg)
+                    st.session_state["static_config"] = loaded_static_cfg
+                    st.success("Static configuration loaded. Applying settings...")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Failed to load StaticParamsConfig: {exc}")
             save_static_cfg = st.button("Save configuration", key="save_static_cfg_tab1")
 
     y0 = parse_list_of_floats(y0_text, int(n_vars), label="y0")
@@ -637,6 +878,65 @@ try:
 
     # --- Tab 1: Phase portrait (plot) ---
     with phase_col_plot:
+        x_auto = _axis_bounds(y_plot[int(x_idx), :])
+        y_auto = _axis_bounds(y_plot[int(y_idx), :])
+        z_auto = None
+        if plot_mode == "3D phase plot":
+            z_auto = _axis_bounds(y_plot[int(z_idx), :])
+
+        phase_bounds_sig = (
+            str(plot_mode),
+            int(x_idx),
+            int(y_idx),
+            int(z_idx) if plot_mode == "3D phase plot" else None,
+            float(x_auto[0]),
+            float(x_auto[1]),
+            float(y_auto[0]),
+            float(y_auto[1]),
+            float(z_auto[0]) if z_auto is not None else None,
+            float(z_auto[1]) if z_auto is not None else None,
+        )
+        if st.session_state.get("phase_bounds_sig_tab1") != phase_bounds_sig:
+            st.session_state["phase_xlim_min_tab1"] = float(x_auto[0])
+            st.session_state["phase_xlim_max_tab1"] = float(x_auto[1])
+            st.session_state["phase_ylim_min_tab1"] = float(y_auto[0])
+            st.session_state["phase_ylim_max_tab1"] = float(y_auto[1])
+            if z_auto is not None:
+                st.session_state["phase_zlim_min_tab1"] = float(z_auto[0])
+                st.session_state["phase_zlim_max_tab1"] = float(z_auto[1])
+            st.session_state["phase_bounds_sig_tab1"] = phase_bounds_sig
+
+        x_view = (
+            float(st.session_state.get("phase_xlim_min_tab1", x_auto[0])),
+            float(st.session_state.get("phase_xlim_max_tab1", x_auto[1])),
+        )
+        y_view = (
+            float(st.session_state.get("phase_ylim_min_tab1", y_auto[0])),
+            float(st.session_state.get("phase_ylim_max_tab1", y_auto[1])),
+        )
+        z_view = None
+        if z_auto is not None:
+            z_view = (
+                float(st.session_state.get("phase_zlim_min_tab1", z_auto[0])),
+                float(st.session_state.get("phase_zlim_max_tab1", z_auto[1])),
+            )
+
+        valid_xy = x_view[0] < x_view[1] and y_view[0] < y_view[1]
+        valid_z = (z_view is None) or (z_view[0] < z_view[1])
+        if not valid_xy or not valid_z:
+            st.warning("Invalid axis limits detected. Reverting to data bounds.")
+            x_view = x_auto
+            y_view = y_auto
+            if z_auto is not None:
+                z_view = z_auto
+            st.session_state["phase_xlim_min_tab1"] = float(x_view[0])
+            st.session_state["phase_xlim_max_tab1"] = float(x_view[1])
+            st.session_state["phase_ylim_min_tab1"] = float(y_view[0])
+            st.session_state["phase_ylim_max_tab1"] = float(y_view[1])
+            if z_view is not None:
+                st.session_state["phase_zlim_min_tab1"] = float(z_view[0])
+                st.session_state["phase_zlim_max_tab1"] = float(z_view[1])
+
         if plot_mode == "2D phase plane":
             title = f"{system_label} – {var_names[int(y_idx)]} vs {var_names[int(x_idx)]}"
             fig = plot_phase_2d(
@@ -647,6 +947,9 @@ try:
                 xlabel=var_names[int(x_idx)],
                 ylabel=var_names[int(y_idx)],
             )
+            ax = fig.axes[0]
+            ax.set_xlim(float(x_view[0]), float(x_view[1]))
+            ax.set_ylim(float(y_view[0]), float(y_view[1]))
             st.pyplot(fig, clear_figure=True)
 
         else:
@@ -659,10 +962,89 @@ try:
                 title=title,
                 labels=(var_names[int(x_idx)], var_names[int(y_idx)], var_names[int(z_idx)]),
             )
+            ax3d = fig.axes[0]
+            ax3d.set_xlim(float(x_view[0]), float(x_view[1]))
+            ax3d.set_ylim(float(y_view[0]), float(y_view[1]))
+            if z_view is not None and hasattr(ax3d, "set_zlim"):
+                cast(Any, ax3d).set_zlim(float(z_view[0]), float(z_view[1]))
             st.pyplot(fig, clear_figure=True)
 
+        st.markdown("**Axis limits (view window)**")
+        if plot_mode == "2D phase plane":
+            lim_c1, lim_c2, lim_c3, lim_c4 = st.columns([1, 1, 1, 1], gap="small")
+            with lim_c1:
+                st.number_input(
+                    f"{var_names[int(x_idx)]} min",
+                    format="%.6f",
+                    key="phase_xlim_min_tab1",
+                )
+            with lim_c2:
+                st.number_input(
+                    f"{var_names[int(x_idx)]} max",
+                    format="%.6f",
+                    key="phase_xlim_max_tab1",
+                )
+            with lim_c3:
+                st.number_input(
+                    f"{var_names[int(y_idx)]} min",
+                    format="%.6f",
+                    key="phase_ylim_min_tab1",
+                )
+            with lim_c4:
+                st.number_input(
+                    f"{var_names[int(y_idx)]} max",
+                    format="%.6f",
+                    key="phase_ylim_max_tab1",
+                )
+        else:
+            lim_c1, lim_c2, lim_c3 = st.columns([1, 1, 1], gap="small")
+            with lim_c1:
+                st.number_input(
+                    f"{var_names[int(x_idx)]} min",
+                    format="%.6f",
+                    key="phase_xlim_min_tab1",
+                )
+                st.number_input(
+                    f"{var_names[int(x_idx)]} max",
+                    format="%.6f",
+                    key="phase_xlim_max_tab1",
+                )
+            with lim_c2:
+                st.number_input(
+                    f"{var_names[int(y_idx)]} min",
+                    format="%.6f",
+                    key="phase_ylim_min_tab1",
+                )
+                st.number_input(
+                    f"{var_names[int(y_idx)]} max",
+                    format="%.6f",
+                    key="phase_ylim_max_tab1",
+                )
+            with lim_c3:
+                st.number_input(
+                    f"{var_names[int(z_idx)]} min",
+                    format="%.6f",
+                    key="phase_zlim_min_tab1",
+                )
+                st.number_input(
+                    f"{var_names[int(z_idx)]} max",
+                    format="%.6f",
+                    key="phase_zlim_max_tab1",
+                )
+
         st.caption(
-            f"Total steps: {len(t)} | plotted: {len(t_plot)} | transient cut: {N} | "
+            f"Default bounds: {var_names[int(x_idx)]} [{x_auto[0]:.4g}, {x_auto[1]:.4g}], "
+            f"{var_names[int(y_idx)]} [{y_auto[0]:.4g}, {y_auto[1]:.4g}]"
+            + (
+                f", {var_names[int(z_idx)]} [{z_auto[0]:.4g}, {z_auto[1]:.4g}]"
+                if z_auto is not None
+                else ""
+            )
+        )
+
+        st.caption(
+            f"Total steps: {len(t)} | plotted: {len(t_plot)} | "
+            f"transient cut: {float(transient_cut_time):.3f} time ({N} steps) | "
             f"n_vars: {y.shape[0]} | t in [{t[0]:.2f}, {t[-1]:.2f}]"
         )
 

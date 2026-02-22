@@ -1,5 +1,6 @@
 import math
 import os
+import json
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -29,7 +30,142 @@ from core import numba_backend
 
 COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 DT_WARNING_THRESHOLD = 0.05
+DIRECTION_LABEL_BY_VALUE = {1: "+1 (up)", -1: "-1 (down)", 0: "0 (both)"}
 
+
+def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
+    arr = np.asarray(values, dtype=float).ravel()
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return -1.0, 1.0
+    vmin = float(np.min(finite))
+    vmax = float(np.max(finite))
+    if np.isclose(vmin, vmax):
+        delta = max(1e-6, 0.05 * max(1.0, abs(vmin)))
+        return vmin - delta, vmax + delta
+    return vmin, vmax
+
+
+def _to_float(value: object, default: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _to_int(value: object, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _apply_sweep_config_to_state(
+    cfg: dict,
+    *,
+    sweep_choices: list[str],
+    var_names: list[str],
+    t0_default: float,
+    tf_default: float,
+    dt_default: float,
+) -> None:
+    sweep_obj = cfg.get("sweep")
+    lyapunov_obj = cfg.get("lyapunov")
+    if not isinstance(sweep_obj, dict):
+        raise ValueError("Invalid config: missing 'sweep' block.")
+    sweep_settings = sweep_obj.get("settings")
+    if not isinstance(sweep_settings, dict):
+        raise ValueError("Invalid config: missing 'sweep.settings' block.")
+
+    sweep_param = str(sweep_settings.get("sweep_param", "")).strip()
+    if sweep_param in sweep_choices:
+        st.session_state["sw_param_tab3"] = sweep_param
+
+    sweep_start = _to_float(sweep_settings.get("sweep_start", 0.0), 0.0)
+    sweep_stop = _to_float(sweep_settings.get("sweep_stop", 50.0), 50.0)
+    sweep_step = _to_float(sweep_settings.get("sweep_step", 0.1), 0.1)
+    st.session_state["sw_start_tab3"] = float(sweep_start)
+    st.session_state["sw_stop_tab3"] = float(sweep_stop)
+    st.session_state["sw_step_tab3"] = float(sweep_step)
+    st.session_state["sweep_stop_internal"] = float(sweep_stop)
+
+    sweep_integration = sweep_settings.get("integration")
+    if isinstance(sweep_integration, dict):
+        dt_sweep = max(1e-6, _to_float(sweep_integration.get("dt", dt_default), dt_default))
+        tf_sweep = max(float(t0_default) + 1e-6, _to_float(sweep_integration.get("tf", tf_default), tf_default))
+        st.session_state["dt_sweep_tab3"] = float(dt_sweep)
+        st.session_state["tf_sweep_tab3"] = float(tf_sweep)
+
+    mode = sweep_settings.get("mode")
+    if isinstance(mode, dict):
+        warm_start = bool(mode.get("warm_start", False))
+        st.session_state["sweep_mode_tab3"] = (
+            "Continuation (warm start)" if warm_start else "Bifurcation (reset ICs)"
+        )
+        st.session_state["bif_parallel_tab3"] = bool(mode.get("parallel", False))
+        workers_bif = mode.get("parallel_workers")
+        if workers_bif is not None:
+            st.session_state["bif_workers_tab3"] = max(1, _to_int(workers_bif, 1))
+
+    sweep_solver = sweep_settings.get("solver")
+    if isinstance(sweep_solver, dict):
+        if "rtol" in sweep_solver:
+            st.session_state["rtol_sweep_tab3"] = _to_float(sweep_solver.get("rtol"), 3e-4)
+        if "atol" in sweep_solver:
+            st.session_state["atol_sweep_tab3"] = _to_float(sweep_solver.get("atol"), 1e-6)
+
+    poincare = sweep_settings.get("poincare")
+    if isinstance(poincare, dict):
+        section_var = str(poincare.get("section_var", "")).strip()
+        if section_var in var_names:
+            st.session_state["sec_var_tab3"] = section_var
+        st.session_state["sec_val_tab3"] = _to_float(poincare.get("section_value", 0.0), 0.0)
+        st.session_state["sec_expr_tab3"] = str(poincare.get("section_expr", "") or "")
+        direction = _to_int(poincare.get("direction", 1), 1)
+        st.session_state["sec_dir_tab3"] = DIRECTION_LABEL_BY_VALUE.get(direction, "+1 (up)")
+        method = str(poincare.get("method", "crossing")).strip().lower()
+        st.session_state["sec_method_tab3"] = "slab" if method == "slab" else "crossing"
+        st.session_state["sec_tol_tab3"] = _to_float(poincare.get("tol", 1e-3), 1e-3)
+
+    output = sweep_settings.get("output")
+    if isinstance(output, dict):
+        output_var = str(output.get("var", "")).strip()
+        if output_var in var_names:
+            st.session_state["out_var_tab3"] = output_var
+
+    transient = sweep_settings.get("transient")
+    if isinstance(transient, dict) and "fraction" in transient:
+        st.session_state["sw_transient_frac_tab3"] = float(
+            max(0.0, min(0.95, _to_float(transient.get("fraction", 0.75), 0.75)))
+        )
+
+    run = sweep_settings.get("run")
+    if isinstance(run, dict):
+        st.session_state["early_stop_tab3"] = bool(run.get("early_stop", True))
+        st.session_state["max_hits_tab3"] = max(10, _to_int(run.get("max_hits", 200), 200))
+        st.session_state["chunk_time_tab3"] = max(0.1, _to_float(run.get("chunk_time", 2.0), 2.0))
+
+    if isinstance(lyapunov_obj, dict):
+        lyapunov_settings = lyapunov_obj.get("settings")
+        if isinstance(lyapunov_settings, dict):
+            st.session_state["qr_interval_lya_tab3"] = max(
+                1e-6, _to_float(lyapunov_settings.get("qr_interval", 0.1), 0.1)
+            )
+            if "transient_fraction" in lyapunov_settings:
+                st.session_state["lya_transient_frac_tab3"] = float(
+                    max(0.0, min(0.95, _to_float(lyapunov_settings.get("transient_fraction", 0.30), 0.30)))
+                )
+            st.session_state["lya_parallel_tab3"] = bool(lyapunov_settings.get("parallel", False))
+            lya_workers = lyapunov_settings.get("parallel_workers")
+            if lya_workers is not None:
+                st.session_state["lya_workers_tab3"] = max(1, _to_int(lya_workers, 1))
+            clip = lyapunov_settings.get("clip")
+            if isinstance(clip, dict):
+                clip_enabled = bool(clip.get("enabled", False))
+                st.session_state["clip_lyapunov_tab3"] = clip_enabled
+                clip_min = clip.get("min", -50.0)
+                if clip_min is not None:
+                    st.session_state["clip_min_lyapunov_tab3"] = _to_float(clip_min, -50.0)
 
 def _render_tab3_quick_guide() -> None:
     with st.expander("Quick guide: Parameter Sweep Analysis", expanded=False):
@@ -37,10 +173,12 @@ def _render_tab3_quick_guide() -> None:
             """
 **Recommended workflow**
 1. In **Parameter sweep setup**, choose `Sweep param` and set `start`, `stop`, `step`.
-2. In **Sweep performance settings**, choose `dt`, `final time`, and `Sweep mode`.
+2. In **Sweep performance settings**, choose `dt`, `final time`, `Sweep mode`, and solver tolerances.
 3. For the left panel (**Bifurcation sweep settings**), set the Poincare section and click **Generate Bifurcation Diagram**.
 4. For the right panel (**Lyapunov sweep settings**), set `QR interval` and click **Generate Lyapunov Diagram**.
-5. Use **Continue ...** only when settings are unchanged; otherwise click **Generate ...** to restart.
+5. After plotting, use **Axis limits (view window)** under the Lyapunov chart to inspect a different region without recomputation.
+6. At the bottom **Configuration** section (centered), use **Save configuration** or upload/apply `SweepParamConfig.json`.
+7. Use **Continue ...** only when settings are unchanged; otherwise click **Generate ...** to restart.
 """
         )
         st.markdown(
@@ -118,6 +256,8 @@ def render_bifurcation_tab(
             st.stop()
 
         _render_tab3_quick_guide()
+
+        st.divider()
 
         top_c1, top_c2, top_c3 = st.columns([2, 2, 1], gap="large")
         with top_c1:
@@ -200,7 +340,6 @@ def render_bifurcation_tab(
         st.divider()
 
         left_col, right_col = st.columns([1, 1], gap="large")
-        save_sweep_cfg = False
 
         with left_col:
             st.markdown("**Bifurcation sweep settings**")
@@ -474,8 +613,6 @@ def render_bifurcation_tab(
                     help="Sets the new stop for Continue Lyapunov. Start is last_pv + step."
                 )
 
-        save_sweep_cfg = st.button("Save configuration", key="save_cfg_lya_tab3")
-
         sweep_cfg = SweepConfig(
             param_name=str(sweep_param),
             start=float(sweep_start),
@@ -530,7 +667,7 @@ def render_bifurcation_tab(
         lya_meta["parallel"] = parallel_enabled
         lya_meta["parallel_workers"] = int(workers) if parallel_enabled else None
 
-        if save_sweep_cfg:
+        def _save_sweep_config_now() -> None:
             sweep_config = build_sweep_config(
                 app_name=app_name,
                 repo_root=repo_root,
@@ -861,48 +998,160 @@ def render_bifurcation_tab(
             lya_data = st.session_state.get("lya_acc_data", None)
             if lya_data is None:
                 st.info("No Lyapunov sweep data yet. Click 'Generate Lyapunov Diagram'.")
-                return
+            else:
+                param_vals = lya_data.get("param_vals", np.array([], dtype=float))
+                lambdas_arr = lya_data.get("lambdas", np.zeros((0, len(var_names))))
+                errors = lya_data.get("errors", [])
 
-            param_vals = lya_data.get("param_vals", np.array([], dtype=float))
-            lambdas_arr = lya_data.get("lambdas", np.zeros((0, len(var_names))))
-            errors = lya_data.get("errors", [])
+                if param_vals.size == 0 or lambdas_arr.size == 0:
+                    st.info("No Lyapunov sweep data yet. Click 'Generate Lyapunov Diagram'.")
+                else:
+                    plot_lambdas = np.array(lambdas_arr, dtype=float)
+                    if clip_lyapunov:
+                        plot_lambdas = np.maximum(plot_lambdas, float(clip_min))
 
-            if param_vals.size == 0 or lambdas_arr.size == 0:
-                st.info("No Lyapunov sweep data yet. Click 'Generate Lyapunov Diagram'.")
-                return
+                    st.markdown("**Lyapunov exponents**")
+                    x_auto = _axis_bounds(np.asarray(param_vals, dtype=float))
+                    y_auto = _axis_bounds(np.asarray(plot_lambdas, dtype=float))
+                    lya_bounds_sig = (
+                        str(sweep_param),
+                        bool(clip_lyapunov),
+                        float(clip_min),
+                        int(plot_lambdas.shape[0]),
+                        int(plot_lambdas.shape[1]) if plot_lambdas.ndim == 2 else 0,
+                        float(x_auto[0]),
+                        float(x_auto[1]),
+                        float(y_auto[0]),
+                        float(y_auto[1]),
+                    )
+                    if st.session_state.get("lya_bounds_sig_tab3") != lya_bounds_sig:
+                        st.session_state["lya_xlim_min_tab3"] = float(x_auto[0])
+                        st.session_state["lya_xlim_max_tab3"] = float(x_auto[1])
+                        st.session_state["lya_ylim_min_tab3"] = float(y_auto[0])
+                        st.session_state["lya_ylim_max_tab3"] = float(y_auto[1])
+                        st.session_state["lya_bounds_sig_tab3"] = lya_bounds_sig
 
-            plot_lambdas = np.array(lambdas_arr, dtype=float)
-            if clip_lyapunov:
-                plot_lambdas = np.maximum(plot_lambdas, float(clip_min))
+                    x_view = (
+                        float(st.session_state.get("lya_xlim_min_tab3", x_auto[0])),
+                        float(st.session_state.get("lya_xlim_max_tab3", x_auto[1])),
+                    )
+                    y_view = (
+                        float(st.session_state.get("lya_ylim_min_tab3", y_auto[0])),
+                        float(st.session_state.get("lya_ylim_max_tab3", y_auto[1])),
+                    )
+                    if not (x_view[0] < x_view[1] and y_view[0] < y_view[1]):
+                        st.warning("Invalid Lyapunov axis limits detected. Reverting to data bounds.")
+                        x_view = x_auto
+                        y_view = y_auto
+                        st.session_state["lya_xlim_min_tab3"] = float(x_auto[0])
+                        st.session_state["lya_xlim_max_tab3"] = float(x_auto[1])
+                        st.session_state["lya_ylim_min_tab3"] = float(y_auto[0])
+                        st.session_state["lya_ylim_max_tab3"] = float(y_auto[1])
 
-            st.markdown("**Lyapunov exponents**")
-            fig_lya, ax_lya = plt.subplots(figsize=(6.0, 3.2))
-            fig_lya.set_dpi(140)
+                    fig_lya, ax_lya = plt.subplots(figsize=(6.0, 3.2))
+                    fig_lya.set_dpi(140)
 
-            n_exps = plot_lambdas.shape[1]
-            for k in range(n_exps):
-                ax_lya.plot(
-                    param_vals,
-                    plot_lambdas[:, k],
-                    color=COLORS[k % len(COLORS)],
-                    linestyle="-",
-                    linewidth=1.1,
-                    label=f"lambda{k}",
+                    n_exps = plot_lambdas.shape[1]
+                    for k in range(n_exps):
+                        ax_lya.plot(
+                            param_vals,
+                            plot_lambdas[:, k],
+                            color=COLORS[k % len(COLORS)],
+                            linestyle="-",
+                            linewidth=1.1,
+                            label=f"lambda{k}",
+                        )
+
+                    for x_sep in st.session_state.get("lya_boundaries", []):
+                        ax_lya.axvline(float(x_sep), color="magenta", linewidth=0.3)
+
+                    ax_lya.set_xlabel(sweep_param)
+                    ax_lya.set_ylabel("Lyapunov exponents")
+                    ax_lya.set_xlim(float(x_view[0]), float(x_view[1]))
+                    ax_lya.set_ylim(float(y_view[0]), float(y_view[1]))
+                    ax_lya.grid(True, linewidth=0.3)
+                    ax_lya.legend(loc="best", fontsize=8)
+                    st.pyplot(fig_lya, clear_figure=True)
+
+                    st.markdown("**Axis limits (view window)**")
+                    lim_c1, lim_c2, lim_c3, lim_c4 = st.columns([1, 1, 1, 1], gap="small")
+                    with lim_c1:
+                        st.number_input(
+                            f"{sweep_param} min",
+                            format="%.6f",
+                            key="lya_xlim_min_tab3",
+                        )
+                    with lim_c2:
+                        st.number_input(
+                            f"{sweep_param} max",
+                            format="%.6f",
+                            key="lya_xlim_max_tab3",
+                        )
+                    with lim_c3:
+                        st.number_input(
+                            "lambda min",
+                            format="%.6f",
+                            key="lya_ylim_min_tab3",
+                        )
+                    with lim_c4:
+                        st.number_input(
+                            "lambda max",
+                            format="%.6f",
+                            key="lya_ylim_max_tab3",
+                        )
+                    st.caption(
+                        f"Default bounds: {sweep_param} [{x_auto[0]:.4g}, {x_auto[1]:.4g}], "
+                        f"lambda [{y_auto[0]:.4g}, {y_auto[1]:.4g}]"
+                    )
+
+                    if clip_lyapunov:
+                        st.caption(f"Clipped exponents below {float(clip_min):g} for plotting.")
+                    if errors:
+                        st.caption(f"Lyapunov sweep failures: {len(errors)}")
+                    last_pv = st.session_state.get("lya_last_pv", None)
+                    if last_pv is not None:
+                        st.caption(f"Accumulated Lyapunov sweep up to {sweep_param} = {float(last_pv):g}")
+
+        st.divider()
+        st.markdown("**Configuration**")
+        _, cfg_center, _ = st.columns([1, 1.8, 1], gap="large")
+        with cfg_center:
+            save_sweep_cfg = st.button(
+                "Save configuration",
+                key="save_cfg_lya_tab3",
+                use_container_width=True,
+            )
+            sweep_cfg_upload = st.file_uploader(
+                "Upload SweepParamConfig.json",
+                type=["json"],
+                key="upload_sweep_cfg_tab3",
+                help="Load settings from a previously exported sweep configuration file.",
+            )
+            apply_sweep_cfg = st.button(
+                "Apply uploaded configuration",
+                key="apply_sweep_cfg_tab3",
+                disabled=sweep_cfg_upload is None,
+                use_container_width=True,
+            )
+
+        if apply_sweep_cfg and sweep_cfg_upload is not None:
+            try:
+                loaded_sweep_cfg = json.loads(sweep_cfg_upload.getvalue().decode("utf-8"))
+                if not isinstance(loaded_sweep_cfg, dict):
+                    raise ValueError("JSON root must be an object.")
+                _apply_sweep_config_to_state(
+                    loaded_sweep_cfg,
+                    sweep_choices=list(sweep_choices),
+                    var_names=list(var_names),
+                    t0_default=float(t0),
+                    tf_default=float(tf),
+                    dt_default=float(dt),
                 )
+                st.session_state["sweep_config"] = loaded_sweep_cfg
+                st.success("Sweep configuration loaded. Applying settings...")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Failed to load SweepParamConfig: {exc}")
 
-            for x_sep in st.session_state.get("lya_boundaries", []):
-                ax_lya.axvline(float(x_sep), color="magenta", linewidth=0.3)
-
-            ax_lya.set_xlabel(sweep_param)
-            ax_lya.set_ylabel("Lyapunov exponents")
-            ax_lya.grid(True, linewidth=0.3)
-            ax_lya.legend(loc="best", fontsize=8)
-            st.pyplot(fig_lya, clear_figure=True)
-
-            if clip_lyapunov:
-                st.caption(f"Clipped exponents below {float(clip_min):g} for plotting.")
-            if errors:
-                st.caption(f"Lyapunov sweep failures: {len(errors)}")
-            last_pv = st.session_state.get("lya_last_pv", None)
-            if last_pv is not None:
-                st.caption(f"Accumulated Lyapunov sweep up to {sweep_param} = {float(last_pv):g}")
+        if save_sweep_cfg:
+            _save_sweep_config_now()

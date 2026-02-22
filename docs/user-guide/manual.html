@@ -216,7 +216,7 @@
           phase portraits, time series, Lyapunov exponents, and parametric sweeps with Poincare sections.
         </p>
         <div class="meta">
-          <span class="badge">Version: 3.2.0</span>
+          <span class="badge">Version: 3.2.1</span>
           <span class="badge">Last updated: February 2026</span>
         </div>
       </div>
@@ -227,9 +227,9 @@
           <li><span class="step-num">1</span><div><strong>Choose a system</strong> from the sidebar (built-in or <strong>Custom nD</strong>).</div></li>
           <li><span class="step-num">2</span><div><strong>Choose an integrator</strong> (RK45/DOP853 for high trajectory accuracy, RK4 for speed, symplectic only for Hamiltonian).</div></li>
           <li><span class="step-num">3</span><div><strong>Set integration</strong>: <span class="kbd">initial time</span>, <span class="kbd">final time</span>, <span class="kbd">time step</span>, <span class="kbd">initial values</span> and system parameters.</div></li>
-          <li><span class="step-num">4</span><div><strong>Phase portrait</strong> (Tab 1) and <strong>time series</strong> (Tab 2). Use <strong>Transient cut</strong> to remove early steps as transient regime.</div></li>
-          <li><span class="step-num">5</span><div><strong>Lyapunov</strong>: set transient and QR interval (how often we orthonormalize) in Tab 1 and click <strong>Compute Lyapunov exponents</strong>.</div></li>
-          <li><span class="step-num">6</span><div><strong>Sweeps / Poincare</strong> (Tab 3): sweep parameter, section, method, mode (reset vs continuation).</div></li>
+          <li><span class="step-num">4</span><div><strong>Phase portrait & Lyapunov</strong> (Tab 1) and <strong>time series</strong> (Tab 2). In Tab 1, use <strong>Transient cut (time to skip)</strong>; equivalent steps are shown automatically.</div></li>
+          <li><span class="step-num">5</span><div><strong>Lyapunov</strong>: set transient fraction and QR interval in Tab 1 and click <strong>Compute Lyapunov exponents</strong>.</div></li>
+          <li><span class="step-num">6</span><div><strong>Sweeps / Poincare</strong> (Tab 3): sweep parameter, section, method, mode (reset vs continuation), then use the bottom <strong>Configuration</strong> area to save or load sweep JSON.</div></li>
           <li><span class="step-num">7</span><div><strong>Export</strong> (Tab 4): trajectories, sweep results, Lyapunov and configs/settings.</div></li>
         </ol>
 
@@ -341,16 +341,18 @@ beta=2.6666667</pre>
       </section>
 
       <section class="card">
-        <h2>Tab 1 — Phase Portrait</h2>
+        <h2>Tab 1 — Phase Portrait & Lyapunov Exponents</h2>
         <ul class="list">
           <li>Set <span class="kbd">initial time</span>, <span class="kbd">final time</span>, <span class="kbd">time step</span>, parameters and <span class="kbd">initial values</span>.</li>
           <li>Choose 2D or 3D axes (for nD systems you see projections).</li>
-          <li>Use <strong>Transient cut</strong> to remove transients.</li>
+          <li>Use <strong>Transient cut (time to skip)</strong> to remove transients; equivalent steps are displayed automatically.</li>
+          <li>Use <strong>Axis limits (view window)</strong> under the plot to inspect a different region without rerunning integration.</li>
+          <li>In <strong>Configuration</strong>, you can upload and apply <span class="kbd">StaticParamsConfig.json</span>.</li>
         </ul>
 
         <h3>Lyapunov (Tab 1 / corresponding panel)</h3>
         <ul class="list">
-          <li>Set <strong>Transient</strong> (fraction/time) and <strong>QR interval</strong>.</li>
+          <li>Set <strong>Lyapunov transient fraction</strong> and <strong>QR interval</strong>.</li>
           <li>Click <strong>Compute Lyapunov exponents</strong>.</li>
         </ul>
 
@@ -381,7 +383,7 @@ beta=2.6666667</pre>
         <h3>Parameter sweeps</h3>
         <ul class="list">
           <li>Select sweep parameter, range and step.</li>
-          <li><strong>Mode:</strong> bifucartion(reset ICs) or continuation (warm start).</li>
+          <li><strong>Mode:</strong> bifurcation (reset ICs) or continuation (warm start).</li>
           <li>For faster bifurcation diagrams use RK4 and a suitable number of Poincare hits / early stop where available.</li>
         </ul>
 
@@ -391,6 +393,8 @@ beta=2.6666667</pre>
           <li>For Lyapunov at fixed parameter values, use a relatively long time horizon. Example: with time step 0.01, final time 10000 is often safe.</li>
           <li>For parametric study (bifurcation diagrams and Lyapunov vs parameter), start with a few values and increase resolution gradually.</li>
           <li>Based on time series, choose a suitable section equation for the Poincare cut to obtain valid crossing values. Use consistent settings when generating the Lyapunov diagram.</li>
+          <li>Use <strong>Axis limits (view window)</strong> under the Lyapunov plot to inspect local regions without recomputation.</li>
+          <li>At the bottom centered <strong>Configuration</strong> area, use <strong>Save configuration</strong> or upload/apply <span class="kbd">SweepParamConfig.json</span>.</li>
           <li>Balance quality vs runtime by adjusting final time until behavior is captured without excessive cost.</li>
           <li>If you are not using warm start (where each run starts from the final state of the previous), parallelize with the workers slider and reset ICs per parameter to reduce total time.</li>
         </ul>
