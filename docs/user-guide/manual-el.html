@@ -310,6 +310,33 @@ beta=2.6666667</pre>
         <li>Ενεργοποιήστε <strong>Auto-compute Jacobian (symbolic)</strong> όπου είναι διαθέσιμο.</li>
         <li>Ενεργοποιήστε <strong>Use analytic Jacobian</strong> για να επιταχύνετε τον υπολογισμό των εκθετών Lyapunov.</li>
       </ul>
+
+      <h3>Σύνταξη εξισώσεων και υποστηριζόμενη γραφή</h3>
+      <table class="table">
+        <thead>
+          <tr><th>Περιγραφή</th><th>Σύνταξη</th><th>Παράδειγμα</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Πρόσθεση / αφαίρεση</td><td><span class="kbd">+</span>, <span class="kbd">-</span></td><td><span class="kbd">y - x</span></td></tr>
+          <tr><td>Γινόμενο</td><td><span class="kbd">*</span></td><td><span class="kbd">-x*z + u</span></td></tr>
+          <tr><td>Διαίρεση</td><td><span class="kbd">/</span></td><td><span class="kbd">(x + y)/2</span></td></tr>
+          <tr><td>Ύψωση σε δύναμη</td><td><span class="kbd">**</span></td><td><span class="kbd">x**2 + y**2</span></td></tr>
+          <tr><td>Παρένθεση προτεραιότητας</td><td><span class="kbd">(...)</span></td><td><span class="kbd">(x + y)*(z - u)</span></td></tr>
+          <tr><td>Απόλυτη τιμή</td><td><span class="kbd">abs(...)</span></td><td><span class="kbd">abs(x - y)</span></td></tr>
+        </tbody>
+      </table>
+
+      <table class="table">
+        <thead>
+          <tr><th>Κατηγορία</th><th>Συνάρτηση</th><th>Παράδειγμα</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Τριγωνομετρικές</td><td><span class="kbd">sin, cos, tan</span></td><td><span class="kbd">sin(x) + cos(y)</span></td></tr>
+          <tr><td>Υπερβολικές</td><td><span class="kbd">sinh, cosh, tanh</span></td><td><span class="kbd">tanh(z)</span></td></tr>
+          <tr><td>Εκθετική / λογάριθμος</td><td><span class="kbd">exp, log</span></td><td><span class="kbd">exp(-x) + log(1+x**2)</span></td></tr>
+          <tr><td>Ρίζα / απόλυτη τιμή</td><td><span class="kbd">sqrt, abs</span></td><td><span class="kbd">sqrt(x**2 + y**2)</span></td></tr>
+        </tbody>
+      </table>
     </section>
 
     <section class="card">

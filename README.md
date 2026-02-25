@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/new_logo.png" alt="dynaSim logo" width="360"/>
+
 # dynaSim (NLDS Simulator)
 
 ### Interactive Nonlinear Dynamics Laboratory for Simulation, Lyapunov Analysis, and Poincare Sweeps

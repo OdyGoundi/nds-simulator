@@ -1,0 +1,177 @@
+\begin{thebibliography}{30}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Benettin et~al.(1980)Benettin, Galgani, Giorgilli, et~al.]{benettin_1980}
+G.~Benettin, L.~Galgani, A.~Giorgilli, et~al.
+\newblock Lyapunov characteristic exponents for smooth dynamical systems and for hamiltonian systems; a method for computing all of them. {Part} 1: Theory.
+\newblock \emph{Meccanica}, 15:\penalty0 9--20, 1980.
+\newblock \doi{10.1007/BF02128236}.
+
+\bibitem[Dhooge et~al.(2003)Dhooge, Govaerts, and Kuznetsov]{matcont_software}
+Annick Dhooge, Willy Govaerts, and Yuri~A. Kuznetsov.
+\newblock Matcont: A matlab package for numerical bifurcation analysis of odes.
+\newblock \emph{ACM Transactions on Mathematical Software}, 29\penalty0 (2):\penalty0 141--164, 2003.
+
+\bibitem[Dieci and Van~Vleck(2002)]{dieci_vleck_2002}
+Luca Dieci and Erik~S. Van~Vleck.
+\newblock Lyapunov spectral intervals: Theory and computation.
+\newblock \emph{SIAM Journal on Numerical Analysis}, 40\penalty0 (2):\penalty0 516--542, 2002.
+\newblock \doi{10.1137/S0036142901392304}.
+
+\bibitem[Gkountinakos(2026{\natexlab{a}})]{gkountinakos_chaos_trace_cpp_2026}
+Odysseas Gkountinakos.
+\newblock Chaos trace: C++ numerical study for chaotic systems, 2026{\natexlab{a}}.
+\newblock Internal C++ study and visualization pipeline used for the QR re-orthonormalization animation frames in Figures 1.10 and 1.11.
+
+\bibitem[Gkountinakos(2026{\natexlab{b}})]{nlds_internal_md_docs}
+Odysseas Gkountinakos.
+\newblock Nlds internal technical notes (architecture, sweep engine, performance), 2026{\natexlab{b}}.
+\newblock Project documents: architecture.md; sweep-engine.md; performance.md.
+
+\bibitem[Gkountinakos(2026{\natexlab{c}})]{nlds_internal_scripts}
+Odysseas Gkountinakos.
+\newblock Nds simulator internal scripts for numba sweep and lyapunov backend benchmark, 2026{\natexlab{c}}.
+\newblock Repository files: core/numba\_backend/sweep.py; tests/benchmark\_lyapunov\_cpp\_vs\_python.py; includes experimental run used for Table 2.3 (2026-02-15).
+
+\bibitem[Guckenheimer and Holmes(1983)]{guckenheimer_holmes}
+John Guckenheimer and Philip Holmes.
+\newblock \emph{Nonlinear Oscillations, Dynamical Systems, and Bifurcations of Vector Fields}.
+\newblock Springer, 1983.
+
+\bibitem[Hairer et~al.(1993)Hairer, Norsett, and Wanner]{hairer_wanner}
+Ernst Hairer, Syvert~P. Norsett, and Gerhard Wanner.
+\newblock \emph{Solving Ordinary Differential Equations I: Nonstiff Problems}.
+\newblock Springer, 2nd edition, 1993.
+
+\bibitem[Hairer et~al.(2006{\natexlab{a}})Hairer, Lubich, and Wanner]{hairer_lubich_wanner}
+Ernst Hairer, Christian Lubich, and Gerhard Wanner.
+\newblock \emph{Geometric Numerical Integration: Structure-Preserving Algorithms for Ordinary Differential Equations}.
+\newblock Springer, 2nd edition, 2006{\natexlab{a}}.
+
+\bibitem[Hairer et~al.(2006{\natexlab{b}})Hairer, Wanner, and Lubich]{lubich_symplectic}
+Ernst Hairer, Gerhard Wanner, and Christian Lubich.
+\newblock Symplectic integration of hamiltonian systems.
+\newblock In \emph{Geometric Numerical Integration}, volume~31 of \emph{Springer Series in Computational Mathematics}, chapter~6. Springer, Berlin, Heidelberg, 2006{\natexlab{b}}.
+\newblock \doi{10.1007/3-540-30666-8_6}.
+
+\bibitem[Hammel et~al.(1987)Hammel, Yorke, and Grebogi]{hammel_yorke_grebogi_1987}
+Stephen~M. Hammel, James~A. Yorke, and Celso Grebogi.
+\newblock Do numerical orbits of chaotic dynamical processes represent true orbits?
+\newblock \emph{Journal of Complexity}, 3\penalty0 (2):\penalty0 136--145, 1987.
+\newblock \doi{10.1016/0885-064X(87)90024-0}.
+
+\bibitem[Lam et~al.(2015)Lam, Pitrou, and Seibert]{lam2015_numba}
+Siu~Kwan Lam, Antoine Pitrou, and Stanley Seibert.
+\newblock Numba: A {LLVM}-based python jit compiler.
+\newblock In \emph{Proceedings of the Second Workshop on the LLVM Compiler Infrastructure in HPC}, pages 1--6, 2015.
+\newblock \doi{10.1145/2833157.2833162}.
+
+\bibitem[{LLVM Project}(2026)]{llvm_langref}
+{LLVM Project}.
+\newblock Llvm language reference manual.
+\newblock \url{https://llvm.org/docs/LangRef.html}, 2026.
+\newblock Accessed: 2026-02-15.
+
+\bibitem[{llvmlite Development Team}(2026)]{llvmlite_docs}
+{llvmlite Development Team}.
+\newblock llvmlite documentation.
+\newblock \url{https://llvmlite.readthedocs.io/en/latest/}, 2026.
+\newblock Accessed: 2026-02-15.
+
+\bibitem[{Numba Development Team}(2026{\natexlab{a}})]{numba_architecture_docs}
+{Numba Development Team}.
+\newblock Numba developer manual: Compiler architecture.
+\newblock \url{https://numba.readthedocs.io/en/stable/developer/architecture.html}, 2026{\natexlab{a}}.
+\newblock Accessed: 2026-02-15.
+
+\bibitem[{Numba Development Team}(2026{\natexlab{b}})]{numba_jit_docs}
+{Numba Development Team}.
+\newblock Numba reference: Just-in-time compilation.
+\newblock \url{https://numba.readthedocs.io/en/stable/reference/jit-compilation.html}, 2026{\natexlab{b}}.
+\newblock Accessed: 2026-02-15.
+
+\bibitem[Ott(2002)]{ott_chaos}
+Edward Ott.
+\newblock \emph{Chaos in Dynamical Systems}.
+\newblock Cambridge University Press, 2nd edition, 2002.
+\newblock \doi{10.1017/CBO9780511803260}.
+
+\bibitem[Pham et~al.(2014)Pham, Volos, Jafari, Wei, and Wang]{pham2014_no_equilibrium}
+Viet-Thanh Pham, Christos Volos, Sajad Jafari, Zhouchao Wei, and Xiong Wang.
+\newblock Constructing a novel no-equilibrium chaotic system.
+\newblock \emph{International Journal of Bifurcation and Chaos}, 24\penalty0 (5):\penalty0 1450073, 2014.
+\newblock \doi{10.1142/S0218127414500734}.
+
+\bibitem[Pham et~al.(2016)Pham, Vaidyanathan, Volos, Jafari, and Wang]{pham2016_hyperjerk_memristive}
+Viet-Thanh Pham, Sundarapandian Vaidyanathan, Christos~K. Volos, Sajad Jafari, and Xiong Wang.
+\newblock A chaotic hyperjerk system based on memristive device.
+\newblock In \emph{Advances and Applications in Chaotic Systems}, volume 636 of \emph{Studies in Computational Intelligence}. Springer, 2016.
+\newblock \doi{10.1007/978-3-319-30279-9_2}.
+
+\bibitem[Pham et~al.(2017)Pham, Jafari, Volos, Gotthans, Wang, and Hoang]{pham2017_rounded_square}
+Viet-Thanh Pham, Sajad Jafari, Christos Volos, Tomas Gotthans, Xiong Wang, and Duy~Vo Hoang.
+\newblock A chaotic system with rounded square equilibrium and with no-equilibrium.
+\newblock \emph{Optik}, 130:\penalty0 365--371, 2017.
+\newblock \doi{10.1016/j.ijleo.2016.10.100}.
+
+\bibitem[Shimada and Nagashima(1979)]{shimada_nagashima_1979}
+Ippei Shimada and Tomomasa Nagashima.
+\newblock A numerical approach to ergodic problem of dissipative dynamical systems.
+\newblock \emph{Progress of Theoretical Physics}, 61\penalty0 (6):\penalty0 1605--1616, 1979.
+\newblock \doi{10.1143/PTP.61.1605}.
+
+\bibitem[Sparrow(1982)]{sparrow_lorenz}
+Colin Sparrow.
+\newblock \emph{The Lorenz Equations: Bifurcations, Chaos, and Strange Attractors}.
+\newblock Springer, 1982.
+
+\bibitem[Strogatz(2015)]{strogatz_nonlinear}
+Steven~H. Strogatz.
+\newblock \emph{Nonlinear Dynamics and Chaos}.
+\newblock Westview Press, 2nd edition, 2015.
+
+\bibitem[Viana(2010)]{oseledets_scholarpedia}
+Marcelo Viana.
+\newblock Oseledets theorem.
+\newblock \emph{Scholarpedia}, 5\penalty0 (11):\penalty0 11687, 2010.
+\newblock \doi{10.4249/scholarpedia.11687}.
+
+\bibitem[Volos et~al.(2016{\natexlab{a}})Volos, Pham, Vaidyanathan, Kyprianidis, and Stouboulos]{volos2016_hidden_sync}
+Ch.~K. Volos, V.-T. Pham, S.~Vaidyanathan, I.~M. Kyprianidis, and I.~N. Stouboulos.
+\newblock Synchronization phenomena in coupled hyperchaotic oscillators with hidden attractors using a nonlinear open loop controller.
+\newblock In \emph{Advances and Applications in Chaotic Systems}, volume 636 of \emph{Studies in Computational Intelligence}. Springer, 2016{\natexlab{a}}.
+\newblock \doi{10.1007/978-3-319-30279-9_1}.
+
+\bibitem[Volos et~al.(2016{\natexlab{b}})Volos, Prousalis, Kyprianidis, Stouboulos, Vaidyanathan, and Pham]{volos2016_hindmarsh_sync}
+Christos~K. Volos, Dimitrios Prousalis, Ioannis~M. Kyprianidis, Ioannis Stouboulos, Sundarapandian Vaidyanathan, and Viet-Thanh Pham.
+\newblock Synchronization and anti-synchronization of coupled hindmarsh--rose neuron models.
+\newblock \emph{International Journal of Control Theory and Applications}, 9\penalty0 (1):\penalty0 101--114, 2016{\natexlab{b}}.
+
+\bibitem[Voyatzis and Meletlidou(2016)]{koy_poincare_map_2016}
+K.~Voyatzis and E.~Meletlidou.
+\newblock Eisagogi sta mi grammika dynamika systimata, 2016.
+\newblock Section 7.2: Stroboscopic Poincare map.
+
+\bibitem[Wang et~al.(2017)Wang, Volos, Kingni, Azar, and Pham]{wang2017_four_wing}
+Zhen Wang, Christos Volos, Sifeu~Takougang Kingni, Ahmad~Taher Azar, and Viet-Thanh Pham.
+\newblock Four-wing attractors in a novel chaotic system with hyperbolic sine nonlinearity.
+\newblock \emph{Optik}, 131:\penalty0 1071--1078, 2017.
+\newblock \doi{10.1016/j.ijleo.2016.12.016}.
+
+\bibitem[{Wikipedia contributors}(2026)]{wikipedia_lyapunov_exponent}
+{Wikipedia contributors}.
+\newblock {Lyapunov exponent --- Wikipedia{,} The Free Encyclopedia}.
+\newblock \url{https://en.wikipedia.org/wiki/Lyapunov_exponent}, 2026.
+\newblock Accessed: 2026-02-20.
+
+\bibitem[Wolf et~al.(1985)Wolf, Swift, Swinney, and Vastano]{wolf_1985}
+Alan Wolf, Jack~B. Swift, Harry~L. Swinney, and John~A. Vastano.
+\newblock Determining {Lyapunov} exponents from a time series.
+\newblock \emph{Physica D: Nonlinear Phenomena}, 16\penalty0 (3):\penalty0 285--317, 1985.
+\newblock \doi{10.1016/0167-2789(85)90011-9}.
+
+\end{thebibliography}

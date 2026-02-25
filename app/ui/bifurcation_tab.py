@@ -377,6 +377,8 @@ def render_bifurcation_tab(
                 disabled=parallel_bif_disabled or not parallel_bif,
             )
 
+            st.markdown("**Poincaré section selection**")
+
             r1c1, r1c2, r1c3, r1c4 = st.columns([1, 1, 1, 1], gap="small")
             with r1c1:
                 section_var = st.selectbox("Section var", var_names, index=0, key="sec_var_tab3")

@@ -49,6 +49,14 @@ from core import numba_backend
 
 APP_NAME = "DynaSim"
 APP_SUBTITLE = "Non-linear Dynamical Systems Simulator"
+APP_LOGO_CANDIDATES = [
+    PROJECT_ROOT / "docs" / "thesis" / "figures" / "new_logo.png",
+    PROJECT_ROOT / "docs" / "assets" / "new_logo.png",
+]
+APP_LOGO_INVERT_CANDIDATES = [
+    PROJECT_ROOT / "docs" / "thesis" / "figures" / "new_logo.png",
+    PROJECT_ROOT / "docs" / "assets" / "new_logo.png",
+]
 HENON_HEILES_VAR_NAMES = ["q1", "q2", "p1", "p2"]
 HENON_HEILES_EQ_LINES = [
     "p1",
@@ -70,6 +78,9 @@ SOLVER_LABEL_BY_KIND = {
     "rk4": "RK4 (fixed step)",
     "symplectic_fr": "Symplectic Forest-Ruth (4th order)",
 }
+PENDING_STATIC_CFG_KEY = "_pending_static_cfg_apply"
+STATIC_CFG_APPLY_SUCCESS_KEY = "_static_cfg_apply_success_msg"
+STATIC_CFG_APPLY_ERROR_KEY = "_static_cfg_apply_error_msg"
 
 
 def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
@@ -104,6 +115,102 @@ def _to_int(value: Any, default: int) -> int:
 
 def _clamp_int(value: int, low: int, high: int) -> int:
     return max(int(low), min(int(value), int(high)))
+
+
+def _image_path_to_data_uri(image_path: Path) -> Optional[str]:
+    if not image_path.exists():
+        return None
+    suffix = image_path.suffix.lower()
+    mime = "image/png"
+    if suffix in (".jpg", ".jpeg"):
+        mime = "image/jpeg"
+    elif suffix == ".webp":
+        mime = "image/webp"
+    data_b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{data_b64}"
+
+
+def _pick_latest_existing_path(paths: List[Path]) -> Optional[Path]:
+    existing = [p for p in paths if p.exists()]
+    if not existing:
+        return None
+    return max(existing, key=lambda p: p.stat().st_mtime)
+
+
+def _get_runtime_theme_base() -> str:
+    context_obj = getattr(st, "context", None)
+    if context_obj is not None:
+        theme_obj = getattr(context_obj, "theme", None)
+        if isinstance(theme_obj, dict):
+            base_val = theme_obj.get("base")
+            if base_val is not None:
+                return str(base_val).strip().lower()
+        elif theme_obj is not None:
+            base_attr = getattr(theme_obj, "base", None)
+            if base_attr is not None:
+                return str(base_attr).strip().lower()
+    return ""
+
+
+def _render_header_logo(width_px: int = 196, align: str = "center") -> bool:
+    light_logo_path = _pick_latest_existing_path(APP_LOGO_CANDIDATES)
+    dark_logo_path = _pick_latest_existing_path(APP_LOGO_INVERT_CANDIDATES)
+    light_logo_uri = _image_path_to_data_uri(light_logo_path) if light_logo_path is not None else None
+    dark_logo_uri = _image_path_to_data_uri(dark_logo_path) if dark_logo_path is not None else None
+    if light_logo_uri is None and dark_logo_uri is None:
+        return False
+    if light_logo_uri is None:
+        light_logo_uri = dark_logo_uri
+    if dark_logo_uri is None:
+        dark_logo_uri = light_logo_uri
+    if light_logo_uri is None or dark_logo_uri is None:
+        return False
+
+    css_align = "left" if str(align).strip().lower() == "left" else "center"
+    runtime_theme = _get_runtime_theme_base()
+    light_default_display = "none" if runtime_theme == "dark" else "inline-block"
+    dark_default_display = "inline-block" if runtime_theme == "dark" else "none"
+
+    st.markdown(
+        f"""
+<style>
+.dynasim-header-logo-wrap {{
+  width: 100%;
+  text-align: {css_align};
+}}
+.dynasim-header-logo-wrap img {{
+  width: {int(width_px)}px;
+  height: auto;
+}}
+.dynasim-header-logo-dark {{
+  display: {dark_default_display};
+}}
+.dynasim-header-logo-light {{
+  display: {light_default_display};
+}}
+html[data-theme="dark"] .dynasim-header-logo-light,
+html[theme="dark"] .dynasim-header-logo-light,
+body[data-theme="dark"] .dynasim-header-logo-light,
+body[theme="dark"] .dynasim-header-logo-light,
+body.dark .dynasim-header-logo-light {{
+  display: none !important;
+}}
+html[data-theme="dark"] .dynasim-header-logo-dark,
+html[theme="dark"] .dynasim-header-logo-dark,
+body[data-theme="dark"] .dynasim-header-logo-dark,
+body[theme="dark"] .dynasim-header-logo-dark,
+body.dark .dynasim-header-logo-dark {{
+  display: inline-block !important;
+}}
+</style>
+<div class="dynasim-header-logo-wrap">
+  <img class="dynasim-header-logo-light" src="{light_logo_uri}" alt="dynaSim logo">
+  <img class="dynasim-header-logo-dark" src="{dark_logo_uri}" alt="dynaSim logo dark">
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    return True
 
 
 def _params_dict_to_text(params_obj: object) -> str:
@@ -248,9 +355,25 @@ def _zip_bytes(file_map: Dict[str, bytes]) -> bytes:
             zf.writestr(name, data)
     return buf.getvalue()
 
+
+def _flush_pending_static_config_apply() -> None:
+    pending_cfg = st.session_state.pop(PENDING_STATIC_CFG_KEY, None)
+    if pending_cfg is None:
+        return
+    try:
+        if not isinstance(pending_cfg, dict):
+            raise ValueError("JSON root must be an object.")
+        _apply_static_config_to_state(pending_cfg)
+        st.session_state["static_config"] = pending_cfg
+        st.session_state[STATIC_CFG_APPLY_SUCCESS_KEY] = (
+            "Static configuration loaded. Settings were applied."
+        )
+        st.session_state.pop(STATIC_CFG_APPLY_ERROR_KEY, None)
+    except Exception as exc:
+        st.session_state[STATIC_CFG_APPLY_ERROR_KEY] = str(exc)
+        st.session_state.pop(STATIC_CFG_APPLY_SUCCESS_KEY, None)
+
 st.set_page_config(page_title="dynaSim", layout="wide")
-st.title("dynaSim")
-st.caption(APP_SUBTITLE)
 
 def _render_manual(manual_html_path: Path, manual_pdf_path: Path, fallback_markdown: str) -> None:
     if manual_html_path.exists():
@@ -333,12 +456,17 @@ if "show_quick_manual_el" not in st.session_state:
 if "show_info_popup" not in st.session_state:
     st.session_state["show_info_popup"] = False
 
-manual_cols = st.columns(3)
-with manual_cols[0]:
+open_manual_eng = False
+open_manual_el = False
+open_info = False
+header_logo_col, header_actions_col = st.columns([3, 1], gap="large")
+with header_logo_col:
+    if not _render_header_logo(width_px=282, align="left"):
+        st.title("dynaSim")
+        st.caption(APP_SUBTITLE)
+with header_actions_col:
     open_manual_eng = st.button("Help (English)", key="open_quick_manual_btn")
-with manual_cols[1]:
     open_manual_el = st.button("Help(Ελληνικά)", key="open_quick_manual_el_btn")
-with manual_cols[2]:
     open_info = st.button("Info", key="open_info_btn")
 
 if open_manual_eng:
@@ -416,6 +544,9 @@ if st.session_state.get("show_info_popup", False):
             _render_info()
             if st.button("Hide info", key="hide_info_btn"):
                 st.session_state["show_info_popup"] = False
+
+# Apply uploaded static config before sidebar widgets are instantiated.
+_flush_pending_static_config_apply()
 
 # -------- Sidebar: system + initial conditions --------
 with st.sidebar:
@@ -787,8 +918,21 @@ try:
                 st.caption("Note: rtol/atol are used only by RK45/DOP853.")
             solve_tols = SolverTolerances(rtol=float(rtol), atol=float(atol))
 
-            st.divider()
-            st.markdown("**Configuration**")
+        st.divider()
+        st.markdown("**Configuration**")
+        static_cfg_apply_success = st.session_state.pop(STATIC_CFG_APPLY_SUCCESS_KEY, None)
+        if static_cfg_apply_success:
+            st.success(str(static_cfg_apply_success))
+        static_cfg_apply_error = st.session_state.pop(STATIC_CFG_APPLY_ERROR_KEY, None)
+        if static_cfg_apply_error:
+            st.error(f"Failed to load StaticParamsConfig: {static_cfg_apply_error}")
+        _, cfg_center_tab1, _ = st.columns([1, 1.8, 1], gap="large")
+        with cfg_center_tab1:
+            save_static_cfg = st.button(
+                "Save configuration",
+                key="save_static_cfg_tab1",
+                use_container_width=True,
+            )
             static_cfg_upload = st.file_uploader(
                 "Upload StaticParamsConfig.json",
                 type=["json"],
@@ -799,19 +943,20 @@ try:
                 "Apply uploaded configuration",
                 key="apply_static_cfg_tab1",
                 disabled=static_cfg_upload is None,
+                use_container_width=True,
             )
-            if apply_static_cfg and static_cfg_upload is not None:
-                try:
-                    loaded_static_cfg = json.loads(static_cfg_upload.getvalue().decode("utf-8"))
-                    if not isinstance(loaded_static_cfg, dict):
-                        raise ValueError("JSON root must be an object.")
-                    _apply_static_config_to_state(loaded_static_cfg)
-                    st.session_state["static_config"] = loaded_static_cfg
-                    st.success("Static configuration loaded. Applying settings...")
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Failed to load StaticParamsConfig: {exc}")
-            save_static_cfg = st.button("Save configuration", key="save_static_cfg_tab1")
+
+        if apply_static_cfg and static_cfg_upload is not None:
+            try:
+                loaded_static_cfg = json.loads(static_cfg_upload.getvalue().decode("utf-8"))
+                if not isinstance(loaded_static_cfg, dict):
+                    raise ValueError("JSON root must be an object.")
+                st.session_state.pop(STATIC_CFG_APPLY_SUCCESS_KEY, None)
+                st.session_state.pop(STATIC_CFG_APPLY_ERROR_KEY, None)
+                st.session_state[PENDING_STATIC_CFG_KEY] = loaded_static_cfg
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Failed to load StaticParamsConfig: {exc}")
 
     y0 = parse_list_of_floats(y0_text, int(n_vars), label="y0")
     if system_key == "henon_heiles":
