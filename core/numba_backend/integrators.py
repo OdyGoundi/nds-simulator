@@ -22,22 +22,53 @@ def build_rk4_integrator(rhs_nb: Callable) -> Callable:
     def _integrate(y0: np.ndarray, t0: float, tf: float, dt: float, max_steps: int, p: np.ndarray):
         if dt <= 0.0:
             return np.zeros(0, dtype=np.float64), np.zeros((0, 0), dtype=np.float64)
+        n_steps = int(math.floor((tf - t0) / dt)) + 1
+        if n_steps < 1:
+            n_steps = 1
+
         if max_steps > 0:
-            n_steps = max_steps
+            n_store = max_steps
         else:
-            n_steps = int(math.floor((tf - t0) / dt)) + 1
-            if n_steps < 1:
-                n_steps = 1
+            n_store = n_steps
+        if n_steps <= 1:
+            n_store = 1
+        else:
+            if n_store < 2:
+                n_store = 2
+            if n_store > n_steps:
+                n_store = n_steps
+
+        stride = 1
+        if n_store < n_steps:
+            stride = int(math.ceil((n_steps - 1) / float(n_store - 1)))
+            if stride < 1:
+                stride = 1
+
         n = y0.size
-        t_arr = np.empty(n_steps, dtype=np.float64)
-        y_arr = np.empty((n, n_steps), dtype=np.float64)
+        t_arr = np.empty(n_store, dtype=np.float64)
+        y_arr = np.empty((n, n_store), dtype=np.float64)
 
         t = t0
         y = y0.copy()
+        out_count = 0
         for i in range(n_steps):
-            t_arr[i] = t
-            for k in range(n):
-                y_arr[k, i] = y[k]
+            should_store = (
+                i == 0
+                or i == n_steps - 1
+                or stride == 1
+                or (i % stride == 0)
+            )
+            if should_store:
+                if out_count < n_store:
+                    t_arr[out_count] = t
+                    for k in range(n):
+                        y_arr[k, out_count] = y[k]
+                    out_count += 1
+                else:
+                    t_arr[n_store - 1] = t
+                    for k in range(n):
+                        y_arr[k, n_store - 1] = y[k]
+
             if i == n_steps - 1:
                 break
 
@@ -48,7 +79,7 @@ def build_rk4_integrator(rhs_nb: Callable) -> Callable:
             y = y + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
             t = t + dt
 
-        return t_arr, y_arr
+        return t_arr[:out_count], y_arr[:, :out_count]
 
     _RK4_CACHE[key] = _integrate
     return _integrate
@@ -75,21 +106,37 @@ def build_symplectic_fr_integrator(dq_dt_nb: Callable, dp_dt_nb: Callable) -> Ca
     def _integrate(y0: np.ndarray, t0: float, tf: float, dt: float, max_steps: int, params: np.ndarray):
         if dt <= 0.0:
             return np.zeros(0, dtype=np.float64), np.zeros((0, 0), dtype=np.float64)
+        n_steps = int(math.floor((tf - t0) / dt)) + 1
+        if n_steps < 1:
+            n_steps = 1
+
         if max_steps > 0:
-            n_steps = max_steps
+            n_store = max_steps
         else:
-            n_steps = int(math.floor((tf - t0) / dt)) + 1
-            if n_steps < 1:
-                n_steps = 1
+            n_store = n_steps
+        if n_steps <= 1:
+            n_store = 1
+        else:
+            if n_store < 2:
+                n_store = 2
+            if n_store > n_steps:
+                n_store = n_steps
+
+        stride = 1
+        if n_store < n_steps:
+            stride = int(math.ceil((n_steps - 1) / float(n_store - 1)))
+            if stride < 1:
+                stride = 1
 
         n = y0.size
         n_q = n // 2
-        t_arr = np.empty(n_steps, dtype=np.float64)
-        y_arr = np.empty((n, n_steps), dtype=np.float64)
+        t_arr = np.empty(n_store, dtype=np.float64)
+        y_arr = np.empty((n, n_store), dtype=np.float64)
 
         q = y0[:n_q].copy()
         p = y0[n_q:].copy()
         t = t0
+        out_count = 0
 
         w = 1.0 / (2.0 - 2.0 ** (1.0 / 3.0))
         c1 = w
@@ -97,10 +144,24 @@ def build_symplectic_fr_integrator(dq_dt_nb: Callable, dp_dt_nb: Callable) -> Ca
         c3 = w
 
         for i in range(n_steps):
-            t_arr[i] = t
-            for k in range(n_q):
-                y_arr[k, i] = q[k]
-                y_arr[n_q + k, i] = p[k]
+            should_store = (
+                i == 0
+                or i == n_steps - 1
+                or stride == 1
+                or (i % stride == 0)
+            )
+            if should_store:
+                if out_count < n_store:
+                    t_arr[out_count] = t
+                    for k in range(n_q):
+                        y_arr[k, out_count] = q[k]
+                        y_arr[n_q + k, out_count] = p[k]
+                    out_count += 1
+                else:
+                    t_arr[n_store - 1] = t
+                    for k in range(n_q):
+                        y_arr[k, n_store - 1] = q[k]
+                        y_arr[n_q + k, n_store - 1] = p[k]
             if i == n_steps - 1:
                 break
 
@@ -108,7 +169,7 @@ def build_symplectic_fr_integrator(dq_dt_nb: Callable, dp_dt_nb: Callable) -> Ca
             t, q, p = _verlet_step(t, q, p, c2 * dt, params)
             t, q, p = _verlet_step(t, q, p, c3 * dt, params)
 
-        return t_arr, y_arr
+        return t_arr[:out_count], y_arr[:, :out_count]
 
     _SYMPLECTIC_FR_CACHE[key] = _integrate
     return _integrate

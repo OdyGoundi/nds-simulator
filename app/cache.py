@@ -33,7 +33,7 @@ from app.params import (
 )
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=2)
 def solve_cached(
     system: SystemConfig,
     integration: IntegrationConfig,
@@ -46,6 +46,16 @@ def solve_cached(
       y: shape (n_vars, n_steps)
     """
     y0 = np.array(initial.y0, dtype=float)
+    max_store_steps_obj = getattr(integration, "max_store_steps", None)
+    max_store_steps: int | None = None
+    if max_store_steps_obj is not None:
+        try:
+            max_store_steps_i = int(max_store_steps_obj)
+            if max_store_steps_i > 0:
+                max_store_steps = max_store_steps_i
+        except Exception:
+            max_store_steps = None
+
     solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
     solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
     if solver_kind == "symplectic_verlet":
@@ -142,7 +152,7 @@ def solve_cached(
                     float(integration.t0),
                     float(integration.tf),
                     float(integration.dt),
-                    0,
+                    int(max_store_steps) if max_store_steps is not None else 0,
                     params_arr,
                 )
                 return t_arr, y_arr
@@ -172,6 +182,7 @@ def solve_cached(
             t_span=(integration.t0, integration.tf),
             y0=y0,
             t_step=integration.dt,
+            max_store_steps=max_store_steps,
             dp_dt=dp_dt_fn,
             dq_dt=dq_dt_fn,
         )
@@ -208,7 +219,7 @@ def solve_cached(
                         float(integration.t0),
                         float(integration.tf),
                         float(integration.dt),
-                        0,
+                        int(max_store_steps) if max_store_steps is not None else 0,
                         params_arr,
                     )
                     return t_arr, y_arr
@@ -225,7 +236,7 @@ def solve_cached(
                         float(integration.t0),
                         float(integration.tf),
                         float(integration.dt),
-                        0,
+                        int(max_store_steps) if max_store_steps is not None else 0,
                         params_arr,
                     )
                     return t_arr, y_arr
@@ -236,6 +247,7 @@ def solve_cached(
             t_span=(integration.t0, integration.tf),
             y0=y0,
             t_step=integration.dt,
+            max_store_steps=max_store_steps,
         )
     else:
         sol = integrate_system(
@@ -243,6 +255,7 @@ def solve_cached(
             t_span=(integration.t0, integration.tf),
             y0=y0,
             t_step=integration.dt,
+            max_store_steps=max_store_steps,
             **solve_options,
         )
     if not sol.success:

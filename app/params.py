@@ -8,6 +8,7 @@ class IntegrationConfig:
     tf: float
     dt: float
     solver_kind: str = "ivp"
+    max_store_steps: Optional[int] = None
 
 
 @dataclass(frozen=True)

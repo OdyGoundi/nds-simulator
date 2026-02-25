@@ -22,6 +22,7 @@ from app.helpers import (
     build_csv_bytes,
     build_custom_symplectic_functions,
     build_custom_symbolic_jacobian_str,
+    downsample_trajectory,
     parse_list_of_floats,
     parse_params,
 )
@@ -81,6 +82,10 @@ SOLVER_LABEL_BY_KIND = {
 PENDING_STATIC_CFG_KEY = "_pending_static_cfg_apply"
 STATIC_CFG_APPLY_SUCCESS_KEY = "_static_cfg_apply_success_msg"
 STATIC_CFG_APPLY_ERROR_KEY = "_static_cfg_apply_error_msg"
+MAX_PLOT_POINTS_DEFAULT = 120_000
+MAX_STORE_STEPS_DEFAULT = 200_000
+DIRECT_CSV_MAX_ROWS = 600_000
+EXPORT_CHUNK_ROWS_DEFAULT = 250_000
 
 
 def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
@@ -94,6 +99,20 @@ def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
         delta = max(1e-6, 0.05 * max(1.0, abs(vmin)))
         return vmin - delta, vmax + delta
     return vmin, vmax
+
+
+def _square_xy_bounds(
+    x_bounds: tuple[float, float],
+    y_bounds: tuple[float, float],
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    x0, x1 = float(x_bounds[0]), float(x_bounds[1])
+    y0, y1 = float(y_bounds[0]), float(y_bounds[1])
+    dx = max(1e-12, x1 - x0)
+    dy = max(1e-12, y1 - y0)
+    half_span = 0.5 * max(dx, dy)
+    x_mid = 0.5 * (x0 + x1)
+    y_mid = 0.5 * (y0 + y1)
+    return (x_mid - half_span, x_mid + half_span), (y_mid - half_span, y_mid + half_span)
 
 
 def _to_float(value: Any, default: Any) -> float:
@@ -276,9 +295,17 @@ def _apply_static_config_to_state(cfg: Dict[str, object]) -> None:
     t0 = _to_float(integration_obj.get("t0", 0.0), 0.0)
     tf = _to_float(integration_obj.get("tf", 50.0), 50.0)
     dt = max(1e-12, _to_float(integration_obj.get("dt", 0.01), 0.01))
+    max_store_cfg_raw = integration_obj.get("max_store_steps", MAX_STORE_STEPS_DEFAULT)
+    try:
+        max_store_cfg = int(max_store_cfg_raw) if max_store_cfg_raw is not None else 0
+    except Exception:
+        max_store_cfg = MAX_STORE_STEPS_DEFAULT
+    if max_store_cfg < 0:
+        max_store_cfg = 0
     st.session_state["t0_tab1"] = float(t0)
     st.session_state["tf_tab1"] = float(tf)
     st.session_state["dt_tab1"] = float(dt)
+    st.session_state["max_store_steps_tab1"] = int(max_store_cfg)
 
     y0 = integration_obj.get("y0")
     if isinstance(y0, list) and len(y0) > 0:
@@ -833,6 +860,31 @@ try:
                 transient_steps = int(max(0.0, float(transient_cut_time)) / dt_abs)
                 st.metric("Equivalent transient steps", transient_steps)
 
+            perf_c1, perf_c2 = st.columns([1, 1], gap="small")
+            with perf_c1:
+                max_plot_points = st.number_input(
+                    "Max points per plot",
+                    min_value=10_000,
+                    max_value=500_000,
+                    value=MAX_PLOT_POINTS_DEFAULT,
+                    step=10_000,
+                    key="max_plot_points_tab1",
+                    help="Uniformly downsamples trajectories for plotting only.",
+                )
+            with perf_c2:
+                max_store_steps_ui = st.number_input(
+                    "Max stored trajectory samples (0=all)",
+                    min_value=0,
+                    max_value=5_000_000,
+                    value=MAX_STORE_STEPS_DEFAULT,
+                    step=50_000,
+                    key="max_store_steps_tab1",
+                    help=(
+                        "Limits in-memory trajectory samples to avoid Streamlit Cloud crashes. "
+                        "Integration still runs full duration."
+                    ),
+                )
+
             st.divider()
             st.header("Lyapunov exponents calculation settings")
             qr_interval = st.number_input(
@@ -962,11 +1014,15 @@ try:
     if system_key == "henon_heiles":
         params_text = f"lambda={float(hh_lambda)}"
     initial = InitialConditions(tuple(float(v) for v in y0))
+    max_store_steps = int(max_store_steps_ui)
+    if max_store_steps <= 0:
+        max_store_steps = None
     integration = IntegrationConfig(
         t0=float(t0),
         tf=float(tf),
         dt=float(dt),
         solver_kind=str(solver_kind_effective),
+        max_store_steps=max_store_steps,
     )
     system = SystemConfig(
         key=system_key,
@@ -1020,14 +1076,16 @@ try:
     N = max(0, min(N, y.shape[1] - 2))
     t_plot = t[N:]
     y_plot = y[:, N:]
+    max_plot_points_i = max(2, int(max_plot_points))
+    t_plot_ds, y_plot_ds = downsample_trajectory(t_plot, y_plot, max_plot_points_i)
 
     # --- Tab 1: Phase portrait (plot) ---
     with phase_col_plot:
-        x_auto = _axis_bounds(y_plot[int(x_idx), :])
-        y_auto = _axis_bounds(y_plot[int(y_idx), :])
+        x_auto = _axis_bounds(y_plot_ds[int(x_idx), :])
+        y_auto = _axis_bounds(y_plot_ds[int(y_idx), :])
         z_auto = None
         if plot_mode == "3D phase plot":
-            z_auto = _axis_bounds(y_plot[int(z_idx), :])
+            z_auto = _axis_bounds(y_plot_ds[int(z_idx), :])
 
         phase_bounds_sig = (
             str(plot_mode),
@@ -1082,10 +1140,25 @@ try:
                 st.session_state["phase_zlim_min_tab1"] = float(z_view[0])
                 st.session_state["phase_zlim_max_tab1"] = float(z_view[1])
 
+        phase_square_axes = False
+        if plot_mode == "2D phase plane":
+            phase_square_axes = st.checkbox(
+                "Square axes (equal x/y scale)",
+                value=bool(st.session_state.get("phase_square_axes_tab1", False)),
+                key="phase_square_axes_tab1",
+                help="Use the same scale on both axes and keep the phase plot square.",
+            )
+            if phase_square_axes:
+                x_view, y_view = _square_xy_bounds(x_view, y_view)
+                st.session_state["phase_xlim_min_tab1"] = float(x_view[0])
+                st.session_state["phase_xlim_max_tab1"] = float(x_view[1])
+                st.session_state["phase_ylim_min_tab1"] = float(y_view[0])
+                st.session_state["phase_ylim_max_tab1"] = float(y_view[1])
+
         if plot_mode == "2D phase plane":
             title = f"{system_label} – {var_names[int(y_idx)]} vs {var_names[int(x_idx)]}"
             fig = plot_phase_2d(
-                y=y_plot,
+                y=y_plot_ds,
                 i=int(x_idx),
                 j=int(y_idx),
                 title=title,
@@ -1095,12 +1168,14 @@ try:
             ax = fig.axes[0]
             ax.set_xlim(float(x_view[0]), float(x_view[1]))
             ax.set_ylim(float(y_view[0]), float(y_view[1]))
+            if phase_square_axes:
+                ax.set_aspect("equal", adjustable="box")
             st.pyplot(fig, clear_figure=True)
 
         else:
             title = f"{system_label} – 3D phase ({var_names[int(x_idx)]}, {var_names[int(y_idx)]}, {var_names[int(z_idx)]})"
             fig = plot_phase_3d(
-                y=y_plot,
+                y=y_plot_ds,
                 i=int(x_idx),
                 j=int(y_idx),
                 k=int(z_idx),
@@ -1188,10 +1263,15 @@ try:
         )
 
         st.caption(
-            f"Total steps: {len(t)} | plotted: {len(t_plot)} | "
+            f"Total steps: {len(t)} | stored: {len(t_plot)} | plotted: {len(t_plot_ds)} | "
             f"transient cut: {float(transient_cut_time):.3f} time ({N} steps) | "
             f"n_vars: {y.shape[0]} | t in [{t[0]:.2f}, {t[-1]:.2f}]"
         )
+        est_steps = int(np.floor((float(tf) - float(t0)) / max(float(dt), 1e-12))) + 1
+        if max_store_steps is not None and est_steps > len(t):
+            st.caption(
+                f"Storage cap active: kept {len(t)} of ~{est_steps} trajectory samples in memory."
+            )
 
         st.divider()
         st.markdown("**Lyapunov exponents**")
@@ -1306,9 +1386,10 @@ try:
 
         t_ts = t_plot[ts_mask]
         y_ts = y_plot[:, ts_mask]
+        t_ts_plot, y_ts_plot = downsample_trajectory(t_ts, y_ts, max_plot_points_i)
         st.caption(
             f"Showing t in [{float(t_view_start):.3f}, {float(t_view_end):.3f}] | "
-            f"samples: {len(t_ts)}/{len(t_plot)}"
+            f"samples: {len(t_ts_plot)}/{len(t_ts)} (stored window) | stored total: {len(t_plot)}"
         )
 
         # Variable selection
@@ -1325,8 +1406,8 @@ try:
             selected_indices = [var_names.index(name) for name in selected_names]
 
             fig_ts = plot_time_seiries_functional(
-                t=t_ts,
-                y=y_ts,
+                t=t_ts_plot,
+                y=y_ts_plot,
                 indices=selected_indices,
                 var_names=var_names,
                 title=f"{system_label} – time series",
@@ -1353,8 +1434,8 @@ try:
             color = COLORS[plot_pos % len(COLORS)]
 
             ax.plot(
-                t_ts,
-                y_ts[var_idx, :],
+                t_ts_plot,
+                y_ts_plot[var_idx, :],
                 linewidth=0.9,
                 label=var_names[var_idx],
                 color=color,
@@ -1416,18 +1497,73 @@ try:
                 )
 
             st.divider()
-            csv_bytes = build_csv_bytes(t_plot, y_plot, var_names)
+            st.markdown("**Export: Trajectory (post-transient)**")
             rtol_tag = f"{float(rtol):.0e}"
             atol_tag = f"{float(atol):.0e}"
+            traj_base = f"{system_key}_trajectory_rtol{rtol_tag}_atol{atol_tag}"
+            traj_rows = int(t_plot.size)
 
-            st.download_button(
-                label="Download CSV (post-transient)",
-                data=csv_bytes,
-                file_name=f"{system_key}_trajectory_rtol{rtol_tag}_atol{atol_tag}.csv",
-                mime="text/csv",
-            )
+            if traj_rows <= 0:
+                st.info("No trajectory samples available for export.")
+            else:
+                if traj_rows <= int(DIRECT_CSV_MAX_ROWS):
+                    csv_bytes = build_csv_bytes(t_plot, y_plot, var_names)
+                    st.download_button(
+                        label="Download CSV (single file)",
+                        data=csv_bytes,
+                        file_name=f"{traj_base}.csv",
+                        mime="text/csv",
+                    )
+                else:
+                    st.warning(
+                        f"Trajectory has {traj_rows:,} rows; single-file export is disabled to avoid memory spikes."
+                    )
 
-            st.caption("CSV columns: t, " + ", ".join(var_names))
+                chunk_rows = int(
+                    st.number_input(
+                        "Trajectory chunk size (rows)",
+                        min_value=10_000,
+                        max_value=1_000_000,
+                        value=EXPORT_CHUNK_ROWS_DEFAULT,
+                        step=10_000,
+                        key="traj_export_chunk_rows_tab4",
+                    )
+                )
+                n_chunks = int(np.ceil(traj_rows / float(chunk_rows)))
+                if "traj_export_chunk_index_tab4" in st.session_state:
+                    st.session_state["traj_export_chunk_index_tab4"] = max(
+                        1,
+                        min(int(st.session_state["traj_export_chunk_index_tab4"]), max(1, n_chunks)),
+                    )
+                chunk_idx = int(
+                    st.number_input(
+                        "Chunk number",
+                        min_value=1,
+                        max_value=max(1, n_chunks),
+                        value=1,
+                        step=1,
+                        key="traj_export_chunk_index_tab4",
+                    )
+                )
+                start_row = (chunk_idx - 1) * chunk_rows
+                end_row = min(traj_rows, start_row + chunk_rows)
+                chunk_bytes = build_csv_bytes(
+                    t_plot,
+                    y_plot,
+                    var_names,
+                    start=start_row,
+                    end=end_row,
+                )
+                st.download_button(
+                    label=f"Download trajectory chunk {chunk_idx}/{n_chunks}",
+                    data=chunk_bytes,
+                    file_name=f"{traj_base}_part{chunk_idx:03d}-of-{n_chunks:03d}.csv",
+                    mime="text/csv",
+                    key="dl_traj_chunk_csv",
+                )
+                st.caption(
+                    f"Chunk rows: {start_row + 1}-{end_row} of {traj_rows} | columns: t, {', '.join(var_names)}"
+                )
             
             st.divider()
             st.markdown("**Export: Sweep (bifurcation / Poincaré)**")
@@ -1550,7 +1686,22 @@ try:
             if sweep_cfg is not None:
                 bundle_files["SweepParamConfig.json"] = json.dumps(sweep_cfg, indent=2).encode("utf-8")
 
-            bundle_files["trajectory.csv"] = build_csv_bytes(t_plot, y_plot, var_names)
+            if int(t_plot.size) <= int(DIRECT_CSV_MAX_ROWS):
+                bundle_files["trajectory.csv"] = build_csv_bytes(t_plot, y_plot, var_names)
+            else:
+                end_first = min(int(t_plot.size), int(EXPORT_CHUNK_ROWS_DEFAULT))
+                bundle_files["trajectory_part001.csv"] = build_csv_bytes(
+                    t_plot,
+                    y_plot,
+                    var_names,
+                    start=0,
+                    end=end_first,
+                )
+                bundle_files["trajectory_manifest.txt"] = (
+                    f"Trajectory rows: {int(t_plot.size)}\n"
+                    "Only the first chunk is included in this zip to keep memory bounded.\n"
+                    "Use Tab 4 chunk export to download the remaining chunks.\n"
+                ).encode("utf-8")
 
             if df_sweep is not None and len(df_sweep) > 0:
                 if not isinstance(df_sweep, pd.DataFrame):

@@ -25,6 +25,8 @@ def _run_bifurcation_chunk(
     sweep_param: str,
     sweep_step: float,
     poincare: PoincareConfig,
+    observable: str,
+    extrema_kind: str,
     run_cfg: SweepRunConfig,
     solve_tols: SolverTolerances,
 ) -> List[dict]:
@@ -42,6 +44,8 @@ def _run_bifurcation_chunk(
         initial=initial,
         sweep=sweep_run,
         poincare=poincare,
+        observable=str(observable),
+        extrema_kind=str(extrema_kind),
         run_cfg=run_cfg,
         solve_tols=solve_tols,
     )
@@ -59,6 +63,8 @@ def _run_bifurcation_parallel(
     initial: InitialConditions,
     sweep: SweepConfig,
     poincare: PoincareConfig,
+    observable: str,
+    extrema_kind: str,
     run_cfg: SweepRunConfig,
     solve_tols: SolverTolerances,
     max_workers: int,
@@ -79,6 +85,8 @@ def _run_bifurcation_parallel(
             itertools.repeat(str(sweep.param_name)),
             itertools.repeat(float(sweep.step)),
             itertools.repeat(poincare),
+            itertools.repeat(str(observable)),
+            itertools.repeat(str(extrema_kind)),
             itertools.repeat(run_cfg),
             itertools.repeat(solve_tols),
         ))

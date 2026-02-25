@@ -15,6 +15,7 @@ UI (app/nlds_app.py)
   └─ solve_cached(...)  [app/cache.py]
        ├─ solver_kind = rk45 | dop853 | ivp
        │    └─ core/solver.integrate_system() -> scipy.solve_ivp  [Python]
+       │         (supports bounded output via integration.max_store_steps)
        │
        ├─ solver_kind = rk4
        │    ├─ Numba available?
@@ -23,6 +24,7 @@ UI (app/nlds_app.py)
        │    │    └─ custom: app/numba_custom.build_custom_numba_rhs()
        │    │               -> rhs_nb -> build_rk4_integrator() -> rk4_nb(...)  [Numba]
        │    └─ fallback: core/solver.integrate_system_rk4()                     [Python]
+       │         (supports bounded output via integration.max_store_steps)
        │
        └─ solver_kind = symplectic_fr
             ├─ Numba available?
@@ -33,6 +35,7 @@ UI (app/nlds_app.py)
             │           -> dq_dt_nb/dp_dt_nb -> build_symplectic_fr_integrator()
             │           -> fr_nb(...)                                         [Numba]
             └─ fallback: core/symplectic_solver.integrate_system_symplectic_fr()  [Python]
+               (supports bounded output via integration.max_store_steps)
 ```
 
 ### 2) Lyapunov (single run)
@@ -54,6 +57,9 @@ UI -> compute_lyapunov_cached(...)  [app/logic/lyapunov_cached.py]
 
 ```
 UI -> run_sweep_chunk(...)  [app/sweep.py]
+  ├─ observable = poincare | extrema
+  │    └─ results are bounded in-memory (row budget cap) and hit count is budget-aware
+  │
   ├─ system = custom
   │    ├─ solver_kind = rk4 and Numba available?
   │    │    └─ build_custom_numba_rhs() -> build_rk4_integrator()  [Numba]
@@ -101,3 +107,8 @@ tests/benchmark_lyapunov_cpp_vs_python.py
 - The app uses `@st.cache_data` in `app/cache.py` and `app/logic/lyapunov_cached.py` to reuse results.
 - Symplectic solvers in the app are Forest-Ruth (4th order) only.
 - When users select RK4 or Symplectic Forest-Ruth, the Numba path is attempted automatically if available.
+- Large-run safeguards:
+  - Tab 1 plotting uses decimation (`max_plot_points`) to keep rendering bounded.
+  - Trajectory storage can be capped (`integration.max_store_steps`).
+  - Tab 4 supports chunked trajectory CSV export.
+  - Tab 3 sweep accumulation is bounded by a row budget to avoid unbounded memory growth.

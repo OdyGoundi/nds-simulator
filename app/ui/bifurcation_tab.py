@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 
-from app.helpers import parse_params
+from app.helpers import decimate_indices, downsample_xy, parse_params
 from app.export_utils import build_sweep_config
 from app.logic.bifurcation_sweep import _run_bifurcation_parallel
 from app.logic.lyapunov_sweep import _run_lyapunov_sweep
@@ -31,6 +31,11 @@ from core import numba_backend
 COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 DT_WARNING_THRESHOLD = 0.05
 DIRECTION_LABEL_BY_VALUE = {1: "+1 (up)", -1: "-1 (down)", 0: "0 (both)"}
+OBSERVABLE_POINCARE_LABEL = "Poincaré crossings"
+OBSERVABLE_EXTREMA_LABEL = "Local extrema (max/min)"
+MAX_BIF_PLOT_POINTS = 200_000
+MAX_LYA_PLOT_POINTS = 200_000
+MAX_SWEEP_ROWS_IN_MEMORY = 300_000
 
 
 def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
@@ -46,6 +51,20 @@ def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
     return vmin, vmax
 
 
+def _square_xy_bounds(
+    x_bounds: tuple[float, float],
+    y_bounds: tuple[float, float],
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    x0, x1 = float(x_bounds[0]), float(x_bounds[1])
+    y0, y1 = float(y_bounds[0]), float(y_bounds[1])
+    dx = max(1e-12, x1 - x0)
+    dy = max(1e-12, y1 - y0)
+    half_span = 0.5 * max(dx, dy)
+    x_mid = 0.5 * (x0 + x1)
+    y_mid = 0.5 * (y0 + y1)
+    return (x_mid - half_span, x_mid + half_span), (y_mid - half_span, y_mid + half_span)
+
+
 def _to_float(value: object, default: float) -> float:
     try:
         return float(value)
@@ -58,6 +77,13 @@ def _to_int(value: object, default: int) -> int:
         return int(value)
     except Exception:
         return int(default)
+
+
+def _clip_sweep_df(df: pd.DataFrame, max_rows: int) -> tuple[pd.DataFrame, bool]:
+    max_rows_i = max(1, int(max_rows))
+    if len(df) <= max_rows_i:
+        return df, False
+    return df.tail(max_rows_i).reset_index(drop=True), True
 
 
 def _apply_sweep_config_to_state(
@@ -132,6 +158,15 @@ def _apply_sweep_config_to_state(
         output_var = str(output.get("var", "")).strip()
         if output_var in var_names:
             st.session_state["out_var_tab3"] = output_var
+
+    observable = str(sweep_settings.get("observable", "poincare") or "poincare").strip().lower()
+    st.session_state["obs_kind_tab3"] = (
+        OBSERVABLE_EXTREMA_LABEL if observable == "extrema" else OBSERVABLE_POINCARE_LABEL
+    )
+    extrema_kind = str(sweep_settings.get("extrema_kind", "max") or "max").strip().lower()
+    if extrema_kind not in ("max", "min", "both"):
+        extrema_kind = "max"
+    st.session_state["ext_kind_tab3"] = extrema_kind
 
     transient = sweep_settings.get("transient")
     if isinstance(transient, dict) and "fraction" in transient:
@@ -208,6 +243,8 @@ def _init_sweep_state():
         st.session_state["sweep_boundaries"] = []
     if "sweep_meta" not in st.session_state:
         st.session_state["sweep_meta"] = {}
+    if "sweep_rows_clipped" not in st.session_state:
+        st.session_state["sweep_rows_clipped"] = False
     if "lya_acc_data" not in st.session_state:
         st.session_state["lya_acc_data"] = None
     if "lya_last_pv" not in st.session_state:
@@ -285,7 +322,7 @@ def render_bifurcation_tab(
                 dt_sweep = st.number_input(
                     "dt",
                     min_value=1e-6,
-                    value=max(float(dt), 0.1),
+                    value=max(float(dt), 0.01),
                     step=0.01,
                     format="%.6f",
                     key="dt_sweep_tab3",
@@ -377,11 +414,31 @@ def render_bifurcation_tab(
                 disabled=parallel_bif_disabled or not parallel_bif,
             )
 
+            observable = st.selectbox(
+                "Observable",
+                [OBSERVABLE_POINCARE_LABEL, OBSERVABLE_EXTREMA_LABEL],
+                index=0,
+                key="obs_kind_tab3",
+            )
+            use_extrema = observable.startswith("Local extrema")
+            if use_extrema:
+                extrema_kind = st.selectbox("Extrema", ["max", "min", "both"], index=0, key="ext_kind_tab3")
+            else:
+                extrema_kind = "max"
+
             st.markdown("**Poincaré section selection**")
+            if use_extrema:
+                st.caption("Section controls are disabled in extrema mode.")
 
             r1c1, r1c2, r1c3, r1c4 = st.columns([1, 1, 1, 1], gap="small")
             with r1c1:
-                section_var = st.selectbox("Section var", var_names, index=0, key="sec_var_tab3")
+                section_var = st.selectbox(
+                    "Section var",
+                    var_names,
+                    index=0,
+                    key="sec_var_tab3",
+                    disabled=use_extrema,
+                )
                 section_index = var_names.index(section_var)
             with r1c2:
                 section_value = st.number_input(
@@ -390,6 +447,7 @@ def render_bifurcation_tab(
                     step=0.1,
                     format="%.6f",
                     key="sec_val_tab3",
+                    disabled=use_extrema,
                 )
             with r1c3:
                 direction_label = st.selectbox(
@@ -397,6 +455,7 @@ def render_bifurcation_tab(
                     ["+1 (up)", "-1 (down)", "0 (both)"],
                     index=0,
                     key="sec_dir_tab3",
+                    disabled=use_extrema,
                 )
                 direction = +1 if direction_label.startswith("+1") else (-1 if direction_label.startswith("-1") else 0)
             with r1c4:
@@ -417,15 +476,22 @@ def render_bifurcation_tab(
                 help=(
                     f"Vars: {var_hint}. Params: {param_hint}."
                 ),
+                disabled=use_extrema,
             )
-            if str(section_expr).strip():
+            if (not use_extrema) and str(section_expr).strip():
                 st.caption("Using section equation; Section var/value is ignored.")
 
             st.divider()
 
             r2c1, r2c2, r2c3 = st.columns([1, 1, 1], gap="small")
             with r2c1:
-                method = st.selectbox("Method", ["crossing", "slab"], index=0, key="sec_method_tab3")
+                method = st.selectbox(
+                    "Method",
+                    ["crossing", "slab"],
+                    index=0,
+                    key="sec_method_tab3",
+                    disabled=use_extrema,
+                )
             with r2c2:
                 tol = st.number_input(
                     "Tolerance (slab only)",
@@ -433,6 +499,7 @@ def render_bifurcation_tab(
                     step=1e-3,
                     format="%.1e",
                     key="sec_tol_tab3",
+                    disabled=use_extrema,
                 )
             with r2c3:
                 st.empty()
@@ -443,6 +510,7 @@ def render_bifurcation_tab(
                     "Early stop (events)",
                     value=True,
                     key="early_stop_tab3",
+                    disabled=use_extrema,
                     help="Stop each run after collecting enough Poincaré hits."
                 )
             with r3c2:
@@ -453,8 +521,8 @@ def render_bifurcation_tab(
                     value=200,
                     step=10,
                     key="max_hits_tab3",
-                    disabled=not early_stop,
-                    help="Maximum number of crossings kept per parameter value."
+                    disabled=(not early_stop) and (not use_extrema),
+                    help="Maximum number of hits kept per parameter value."
                 )
             with r3c3:
                 chunk_time = st.number_input(
@@ -464,7 +532,7 @@ def render_bifurcation_tab(
                     step=0.5,
                     format="%.2f",
                     key="chunk_time_tab3",
-                    disabled=not early_stop,
+                    disabled=use_extrema or (not early_stop),
                     help="Integration time window for event detection."
                 )
 
@@ -497,6 +565,7 @@ def render_bifurcation_tab(
                 st.session_state["sweep_last_pv"] = None
                 st.session_state["sweep_boundaries"] = []
                 st.session_state["sweep_meta"] = {}
+                st.session_state["sweep_rows_clipped"] = False
                 st.success("Bifurcation sweep cleared.")
 
             have_prev_bif = (
@@ -660,6 +729,8 @@ def render_bifurcation_tab(
             integration=integration_sweep,
             transient_frac=transient_frac,
             solve_tols=solve_tols_sweep,
+            observable="extrema" if use_extrema else "poincare",
+            extrema_kind=str(extrema_kind),
         )
         lya_meta = dict(sweep_meta)
         lya_meta.pop("transient_frac", None)
@@ -692,6 +763,8 @@ def render_bifurcation_tab(
                 tol=float(tol),
                 output_var=str(out_var),
                 output_index=int(output_index),
+                observable="extrema" if use_extrema else "poincare",
+                extrema_kind=str(extrema_kind),
                 transient_frac=float(transient_frac),
                 transient_steps_est=int(transient_steps_sweep),
                 warm_start=bool(warm_start),
@@ -722,6 +795,7 @@ def render_bifurcation_tab(
             st.session_state["sweep_last_pv"] = None
             st.session_state["sweep_boundaries"] = []
             st.session_state["sweep_meta"] = sweep_meta
+            st.session_state["sweep_rows_clipped"] = False
 
             start_here = float(sweep_start)
             stop_here = float(sweep_stop)
@@ -740,6 +814,8 @@ def render_bifurcation_tab(
                         initial=initial,
                         sweep=sweep_run,
                         poincare=poincare_cfg,
+                        observable="extrema" if use_extrema else "poincare",
+                        extrema_kind=str(extrema_kind),
                         run_cfg=run_cfg,
                         solve_tols=solve_tols_sweep,
                         max_workers=int(workers_bif),
@@ -751,11 +827,15 @@ def render_bifurcation_tab(
                         initial=initial,
                         sweep=sweep_run,
                         poincare=poincare_cfg,
+                        observable="extrema" if use_extrema else "poincare",
+                        extrema_kind=str(extrema_kind),
                         run_cfg=run_cfg,
                         solve_tols=solve_tols_sweep,
                     )
 
             df_chunk = pd.DataFrame(df_chunk) if not isinstance(df_chunk, pd.DataFrame) else df_chunk
+            df_chunk, clipped_new = _clip_sweep_df(df_chunk, MAX_SWEEP_ROWS_IN_MEMORY)
+            st.session_state["sweep_rows_clipped"] = bool(clipped_new)
             st.session_state["sweep_acc_df"] = df_chunk
             st.session_state["sweep_last_pv"] = float(stop_here)
 
@@ -820,6 +900,8 @@ def render_bifurcation_tab(
                                     initial=initial,
                                     sweep=sweep_run,
                                     poincare=poincare_cfg,
+                                    observable="extrema" if use_extrema else "poincare",
+                                    extrema_kind=str(extrema_kind),
                                     run_cfg=run_cfg,
                                     solve_tols=solve_tols_sweep,
                                     max_workers=int(workers_bif),
@@ -831,6 +913,8 @@ def render_bifurcation_tab(
                                     initial=initial,
                                     sweep=sweep_run,
                                     poincare=poincare_cfg,
+                                    observable="extrema" if use_extrema else "poincare",
+                                    extrema_kind=str(extrema_kind),
                                     run_cfg=run_cfg,
                                     solve_tols=solve_tols_sweep,
                                 )
@@ -838,6 +922,10 @@ def render_bifurcation_tab(
                         df_chunk = pd.DataFrame(df_chunk) if not isinstance(df_chunk, pd.DataFrame) else df_chunk
                         df_acc = st.session_state["sweep_acc_df"]
                         df_acc = pd.concat([df_acc, df_chunk], ignore_index=True)
+                        df_acc, clipped_acc = _clip_sweep_df(df_acc, MAX_SWEEP_ROWS_IN_MEMORY)
+                        st.session_state["sweep_rows_clipped"] = bool(
+                            st.session_state.get("sweep_rows_clipped", False) or clipped_acc
+                        )
 
                         st.session_state["sweep_acc_df"] = df_acc
                         st.session_state["sweep_last_pv"] = float(stop_here)
@@ -959,11 +1047,113 @@ def render_bifurcation_tab(
                     df_plot = pd.DataFrame(df_plot)
 
                 ycol = f"y{int(output_index)}"
+                x_vals = np.asarray(df_plot[sweep_param].to_numpy(), dtype=float)
+                y_vals = np.asarray(df_plot[ycol].to_numpy(), dtype=float)
+                x_start = float(sweep_start)
+                x_stop_data = float(st.session_state.get("sweep_last_pv", sweep_stop))
+                if not np.isfinite(x_stop_data):
+                    x_stop_data = float(sweep_stop)
+                if x_stop_data <= x_start:
+                    x_stop_data = x_start + max(1e-12, float(abs(sweep_step)))
+                x_auto = (float(x_start), float(x_stop_data))
+                y_auto = _axis_bounds(y_vals)
+
+                bif_bounds_sig = (
+                    str(sweep_param),
+                    str(ycol),
+                    int(x_vals.size),
+                    float(x_auto[0]),
+                    float(x_auto[1]),
+                    float(y_auto[0]),
+                    float(y_auto[1]),
+                )
+                if st.session_state.get("bif_bounds_sig_tab3") != bif_bounds_sig:
+                    st.session_state["bif_xlim_min_tab3"] = float(x_auto[0])
+                    st.session_state["bif_xlim_max_tab3"] = float(x_auto[1])
+                    st.session_state["bif_ylim_min_tab3"] = float(y_auto[0])
+                    st.session_state["bif_ylim_max_tab3"] = float(y_auto[1])
+                    st.session_state["bif_bounds_sig_tab3"] = bif_bounds_sig
+
+                x_view = (
+                    float(st.session_state.get("bif_xlim_min_tab3", x_auto[0])),
+                    float(st.session_state.get("bif_xlim_max_tab3", x_auto[1])),
+                )
+                y_view = (
+                    float(st.session_state.get("bif_ylim_min_tab3", y_auto[0])),
+                    float(st.session_state.get("bif_ylim_max_tab3", y_auto[1])),
+                )
+                if not (x_view[0] < x_view[1] and y_view[0] < y_view[1]):
+                    st.warning("Invalid bifurcation axis limits detected. Reverting to data bounds.")
+                    x_view = x_auto
+                    y_view = y_auto
+                    st.session_state["bif_xlim_min_tab3"] = float(x_auto[0])
+                    st.session_state["bif_xlim_max_tab3"] = float(x_auto[1])
+                    st.session_state["bif_ylim_min_tab3"] = float(y_auto[0])
+                    st.session_state["bif_ylim_max_tab3"] = float(y_auto[1])
+
+                square_axes_bif = st.checkbox(
+                    "Square axes (equal x/y scale)",
+                    value=bool(st.session_state.get("bif_square_axes_tab3", False)),
+                    key="bif_square_axes_tab3",
+                    help="Use the same scale on both axes and keep this plot square.",
+                )
+                if square_axes_bif:
+                    x_view, y_view = _square_xy_bounds(x_view, y_view)
+                    st.session_state["bif_xlim_min_tab3"] = float(x_view[0])
+                    st.session_state["bif_xlim_max_tab3"] = float(x_view[1])
+                    st.session_state["bif_ylim_min_tab3"] = float(y_view[0])
+                    st.session_state["bif_ylim_max_tab3"] = float(y_view[1])
+
+                st.markdown("**Axis limits (view window)**")
+                lim_c1, lim_c2, lim_c3, lim_c4 = st.columns([1, 1, 1, 1], gap="small")
+                with lim_c1:
+                    st.number_input(
+                        f"{sweep_param} min",
+                        format="%.6f",
+                        key="bif_xlim_min_tab3",
+                    )
+                with lim_c2:
+                    st.number_input(
+                        f"{sweep_param} max",
+                        format="%.6f",
+                        key="bif_xlim_max_tab3",
+                    )
+                with lim_c3:
+                    st.number_input(
+                        f"{out_var} min",
+                        format="%.6f",
+                        key="bif_ylim_min_tab3",
+                    )
+                with lim_c4:
+                    st.number_input(
+                        f"{out_var} max",
+                        format="%.6f",
+                        key="bif_ylim_max_tab3",
+                    )
+                st.caption(
+                    f"Default bounds: {sweep_param} [{x_auto[0]:.4g}, {x_auto[1]:.4g}], "
+                    f"{out_var} [{y_auto[0]:.4g}, {y_auto[1]:.4g}]"
+                )
+                expected_params = 0
+                if float(sweep_step) > 0:
+                    expected_params = int(
+                        np.floor((float(x_auto[1]) - float(x_auto[0])) / float(sweep_step) + 1e-12)
+                    ) + 1
+                observed_params = int(np.unique(np.round(x_vals, 12)).size)
+                if expected_params > 0 and observed_params < expected_params:
+                    missing_params = int(expected_params - observed_params)
+                    st.caption(
+                        f"Coverage: {observed_params}/{expected_params} parameter values have hits "
+                        f"(missing {missing_params}). This is usually due to no section crossings "
+                        f"or numerical divergence; try smaller dt or continuation mode."
+                    )
+
+                x_plot, y_plot = downsample_xy(x_vals, y_vals, MAX_BIF_PLOT_POINTS)
                 fig, ax = plt.subplots(figsize=(6.0, 3.2))
                 fig.set_dpi(140)
                 ax.scatter(
-                    df_plot[sweep_param].to_numpy(),
-                    df_plot[ycol].to_numpy(),
+                    x_plot,
+                    y_plot,
                     s=2,
                     c="black",
                     marker=".",
@@ -975,16 +1165,21 @@ def render_bifurcation_tab(
                     ax.axvline(float(x_sep), color="magenta", linewidth=0.3)
 
                 ax.set_xlabel(sweep_param)
-                section_label = str(section_expr).strip()
-                if section_label:
-                    ax.set_ylabel(f"{out_var} on section ({section_label})")
+                if use_extrema:
+                    ax.set_ylabel(f"{out_var} local extrema ({extrema_kind})")
                 else:
-                    ax.set_ylabel(f"{out_var} on section ({section_var}={section_value})")
-                x_min = float(sweep_start)
-                x_max = float(np.nanmax(df_plot[sweep_param].to_numpy()))
-                ax.set_xlim(x_min, x_max)
+                    section_label = str(section_expr).strip()
+                    if section_label:
+                        ax.set_ylabel(f"{out_var} on section ({section_label})")
+                    else:
+                        ax.set_ylabel(f"{out_var} on section ({section_var}={section_value})")
+                ax.set_xlim(float(x_view[0]), float(x_view[1]))
+                ax.set_ylim(float(y_view[0]), float(y_view[1]))
+                if square_axes_bif:
+                    ax.set_aspect("equal", adjustable="box")
                 ax.grid(True, linewidth=0.3)
                 st.pyplot(fig, clear_figure=True)
+                st.caption(f"Plotted points: {len(x_plot)}/{len(x_vals)}")
 
                 last_pv = st.session_state.get("sweep_last_pv", None)
                 if last_pv is not None:
@@ -994,6 +1189,10 @@ def render_bifurcation_tab(
                         st.caption(f"Accumulated sweep | Rows: {len(df_plot)}")
                     except Exception:
                         pass
+                if bool(st.session_state.get("sweep_rows_clipped", False)):
+                    st.caption(
+                        f"Stored sweep rows are capped at {MAX_SWEEP_ROWS_IN_MEMORY:,} (oldest rows dropped)."
+                    )
 
         with right_col:
             st.divider()
@@ -1011,6 +1210,14 @@ def render_bifurcation_tab(
                     plot_lambdas = np.array(lambdas_arr, dtype=float)
                     if clip_lyapunov:
                         plot_lambdas = np.maximum(plot_lambdas, float(clip_min))
+                    lya_idx = decimate_indices(int(np.asarray(param_vals).size), MAX_LYA_PLOT_POINTS)
+                    param_vals_plot = np.asarray(param_vals, dtype=float)[lya_idx]
+                    if plot_lambdas.ndim == 1:
+                        plot_lambdas_plot = np.asarray(plot_lambdas, dtype=float)[lya_idx]
+                    else:
+                        plot_lambdas_plot = np.asarray(plot_lambdas, dtype=float)[lya_idx, :]
+                    if np.asarray(plot_lambdas_plot).ndim == 1:
+                        plot_lambdas_plot = np.asarray(plot_lambdas_plot, dtype=float)[:, None]
 
                     st.markdown("**Lyapunov exponents**")
                     x_auto = _axis_bounds(np.asarray(param_vals, dtype=float))
@@ -1050,14 +1257,27 @@ def render_bifurcation_tab(
                         st.session_state["lya_ylim_min_tab3"] = float(y_auto[0])
                         st.session_state["lya_ylim_max_tab3"] = float(y_auto[1])
 
+                    square_axes_lya = st.checkbox(
+                        "Square axes (equal x/y scale)",
+                        value=bool(st.session_state.get("lya_square_axes_tab3", False)),
+                        key="lya_square_axes_tab3",
+                        help="Use the same scale on both axes and keep this plot square.",
+                    )
+                    if square_axes_lya:
+                        x_view, y_view = _square_xy_bounds(x_view, y_view)
+                        st.session_state["lya_xlim_min_tab3"] = float(x_view[0])
+                        st.session_state["lya_xlim_max_tab3"] = float(x_view[1])
+                        st.session_state["lya_ylim_min_tab3"] = float(y_view[0])
+                        st.session_state["lya_ylim_max_tab3"] = float(y_view[1])
+
                     fig_lya, ax_lya = plt.subplots(figsize=(6.0, 3.2))
                     fig_lya.set_dpi(140)
 
-                    n_exps = plot_lambdas.shape[1]
+                    n_exps = plot_lambdas_plot.shape[1]
                     for k in range(n_exps):
                         ax_lya.plot(
-                            param_vals,
-                            plot_lambdas[:, k],
+                            param_vals_plot,
+                            plot_lambdas_plot[:, k],
                             color=COLORS[k % len(COLORS)],
                             linestyle="-",
                             linewidth=1.1,
@@ -1071,9 +1291,12 @@ def render_bifurcation_tab(
                     ax_lya.set_ylabel("Lyapunov exponents")
                     ax_lya.set_xlim(float(x_view[0]), float(x_view[1]))
                     ax_lya.set_ylim(float(y_view[0]), float(y_view[1]))
+                    if square_axes_lya:
+                        ax_lya.set_aspect("equal", adjustable="box")
                     ax_lya.grid(True, linewidth=0.3)
                     ax_lya.legend(loc="best", fontsize=8)
                     st.pyplot(fig_lya, clear_figure=True)
+                    st.caption(f"Plotted points: {len(param_vals_plot)}/{len(param_vals)}")
 
                     st.markdown("**Axis limits (view window)**")
                     lim_c1, lim_c2, lim_c3, lim_c4 = st.columns([1, 1, 1, 1], gap="small")

@@ -82,12 +82,14 @@ def build_integration_block(
     initial: InitialConditions,
     solve_tols: SolverTolerances,
 ) -> Dict[str, Any]:
+    max_store_steps = getattr(integration, "max_store_steps", None)
     return {
         "t0": float(integration.t0),
         "tf": float(integration.tf),
         "dt": float(integration.dt),
         "y0": [float(v) for v in initial.y0],
         "solver_kind": str(getattr(integration, "solver_kind", "ivp")),
+        "max_store_steps": (None if max_store_steps is None else int(max_store_steps)),
         "solve_options": solve_tols.to_dict(),
     }
 
@@ -197,6 +199,8 @@ def build_sweep_config(
     tol: float,
     output_var: str,
     output_index: int,
+    observable: str,
+    extrema_kind: str,
     transient_frac: float,
     transient_steps_est: int,
     warm_start: bool,
@@ -251,6 +255,8 @@ def build_sweep_config(
             "tol": float(tol),
         },
         "output": {"var": str(output_var), "index": int(output_index)},
+        "observable": str(observable),
+        "extrema_kind": str(extrema_kind),
         "transient": {
             "fraction": float(transient_frac),
             "steps_est": int(transient_steps_est),

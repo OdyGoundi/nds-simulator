@@ -9,6 +9,11 @@ Short index of the docs in this repo.
 - Time series (Tab 2): `docs/user-guide/time-series.md`
 - Parameter sweep (bifurcation + Lyapunov, Tab 3): `docs/user-guide/bifurcation-tab3.md`
 
+Key UI capabilities reflected in current app versions:
+- Axis-limit view windows and optional square/equal-scale plots (Tab 1 and Tab 3).
+- Sweep observable selection (Poincare crossings or local extrema).
+- Large-run safeguards (trajectory storage cap, plot decimation, chunked trajectory CSV export).
+
 ## In-app manuals (HTML)
 
 - English: `docs/user-guide/manual.html` (Help (Eng))

@@ -1,3 +1,4 @@
+from collections import deque
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -37,6 +38,133 @@ from app.params import (
 )
 
 DEFAULT_MAX_KEEP = 100
+OBSERVABLE_POINCARE = "poincare"
+OBSERVABLE_EXTREMA = "extrema"
+EXTREMA_KINDS = {"max", "min", "both"}
+MAX_SWEEP_ROWS_BUDGET = 300_000
+
+
+def _local_extrema_indices(y: np.ndarray, kind: str) -> np.ndarray:
+    """
+    Return indices i where y[i] is a local extremum.
+    kind: "max", "min", "both"
+    """
+    if y.size < 3:
+        return np.array([], dtype=int)
+
+    y0 = y[:-2]
+    y1 = y[1:-1]
+    y2 = y[2:]
+
+    if kind == "max":
+        mask = (y1 > y0) & (y1 > y2)
+    elif kind == "min":
+        mask = (y1 < y0) & (y1 < y2)
+    elif kind == "both":
+        mask = ((y1 > y0) & (y1 > y2)) | ((y1 < y0) & (y1 < y2))
+    else:
+        raise ValueError(f"Unknown extrema kind: {kind}")
+
+    return np.where(mask)[0] + 1  # shift because we used y[1:-1]
+
+
+def _normalize_observable(observable: str) -> str:
+    obs = str(observable or OBSERVABLE_POINCARE).strip().lower()
+    if obs not in (OBSERVABLE_POINCARE, OBSERVABLE_EXTREMA):
+        raise ValueError(f"Unknown observable: {observable}")
+    return obs
+
+
+def _normalize_extrema_kind(extrema_kind: str) -> str:
+    kind = str(extrema_kind or "max").strip().lower()
+    if kind not in EXTREMA_KINDS:
+        raise ValueError(f"Unknown extrema kind: {extrema_kind}")
+    return kind
+
+
+def _estimate_param_count(sweep: SweepConfig) -> int:
+    step = float(sweep.step)
+    if step <= 0:
+        return 0
+    span = float(sweep.stop) - float(sweep.start)
+    if span < 0:
+        return 0
+    return int(np.floor(span / step + 1e-12)) + 1
+
+
+def _effective_max_hits(max_hits: int, sweep: SweepConfig, max_rows_budget: int = MAX_SWEEP_ROWS_BUDGET) -> int:
+    max_hits_i = max(1, int(max_hits))
+    n_params = max(1, _estimate_param_count(sweep))
+    max_hits_budget = max(1, int(max_rows_budget) // n_params)
+    return max(1, min(max_hits_i, max_hits_budget))
+
+
+def _clip_rows_result(rows_obj, max_rows: int = MAX_SWEEP_ROWS_BUDGET):
+    max_rows_i = max(1, int(max_rows))
+    if pd is not None and isinstance(rows_obj, pd.DataFrame):
+        if len(rows_obj) <= max_rows_i:
+            return rows_obj
+        return rows_obj.tail(max_rows_i).reset_index(drop=True)
+    rows_list = list(rows_obj)
+    if len(rows_list) <= max_rows_i:
+        return rows_list
+    return rows_list[-max_rows_i:]
+
+
+def _collect_observable_hits(
+    *,
+    t_arr: np.ndarray,
+    y_arr: np.ndarray,
+    output_index: int,
+    max_keep: int,
+    observable: str,
+    extrema_kind: str,
+    poincare: PoincareConfig,
+    params: Dict[str, float],
+) -> tuple[np.ndarray, np.ndarray]:
+    t_data = np.asarray(t_arr, dtype=float).ravel()
+    y_data = np.asarray(y_arr, dtype=float)
+    if y_data.ndim != 2:
+        return np.array([], dtype=float), np.array([], dtype=float)
+
+    out_idx = int(output_index)
+    if out_idx < 0 or out_idx >= int(y_data.shape[0]):
+        raise ValueError(f"output_index out of bounds: {out_idx}")
+
+    max_keep_safe = max(1, int(max_keep))
+
+    if observable == OBSERVABLE_EXTREMA:
+        n_steps = min(int(t_data.size), int(y_data.shape[1]))
+        if n_steps <= 0:
+            return np.array([], dtype=float), np.array([], dtype=float)
+        transient_steps = max(0, int(getattr(poincare, "transient_steps", 0)))
+        if transient_steps >= n_steps:
+            return np.array([], dtype=float), np.array([], dtype=float)
+        t_use = np.asarray(t_data[:n_steps], dtype=float)[transient_steps:]
+        y_use = np.asarray(y_data[out_idx, :n_steps], dtype=float)[transient_steps:]
+        if t_use.size != y_use.size:
+            n_pair = min(int(t_use.size), int(y_use.size))
+            t_use = t_use[:n_pair]
+            y_use = y_use[:n_pair]
+        idx = _local_extrema_indices(y_use, extrema_kind)
+        if idx.size > max_keep_safe:
+            idx = idx[-max_keep_safe:]
+        return np.asarray(t_use[idx], dtype=float), np.asarray(y_use[idx], dtype=float)
+
+    t_hits, y_hits = poincare_section(t_data, y_data, poincare, params=params)
+    t_hits_arr = np.asarray(t_hits, dtype=float)
+    if t_hits_arr.size == 0:
+        return np.array([], dtype=float), np.array([], dtype=float)
+    y_hits_arr = np.asarray(y_hits, dtype=float)
+    y_out = np.asarray(y_hits_arr[out_idx, :], dtype=float)
+    if t_hits_arr.size != y_out.size:
+        n_pair = min(int(t_hits_arr.size), int(y_out.size))
+        t_hits_arr = t_hits_arr[:n_pair]
+        y_out = y_out[:n_pair]
+    if t_hits_arr.size > max_keep_safe:
+        t_hits_arr = t_hits_arr[-max_keep_safe:]
+        y_out = y_out[-max_keep_safe:]
+    return t_hits_arr, y_out
 
 
 def run_sweep_chunk(
@@ -45,6 +173,8 @@ def run_sweep_chunk(
     initial: InitialConditions,
     sweep: SweepConfig,
     poincare: PoincareConfig,
+    observable: str,
+    extrema_kind: str,
     run_cfg: SweepRunConfig,
     solve_tols: SolverTolerances,
     solve_options: Optional[Dict[str, Any]] = None,
@@ -70,6 +200,10 @@ def run_sweep_chunk(
         sweep_solver_kind = "symplectic_fr"
     else:
         sweep_solver_kind = "ivp"
+    observable_lc = _normalize_observable(observable)
+    extrema_kind_lc = _normalize_extrema_kind(extrema_kind)
+    max_hits_user = int(run_cfg.max_hits) if run_cfg.max_hits is not None else DEFAULT_MAX_KEEP
+    max_hits_effective = _effective_max_hits(max_hits_user, sweep, MAX_SWEEP_ROWS_BUDGET)
 
     if system.key == "lorenz":
         rhs_fn = lorenz_rhs
@@ -100,9 +234,9 @@ def run_sweep_chunk(
         param_vals = float(sweep.start) + float(sweep.step) * np.arange(n, dtype=float)
         param_vals = param_vals[param_vals <= float(sweep.stop) + 1e-12]
 
-        rows = []
+        rows = deque(maxlen=MAX_SWEEP_ROWS_BUDGET)
         ycol = f"y{int(run_cfg.output_index)}"
-        max_keep = int(run_cfg.max_hits) if run_cfg.max_hits is not None else DEFAULT_MAX_KEEP
+        max_keep = int(max_hits_effective)
 
         y0_base = np.array(initial.y0, dtype=float).copy()
         y0_curr = y0_base.copy()
@@ -220,11 +354,16 @@ def run_sweep_chunk(
             else:
                 y0_curr = y0_base.copy()
 
-            t_hits, y_hits = poincare_section(t_arr, y_arr, poincare, params=params2)
-
-            if t_hits.size > max_keep:
-                t_hits = t_hits[-max_keep:]
-                y_hits = y_hits[:, -max_keep:]
+            t_hits, y_hits = _collect_observable_hits(
+                t_arr=t_arr,
+                y_arr=y_arr,
+                output_index=int(run_cfg.output_index),
+                max_keep=max_keep,
+                observable=observable_lc,
+                extrema_kind=extrema_kind_lc,
+                poincare=poincare,
+                params=params2,
+            )
 
             if t_hits.size == 0:
                 continue
@@ -233,10 +372,10 @@ def run_sweep_chunk(
                 rows.append({
                     str(sweep.param_name): float(pv),
                     "t_hit": float(t_hits[j]),
-                    ycol: float(y_hits[int(run_cfg.output_index), j]),
+                    ycol: float(y_hits[j]),
                 })
 
-        return rows
+        return list(rows)
 
     else:
         raise ValueError(f"Unknown system_key: {system.key}")
@@ -251,9 +390,9 @@ def run_sweep_chunk(
         param_vals = float(sweep.start) + float(sweep.step) * np.arange(n, dtype=float)
         param_vals = param_vals[param_vals <= float(sweep.stop) + 1e-12]
 
-        rows = []
+        rows = deque(maxlen=MAX_SWEEP_ROWS_BUDGET)
         ycol = f"y{int(run_cfg.output_index)}"
-        max_keep = int(run_cfg.max_hits) if run_cfg.max_hits is not None else DEFAULT_MAX_KEEP
+        max_keep = int(max_hits_effective)
 
         y0_base = np.array(initial.y0, dtype=float).copy()
         y0_curr = y0_base.copy()
@@ -315,11 +454,16 @@ def run_sweep_chunk(
             else:
                 y0_curr = y0_base.copy()
 
-            t_hits, y_hits = poincare_section(t_arr, y_arr, poincare, params=params2)
-
-            if t_hits.size > max_keep:
-                t_hits = t_hits[-max_keep:]
-                y_hits = y_hits[:, -max_keep:]
+            t_hits, y_hits = _collect_observable_hits(
+                t_arr=t_arr,
+                y_arr=y_arr,
+                output_index=int(run_cfg.output_index),
+                max_keep=max_keep,
+                observable=observable_lc,
+                extrema_kind=extrema_kind_lc,
+                poincare=poincare,
+                params=params2,
+            )
 
             if t_hits.size == 0:
                 continue
@@ -328,13 +472,81 @@ def run_sweep_chunk(
                 rows.append({
                     str(sweep.param_name): float(pv),
                     "t_hit": float(t_hits[j]),
-                    ycol: float(y_hits[int(run_cfg.output_index), j]),
+                    ycol: float(y_hits[j]),
                 })
 
-        return rows
+        return list(rows)
+
+    if observable_lc == OBSERVABLE_EXTREMA:
+        if float(sweep.step) <= 0:
+            raise ValueError("Sweep step must be > 0.")
+
+        n = int(np.floor((float(sweep.stop) - float(sweep.start)) / float(sweep.step) + 1e-12)) + 1
+        param_vals = float(sweep.start) + float(sweep.step) * np.arange(n, dtype=float)
+        param_vals = param_vals[param_vals <= float(sweep.stop) + 1e-12]
+
+        rows = deque(maxlen=MAX_SWEEP_ROWS_BUDGET)
+        ycol = f"y{int(run_cfg.output_index)}"
+        max_keep = int(max_hits_effective)
+
+        y0_base = np.array(initial.y0, dtype=float).copy()
+        y0_curr = y0_base.copy()
+
+        for pv in param_vals:
+            params2 = dict(base_params)
+            params2[str(sweep.param_name)] = float(pv)
+
+            rhs_eval = lambda t, y, _params=params2: rhs_fn(t, y, **_params)
+            if sweep_solver_kind == "rk4":
+                sol = integrate_system_rk4(
+                    rhs_eval,
+                    t_span=(float(integration.t0), float(integration.tf)),
+                    y0=y0_curr,
+                    t_step=float(integration.dt),
+                )
+            else:
+                sol = integrate_system(
+                    rhs_eval,
+                    t_span=(float(integration.t0), float(integration.tf)),
+                    y0=y0_curr,
+                    t_step=float(integration.dt),
+                    **solve_options_any,
+                )
+            if not sol.success:
+                if not run_cfg.warm_start:
+                    y0_curr = y0_base.copy()
+                continue
+
+            if run_cfg.warm_start:
+                y0_curr = np.asarray(sol.y[:, -1], dtype=float).copy()
+            else:
+                y0_curr = y0_base.copy()
+
+            t_hits, y_hits = _collect_observable_hits(
+                t_arr=sol.t,
+                y_arr=sol.y,
+                output_index=int(run_cfg.output_index),
+                max_keep=max_keep,
+                observable=observable_lc,
+                extrema_kind=extrema_kind_lc,
+                poincare=poincare,
+                params=params2,
+            )
+            if t_hits.size == 0:
+                continue
+
+            for j in range(t_hits.size):
+                rows.append({
+                    str(sweep.param_name): float(pv),
+                    "t_hit": float(t_hits[j]),
+                    ycol: float(y_hits[j]),
+                })
+
+        return list(rows)
 
     use_numba_sweep = (
-        sweep_solver_kind == "rk4"
+        observable_lc == OBSERVABLE_POINCARE
+        and sweep_solver_kind == "rk4"
         and str(poincare.section_expr or "").strip() == ""
     )
     method_lc = str(poincare.method or "").lower()
@@ -365,7 +577,7 @@ def run_sweep_chunk(
                     param_index = param_names_list.index(sweep_param_name)
                     sweep_nb = numba_backend.build_poincare_sweep_rk4(rhs_nb)
                     method_id = 0 if method_lc == "crossing" else 1
-                    max_keep = int(run_cfg.max_hits) if run_cfg.max_hits is not None else 100
+                    max_keep = int(max_hits_effective)
                     params_out, t_hit, y_hit, count = sweep_nb(
                         np.asarray(initial.y0, dtype=float),
                         float(integration.t0),
@@ -391,21 +603,26 @@ def run_sweep_chunk(
                     y_hit = np.asarray(y_hit[:count], dtype=float)
                     ycol = f"y{int(run_cfg.output_index)}"
                     if pd is not None:
-                        return pd.DataFrame({
+                        df_nb = pd.DataFrame({
                             str(sweep.param_name): params_out,
                             "t_hit": t_hit,
                             ycol: y_hit,
                         })
-                    return [
+                        return _clip_rows_result(df_nb, MAX_SWEEP_ROWS_BUDGET)
+                    return _clip_rows_result([
                         {str(sweep.param_name): float(p), "t_hit": float(t), ycol: float(y)}
                         for p, t, y in zip(params_out, t_hit, y_hit)
-                    ]
+                    ], MAX_SWEEP_ROWS_BUDGET)
         except Exception:
             pass
 
-    # use fast events only for ivp+crossing
-    if str(poincare.method).lower() == "crossing" and sweep_solver_kind == "ivp":
-        return sweep_poincare_events_ivp(
+    # use fast events only for poincare + ivp + crossing
+    if (
+        observable_lc == OBSERVABLE_POINCARE
+        and str(poincare.method).lower() == "crossing"
+        and sweep_solver_kind == "ivp"
+    ):
+        rows_ivp = sweep_poincare_events_ivp(
             rhs=rhs_fn,
             y0=tuple(initial.y0),
             t_span=(float(integration.t0), float(integration.tf)),
@@ -417,12 +634,16 @@ def run_sweep_chunk(
             output_indices=[int(run_cfg.output_index)],
             include_all_state=False,
             warm_start=bool(run_cfg.warm_start),
-            max_hits=int(run_cfg.max_hits),
+            max_hits=int(max_hits_effective),
             early_stop=bool(run_cfg.early_stop),
             chunk_time=float(run_cfg.chunk_time),
         )
+        return _clip_rows_result(rows_ivp, MAX_SWEEP_ROWS_BUDGET)
 
-    return sweep_poincare(
+    if observable_lc != OBSERVABLE_POINCARE:
+        raise ValueError(f"Unsupported observable at this stage: {observable_lc}")
+
+    rows_std = sweep_poincare(
         rhs=rhs_fn,
         y0=tuple(initial.y0),
         t_span=(float(integration.t0), float(integration.tf)),
@@ -436,3 +657,4 @@ def run_sweep_chunk(
         include_all_state=False,
         warm_start=bool(run_cfg.warm_start),
     )
+    return _clip_rows_result(rows_std, MAX_SWEEP_ROWS_BUDGET)

@@ -58,11 +58,15 @@ def _sweep_settings_fingerprint(
     integration: IntegrationConfig,
     transient_frac: float,
     solve_tols: SolverTolerances,
+    observable: str,
+    extrema_kind: str,
 ) -> Dict[str, object]:
     return {
         "system_key": system.key,
         "sweep_param": str(sweep.param_name),
         "sweep_step": float(sweep.step),
+        "observable": str(observable),
+        "extrema_kind": str(extrema_kind),
         "section_index": int(poincare.section_index),
         "section_value": float(poincare.section_value),
         "section_expr": str(poincare.section_expr or ""),

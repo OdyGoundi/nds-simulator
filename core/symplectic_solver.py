@@ -14,6 +14,28 @@ DQDT: TypeAlias = Callable[[float, Array], Array]   # dq_dt(t, p) -> dq/dt
 DPDT: TypeAlias = Callable[[float, Array], Array]   # dp_dt(t, q) -> dp/dt
 
 
+def _resolve_store_steps(n_steps: int, max_store_steps: Optional[int]) -> int:
+    if max_store_steps is None:
+        return int(n_steps)
+    try:
+        n_store = int(max_store_steps)
+    except Exception:
+        return int(n_steps)
+    if n_store <= 0:
+        return int(n_steps)
+    if int(n_steps) <= 1:
+        return 1
+    n_store = min(int(n_steps), n_store)
+    return max(2, int(n_store))
+
+
+def _output_stride(n_steps: int, n_store_steps: int) -> int:
+    if n_store_steps >= n_steps:
+        return 1
+    stride = int(np.ceil((int(n_steps) - 1) / float(max(1, int(n_store_steps) - 1))))
+    return max(1, int(stride))
+
+
 # ---------------------------------------------------------------------
 # Symplectic Verlet (order 2)
 # ---------------------------------------------------------------------
@@ -23,6 +45,7 @@ def integrate_system_symplectic_verlet(
     y0: Array | list[float],
     t_step: float = 0.01,
     max_steps: Optional[int] = None,
+    max_store_steps: Optional[int] = None,
     **options: Any,
 ) -> OdeSolution:
     """
@@ -80,19 +103,40 @@ def integrate_system_symplectic_verlet(
         dq_dt_fn = cast(DQDT, dq_dt_any)
 
     n_steps = _compute_n_steps(t0, tf, t_step, max_steps)
-    t = np.linspace(t0, tf, n_steps)
+    n_store_steps = _resolve_store_steps(int(n_steps), max_store_steps)
+    stride = _output_stride(int(n_steps), int(n_store_steps))
 
-    y = np.zeros((n_states, n_steps), dtype=float)
-    y[:, 0] = y0_arr
+    t_out = np.zeros(n_store_steps, dtype=float)
+    y_out = np.zeros((n_states, n_store_steps), dtype=float)
 
     def split_qp(z: Array) -> tuple[Array, Array]:
         return z[:n_q], z[n_q:]
 
     h = float(t_step)
+    q = y0_arr[:n_q].copy()
+    p = y0_arr[n_q:].copy()
+    ti = float(t0)
+    out_idx = 0
 
-    for i in range(1, n_steps):
-        ti = float(t[i - 1])
-        q, p = split_qp(y[:, i - 1])
+    for i in range(int(n_steps)):
+        should_store = (
+            i == 0
+            or i == int(n_steps) - 1
+            or stride == 1
+            or (i % stride == 0)
+        )
+        if should_store:
+            if out_idx < n_store_steps:
+                t_out[out_idx] = ti
+                y_out[:n_q, out_idx] = q
+                y_out[n_q:, out_idx] = p
+                out_idx += 1
+            else:
+                t_out[n_store_steps - 1] = ti
+                y_out[:n_q, n_store_steps - 1] = q
+                y_out[n_q:, n_store_steps - 1] = p
+        if i == int(n_steps) - 1 or ti >= tf:
+            break
 
         # Kick (h/2)
         p_half = p + 0.5 * h * np.asarray(dp_dt(ti, q), dtype=float)
@@ -102,12 +146,18 @@ def integrate_system_symplectic_verlet(
 
         # Kick (h/2)
         p_new = p_half + 0.5 * h * np.asarray(dp_dt(ti + h, q_new), dtype=float)
+        q = q_new
+        p = p_new
+        ti = ti + h
 
-        y[:, i] = np.concatenate((q_new, p_new))
+    if out_idx <= 0:
+        t_out[0] = float(t0)
+        y_out[:, 0] = y0_arr
+        out_idx = 1
 
     return OdeSolution(
-        t=t,
-        y=y,
+        t=t_out[:out_idx],
+        y=y_out[:, :out_idx],
         success=True,
         message="Symplectic Verlet integration completed.",
     )
@@ -122,6 +172,7 @@ def integrate_system_symplectic_fr(
     y0: Array | list[float],
     t_step: float = 0.01,
     max_steps: Optional[int] = None,
+    max_store_steps: Optional[int] = None,
     **options: Any,
 ) -> OdeSolution:
     """
@@ -167,10 +218,11 @@ def integrate_system_symplectic_fr(
         dq_dt_fn = cast(DQDT, dq_dt_any)
 
     n_steps = _compute_n_steps(t0, tf, t_step, max_steps)
-    t = np.linspace(t0, tf, n_steps)
+    n_store_steps = _resolve_store_steps(int(n_steps), max_store_steps)
+    stride = _output_stride(int(n_steps), int(n_store_steps))
 
-    y = np.zeros((n_states, n_steps), dtype=float)
-    y[:, 0] = y0_arr
+    t_out = np.zeros(n_store_steps, dtype=float)
+    y_out = np.zeros((n_states, n_store_steps), dtype=float)
 
     def split_qp(z: Array) -> tuple[Array, Array]:
         return z[:n_q], z[n_q:]
@@ -184,20 +236,44 @@ def integrate_system_symplectic_fr(
     w = 1.0 / (2.0 - 2.0 ** (1.0 / 3.0))
     c1, c2, c3 = w, 1.0 - 2.0 * w, w
     h = float(t_step)
+    q, p = split_qp(y0_arr)
+    q = np.asarray(q, dtype=float).copy()
+    p = np.asarray(p, dtype=float).copy()
+    ti = float(t0)
+    out_idx = 0
 
-    for i in range(1, n_steps):
-        ti = float(t[i - 1])
-        q, p = split_qp(y[:, i - 1])
+    for i in range(int(n_steps)):
+        should_store = (
+            i == 0
+            or i == int(n_steps) - 1
+            or stride == 1
+            or (i % stride == 0)
+        )
+        if should_store:
+            if out_idx < n_store_steps:
+                t_out[out_idx] = ti
+                y_out[:n_q, out_idx] = q
+                y_out[n_q:, out_idx] = p
+                out_idx += 1
+            else:
+                t_out[n_store_steps - 1] = ti
+                y_out[:n_q, n_store_steps - 1] = q
+                y_out[n_q:, n_store_steps - 1] = p
+        if i == int(n_steps) - 1 or ti >= tf:
+            break
 
         ti, q, p = verlet_step(ti, q, p, c1 * h)
         ti, q, p = verlet_step(ti, q, p, c2 * h)
         ti, q, p = verlet_step(ti, q, p, c3 * h)
 
-        y[:, i] = np.concatenate((q, p))
+    if out_idx <= 0:
+        t_out[0] = float(t0)
+        y_out[:, 0] = y0_arr
+        out_idx = 1
 
     return OdeSolution(
-        t=t,
-        y=y,
+        t=t_out[:out_idx],
+        y=y_out[:, :out_idx],
         success=True,
         message="Symplectic Forest–Ruth (FR) integration completed.",
     )

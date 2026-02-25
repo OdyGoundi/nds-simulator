@@ -36,7 +36,26 @@ def _compute_n_steps(t0, tf, t_step, max_steps):
     return int(np.floor((tf - t0) / t_step)) + 1
 
 
-def integrate_system(rhs, t_span, y0, t_step=0.01, max_steps=None, **solve_options):
+def _resolve_store_steps(n_steps, max_store_steps):
+    """
+    Number of trajectory samples to keep in memory.
+    """
+    if max_store_steps is None:
+        return int(n_steps)
+    try:
+        n_store = int(max_store_steps)
+    except Exception:
+        return int(n_steps)
+    if n_store <= 0:
+        return int(n_steps)
+    n_steps_i = int(n_steps)
+    if n_steps_i <= 1:
+        return 1
+    n_store = min(n_store, n_steps_i)
+    return max(2, n_store)
+
+
+def integrate_system(rhs, t_span, y0, t_step=0.01, max_steps=None, max_store_steps=None, **solve_options):
     """
     Integrates an ODE system using scipy.solve_ivp (variable step but with t_eval).
 
@@ -66,7 +85,8 @@ def integrate_system(rhs, t_span, y0, t_step=0.01, max_steps=None, **solve_optio
     y0_arr = np.array(y0, dtype=float)
 
     n_steps = _compute_n_steps(t0, tf, t_step, max_steps)
-    t_eval = np.linspace(t0, tf, n_steps)
+    n_store_steps = _resolve_store_steps(n_steps, max_store_steps)
+    t_eval = np.linspace(t0, tf, n_store_steps)
 
     sol = solve_ivp(
         rhs,
@@ -84,7 +104,7 @@ def integrate_system(rhs, t_span, y0, t_step=0.01, max_steps=None, **solve_optio
     )
 
 
-def integrate_system_rk4(rhs, t_span, y0, t_step=0.01, max_steps=None):
+def integrate_system_rk4(rhs, t_span, y0, t_step=0.01, max_steps=None, max_store_steps=None):
     """
     Fixed-step RK4 integrator.
 
@@ -112,39 +132,58 @@ def integrate_system_rk4(rhs, t_span, y0, t_step=0.01, max_steps=None):
     y0_arr = np.array(y0, dtype=float)
 
     n_steps = _compute_n_steps(t0, tf, t_step, max_steps)
-
+    n_store_steps = _resolve_store_steps(n_steps, max_store_steps)
     n_states = y0_arr.size
 
-    # Allocate arrays
-    t = np.zeros(n_steps)
-    y = np.zeros((n_states, n_steps))
+    # Allocate bounded output arrays.
+    t_store = np.zeros(n_store_steps)
+    y_store = np.zeros((n_states, n_store_steps))
 
-    # Initial conditions
-    t[0] = t0
-    y[:, 0] = y0_arr
+    stride = 1
+    if n_store_steps < n_steps:
+        stride = int(np.ceil((n_steps - 1) / float(n_store_steps - 1)))
+        stride = max(1, stride)
 
-    # RK4 loop
-    for i in range(1, n_steps):
-        ti = t[i - 1]
-        yi = y[:, i - 1]
+    store_idx = 0
+    t_curr = float(t0)
+    y_curr = y0_arr.copy()
 
-        # if we have reached or exceeded tf, stop
-        if ti >= tf:
-            t = t[:i]
-            y = y[:, :i]
+    for i in range(n_steps):
+        should_store = (
+            i == 0
+            or i == n_steps - 1
+            or stride == 1
+            or (i % stride == 0)
+        )
+        if should_store:
+            if store_idx < n_store_steps:
+                t_store[store_idx] = t_curr
+                y_store[:, store_idx] = y_curr
+                store_idx += 1
+            else:
+                # Keep final endpoint even if we hit the storage cap.
+                t_store[n_store_steps - 1] = t_curr
+                y_store[:, n_store_steps - 1] = y_curr
+
+        if i == n_steps - 1 or t_curr >= tf:
             break
 
-        k1 = rhs(ti, yi)
-        k2 = rhs(ti + 0.5 * t_step, yi + 0.5 * t_step * k1)
-        k3 = rhs(ti + 0.5 * t_step, yi + 0.5 * t_step * k2)
-        k4 = rhs(ti + t_step,       yi + t_step * k3)
+        k1 = rhs(t_curr, y_curr)
+        k2 = rhs(t_curr + 0.5 * t_step, y_curr + 0.5 * t_step * k1)
+        k3 = rhs(t_curr + 0.5 * t_step, y_curr + 0.5 * t_step * k2)
+        k4 = rhs(t_curr + t_step, y_curr + t_step * k3)
 
-        y[:, i] = yi + (t_step / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
-        t[i] = ti + t_step
+        y_curr = y_curr + (t_step / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+        t_curr = t_curr + t_step
+
+    if store_idx <= 0:
+        t_store[0] = float(t0)
+        y_store[:, 0] = y0_arr
+        store_idx = 1
 
     return OdeSolution(
-        t=t,
-        y=y,
+        t=t_store[:store_idx],
+        y=y_store[:, :store_idx],
         success=True,
         message="RK4 integration completed.",
     )

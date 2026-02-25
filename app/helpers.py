@@ -361,9 +361,81 @@ def slider_with_input(label: str, min_value: float, max_value: float,
     return float(st.session_state[key])
 
 
-def build_csv_bytes(t: np.ndarray, y: np.ndarray, var_names: List[str]) -> bytes:
+def decimate_indices(n_points: int, max_points: int) -> np.ndarray:
+    n = int(max(0, n_points))
+    if n <= 0:
+        return np.array([], dtype=np.int64)
+    max_pts = int(max(2, max_points))
+    if n <= max_pts:
+        return np.arange(n, dtype=np.int64)
+    idx = np.linspace(0, n - 1, num=max_pts, dtype=np.int64)
+    idx[-1] = n - 1
+    return np.unique(idx)
+
+
+def downsample_trajectory(t: np.ndarray, y: np.ndarray, max_points: int) -> Tuple[np.ndarray, np.ndarray]:
+    t_arr = np.asarray(t, dtype=float).ravel()
+    y_arr = np.asarray(y, dtype=float)
+    if y_arr.ndim != 2:
+        raise ValueError("y must be shape (n_vars, n_steps)")
+    n = min(int(t_arr.size), int(y_arr.shape[1]))
+    if n <= 0:
+        return np.array([], dtype=float), np.zeros((int(y_arr.shape[0]), 0), dtype=float)
+    t_use = t_arr[:n]
+    y_use = y_arr[:, :n]
+    idx = decimate_indices(n, max_points)
+    return t_use[idx], y_use[:, idx]
+
+
+def downsample_xy(x: np.ndarray, y: np.ndarray, max_points: int) -> Tuple[np.ndarray, np.ndarray]:
+    x_arr = np.asarray(x, dtype=float).ravel()
+    y_arr = np.asarray(y, dtype=float).ravel()
+    n = min(int(x_arr.size), int(y_arr.size))
+    if n <= 0:
+        return np.array([], dtype=float), np.array([], dtype=float)
+    x_use = x_arr[:n]
+    y_use = y_arr[:n]
+    idx = decimate_indices(n, max_points)
+    return x_use[idx], y_use[idx]
+
+
+def build_csv_bytes(
+    t: np.ndarray,
+    y: np.ndarray,
+    var_names: List[str],
+    *,
+    chunk_rows: int = 200_000,
+    start: int = 0,
+    end: int | None = None,
+    include_header: bool = True,
+) -> bytes:
+    t_arr = np.asarray(t, dtype=float).ravel()
+    y_arr = np.asarray(y, dtype=float)
+    if y_arr.ndim != 2:
+        raise ValueError("y must be shape (n_vars, n_steps)")
+    n = min(int(t_arr.size), int(y_arr.shape[1]))
+    if n < 0:
+        n = 0
+    start_i = max(0, int(start))
+    end_i = n if end is None else min(n, max(start_i, int(end)))
+    chunk = max(1, int(chunk_rows))
+
+    n_vars = int(y_arr.shape[0])
+    if len(var_names) != n_vars:
+        names = [f"y{i}" for i in range(n_vars)]
+    else:
+        names = list(var_names)
+
     buf = io.StringIO()
-    header = "t," + ",".join(var_names)
-    data = np.column_stack([t] + [y[i, :] for i in range(y.shape[0])])
-    np.savetxt(buf, data, delimiter=",", header=header, comments="")
+    if include_header:
+        buf.write("t," + ",".join(names) + "\n")
+
+    if end_i > start_i:
+        for lo in range(start_i, end_i, chunk):
+            hi = min(end_i, lo + chunk)
+            block = np.empty((hi - lo, n_vars + 1), dtype=float)
+            block[:, 0] = t_arr[lo:hi]
+            block[:, 1:] = y_arr[:, lo:hi].T
+            np.savetxt(buf, block, delimiter=",", fmt="%.18g")
+
     return buf.getvalue().encode("utf-8")
