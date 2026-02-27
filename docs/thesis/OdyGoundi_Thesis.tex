@@ -1757,6 +1757,81 @@ Matplotlib & Παραγωγή διαγραμμάτων φάσης, χρονοσ�
 \label{fig:ch2-tab3-bottom}
 \end{figure}
 
+\subsection{Διαχείριση RAM και αποθήκευσης σε μεγάλα runs}
+\label{subsec:ram-storage-large-runs}
+
+Στην τρέχουσα υλοποίηση, το 1ο Tab (phase/time-series) εκτελεί την ολοκλήρωση τροχιάς
+με τα τρέχοντα \((t_0,t_f,\Delta t)\) πριν από την απεικόνιση. Αυτό σημαίνει ότι αν ο
+χρήστης αυξήσει πολύ το \(t_f\) (π.χ. για Lyapunov δοκιμές), ενεργοποιείται άμεσα και η
+pipeline της τροχιάς/phase portrait. Για να αποφεύγονται υπερβάσεις RAM, εφαρμόζονται
+ρητά όρια αποθήκευσης και decimation.
+
+\paragraph{1) Bounded trajectory storage (στη μνήμη).}
+Η ολοκλήρωση τρέχει σε όλη τη χρονική διάρκεια, αλλά ο αριθμός αποθηκευμένων δειγμάτων
+περιορίζεται από \texttt{max\_store\_steps} (default: \(200{,}000\)). Με
+\[
+N_{\mathrm{nom}}=\Big\lfloor\frac{t_f-t_0}{\Delta t}\Big\rfloor+1,\qquad
+N_{\mathrm{store}}=\min\!\left(N_{\mathrm{nom}},N_{\mathrm{store,max}}\right),
+\]
+όπου \(N_{\mathrm{store,max}}\) είναι το όριο \texttt{max\_store\_steps} της διεπαφής.
+Η κύρια μνήμη εξόδου της τροχιάς κλιμακώνεται ως
+\[
+M_{\mathrm{traj,out}} \approx 8\,(n+1)\,N_{\mathrm{store}}\ \text{bytes},
+\]
+(\(t\) + \(n\) μεταβλητές κατάστασης, \texttt{float64}). Για Lorenz (\(n=3\)) και
+\(N_{\mathrm{store}}=200{,}000\), το raw array footprint είναι περίπου \(6.1\) MiB.
+
+\paragraph{2) Decimation για plotting.}
+Τα plots δεν χρησιμοποιούν όλα τα αποθηκευμένα δείγματα: εφαρμόζεται ομοιόμορφο
+downsampling σε \texttt{max\_plot\_points} (default: \(120{,}000\) για trajectory plots).
+Άρα η μνήμη απεικόνισης παραμένει επίσης φραγμένη:
+\[
+N_{\mathrm{plot}}=\min\!\left(N_{\mathrm{store}},N_{\mathrm{plot,max}}\right),\qquad
+M_{\mathrm{plot}} \approx 8\,(n+1)\,N_{\mathrm{plot}}.
+\]
+Εδώ \(N_{\mathrm{plot,max}}\) αντιστοιχεί στο \texttt{max\_plot\_points}.
+Σημαντικό: το decimation μειώνει κυρίως κόστος render/transfer, όχι τον αριθμητικό
+χρόνο ολοκλήρωσης.
+
+\paragraph{3) Chunked export για trajectories.}
+Στο export τροχιάς, αν οι γραμμές είναι πολλές, η εξαγωγή γίνεται σε chunks αντί για
+ένα ενιαίο μεγάλο CSV σε μνήμη (όρια \texttt{DIRECT\_CSV\_MAX\_ROWS} και
+\texttt{EXPORT\_CHUNK\_ROWS\_DEFAULT}). Έτσι αποφεύγονται προσωρινές κορυφές RAM κατά
+την παραγωγή αρχείων.
+
+\paragraph{4) Bounded-memory sweeps στο 3ο Tab.}
+Για bifurcation sweeps εφαρμόζεται budget γραμμών
+\texttt{MAX\_SWEEP\_ROWS\_BUDGET} (\(=300{,}000\)) και προσαρμογή
+\texttt{max\_hits\_effective}\(\le \lfloor 300{,}000/P \rfloor\). Παράλληλα, τα sweep plots
+decimate σε έως \(200{,}000\) σημεία. Για Lyapunov sweep αποθηκεύονται κυρίως
+\((\mu_i,\lambda_1,\ldots,\lambda_n)\) ανά τιμή παραμέτρου (και όχι πλήρεις τροχιές
+στη διεπαφή), άρα η μνήμη κλιμακώνεται πρακτικά ως \(O(Pn)\).
+
+\begin{importantbox}
+Τα παραπάνω όρια ελέγχουν τη μνήμη αποθήκευσης/οπτικοποίησης και σταθεροποιούν τη
+συμπεριφορά σε Streamlit Cloud. Δεν μειώνουν γραμμικά τον χρόνο CPU των αριθμητικών
+βρόχων όταν το \(t_f\) είναι πολύ μεγάλο.
+\end{importantbox}
+
+\begin{table}[H]
+\centering
+\caption{Ενδεικτικός πίνακας benchmark RAM για Lorenz long runs (\texttt{bounded\_200000}), από το notebook \texttt{tests/benchmark\_lorenz\_longruns\_ram\_vs\_steps.ipynb}.}
+\label{tab:ch2-ram-ceiling-benchmark}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{|r|r|r|r|}
+\hline
+\textbf{\(n_{\mathrm{steps}}\)} & \textbf{stored samples} & \textbf{peak RSS [MB]} & \textbf{\(\Delta\)peak [MB]} \\
+\hline
+5,500,000 & 200,000 & 210.891 & 0.0039 \\
+7,500,000 & 200,000 & 210.875 & 0.0039 \\
+9,000,000 & 200,000 & 210.867 & 0.0039 \\
+10,000,000 & 200,000 & 210.871 & 0.0078 \\
+\hline
+\multicolumn{4}{|p{0.86\linewidth}|}{\textbf{Παρατήρηση:} παρότι τα βήματα αυξάνουν από \(5.5\times10^6\) σε \(1.0\times10^7\), το peak RSS παραμένει πρακτικά σταθερό (\(\approx 210.86{-}210.89\) MB), επιβεβαιώνοντας ότι το όριο \texttt{max\_store\_steps} συγκρατεί τη RAM χωρίς πρόσθετη επιβάρυνση στην υλοποίηση.} \\
+\hline
+\end{tabular}
+\end{table}
+
 \section{Αριθμητικές μέθοδοι που υλοποιούνται}
 
 \subsection{Ολοκλήρωση ODE (ordinary differential equation)}
@@ -1859,6 +1934,9 @@ T_{\mathrm{RK4}} = O\!\left(N \cdot C_f(n)\right),
 \begin{equation}
 M_{\mathrm{traj}} = O(nN).
 \end{equation}
+Στην πρακτική υλοποίηση για cloud-safe εκτέλεση, το \(N\) αντικαθίσταται από
+\(N_{\mathrm{store}}=\min(N,N_{\mathrm{store,max}})\) όταν είναι ενεργό το
+\texttt{max\_store\_steps}, ώστε η in-memory αποθήκευση της τροχιάς να παραμένει φραγμένη.
 Για adaptive RK45/DOP853:
 \begin{equation}
 T_{\mathrm{IVP}} = O\!\left(N_f \cdot C_f(n)\right),
@@ -2242,6 +2320,62 @@ Jacobian & \texttt{analytic} όταν είναι διαθέσιμος, αλλι�
 \hline
 \end{tabular}
 \end{table}
+
+\subsubsection{Πρακτική σημείωση για \texttt{abs(...)} σε custom Jacobian}
+\label{subsec:abs-custom-jacobian}
+
+\begin{importantbox}
+Η \texttt{abs(...)} υποστηρίζεται στο custom parsing, αλλά στο symbolic Jacobian
+η SymPy (χωρίς ρητή υπόθεση ότι τα σύμβολα είναι πραγματικά) μπορεί να παράγει
+όρους \texttt{re(...)}, \texttt{im(...)} και παραγώγους τύπου
+\texttt{Derivative(re(y), y)}. Σε εξαγωγή NumPy κώδικα αυτό μπορεί να οδηγήσει
+σε σφάλμα τύπου
+\texttt{Unsupported by NumPyPrinter: Derivative}.
+\end{importantbox}
+
+\textbf{Παράδειγμα custom συστήματος:}
+\begin{verbatim}
+x' = -z
+y' = x*z*z
+z' = x - a*abs(y) + z*(b*y*y - z*z)
+\end{verbatim}
+
+\textbf{Ενδεικτικό symbolic Jacobian output (όπως εμφανίζεται στο preview):}
+\begin{verbatim}
+[0                               0                                  -1     ]
+[                                                                          ]
+[ 2                                                                        ]
+[z                               0                                 2*x*z   ]
+[                                                                          ]
+[        /      d                 d        \                               ]
+[      a*|re(y)*--(re(y)) + im(y)*--(im(y))|*sign(y)                       ]
+[        \      dy                dy       /                       2      2]
+[1   - --------------------------------------------- + 2*b*y*z  b*y  - 3*z ]
+[                            y                                             ]
+\end{verbatim}
+
+\begin{guidebox}
+\textbf{Ισοδύναμη real-only γραφή για \(\mathbf{y\in\mathbb{R}}\):}
+\[
+|y|=\sqrt{y^2}=y\,\operatorname{sign}(y)=
+\begin{cases}
+y, & y\ge 0\\
+-y, & y<0
+\end{cases}
+\]
+Άρα η τρίτη εξίσωση μπορεί να γραφτεί ισοδύναμα ως:
+\[
+z' = x - a\sqrt{y^2} + z\,(b y^2 - z^2)
+\]
+ή ως piecewise:
+\[
+z'=
+\begin{cases}
+x-a\,y+z\,(b y^2-z^2), & y\ge 0\\
+x+a\,y+z\,(b y^2-z^2), & y<0
+\end{cases}
+\]
+\end{guidebox}
 
 \subsection{Βήμα-προς-βήμα ροή εκτέλεσης μελέτης}
 
@@ -2660,6 +2794,69 @@ t \in \mathbb{R}^{N}, \qquad y \in \mathbb{R}^{d \times N},
 \label{app:input-checks}
 Ο κώδικας περιλαμβάνει ελέγχους βασικής εγκυρότητας (π.χ.\ \texttt{t\_step > 0}) και ενιαία μετατροπή της αρχικής συνθήκης σε διάνυσμα \texttt{float}, ώστε η αριθμητική ροή να είναι συνεπής.
 Η ύπαρξη μηνύματος/σημαίας επιτυχίας (\texttt{success}, \texttt{message}) επιτρέπει στο περιβάλλον χρήστη να εντοπίζει αποτυχίες ολοκλήρωσης και να αποφεύγει την παραγωγή παραπλανητικών διαγραμμάτων.
+
+\subsection*{Πίνακας μηνυμάτων διεπαφής και αντιμετώπισης}
+\label{app:ui-messages}
+Ο Πίνακας~\ref{tab:ui-messages-troubleshooting} συνοψίζει τα συχνότερα μηνύματα
+σφάλματος/προειδοποίησης/διάγνωσης που εμφανίζονται στη διεπαφή και
+προτείνει πρακτικά βήματα επίλυσης.
+
+\begin{table}[H]
+\centering
+\caption{Συνοπτικός οδηγός ερμηνείας μηνυμάτων UI}
+\label{tab:ui-messages-troubleshooting}
+\renewcommand{\arraystretch}{1.2}
+\small
+\begin{tabular}{|p{0.36\textwidth}|p{0.27\textwidth}|p{0.29\textwidth}|}
+\hline
+\textbf{Μήνυμα (UI)} & \textbf{Τι σημαίνει} & \textbf{Προτεινόμενη αντιμετώπιση} \\
+\hline
+\texttt{Coverage: observed/expected parameter values have hits ...} &
+Δεν προέκυψαν τομές Poincaré (hits) για όλες τις τιμές της παραμέτρου στο επιλεγμένο sweep εύρος. &
+Μειώστε \texttt{dt} (π.χ.\ \texttt{0.01}), αυξήστε \texttt{tf}, δοκιμάστε \texttt{Continuation (warm start)} ή αλλάξτε επιφάνεια/κατεύθυνση τομής. \\
+\hline
+\texttt{Invalid bifurcation axis limits detected. Reverting to data bounds.} &
+Τα όρια προβολής $x/y$ δεν είναι έγκυρα (π.χ.\ \texttt{min >= max}). &
+Ορίστε χειροκίνητα έγκυρα όρια ή χρησιμοποιήστε τα default bounds του διαγράμματος. \\
+\hline
+\texttt{Invalid Lyapunov axis limits detected. Reverting to data bounds.} &
+Μη έγκυρα όρια άξονα στο διάγραμμα Lyapunov. &
+Διορθώστε τα \texttt{x min/max}, \texttt{lambda min/max} ώστε να ισχύει \texttt{min < max}. \\
+\hline
+\texttt{No previous sweep found. Run 'Generate Bifurcation Diagram' first.} &
+Επιλέχθηκε \texttt{Continue} χωρίς προηγούμενη εκτέλεση sweep. &
+Εκτελέστε πρώτα \texttt{Generate Bifurcation Diagram}. \\
+\hline
+\texttt{Cannot continue: settings changed since last run ...} &
+Το νέο \texttt{Continue} δεν είναι συγκρίσιμο με τα ήδη αποθηκευμένα δεδομένα (διαφορά fingerprint). &
+Εκκινήστε νέο sweep (\texttt{Generate ...}) ή επαναφέρετε ακριβώς τις ίδιες ρυθμίσεις. \\
+\hline
+\texttt{Nothing to continue: start is already beyond stop.} &
+Το νέο διάστημα συνέχισης είναι κενό. &
+Αυξήστε το \texttt{continue stop} ώστε να είναι μεγαλύτερο από \texttt{last\_pv + step}. \\
+\hline
+\texttt{Lyapunov sweep had N failures. Showing NaNs for those points.} &
+Κάποια σημεία του sweep απέτυχαν αριθμητικά (ή μη φυσικές τιμές). &
+Μειώστε \texttt{dt}, αυξήστε \texttt{tf}, ρυθμίστε transient/QR interval ή ελέγξτε τις παραμέτρους συστήματος. \\
+\hline
+\texttt{Not enough time for Lyapunov measurement ...} &
+Το διαθέσιμο παράθυρο μέτρησης μετά το transient είναι πολύ μικρό ή μηδενικό. &
+Αυξήστε \texttt{tf} ή μειώστε το transient fraction/steps. \\
+\hline
+\texttt{Failed to load StaticParamsConfig ...} / \texttt{Failed to load SweepParamConfig ...} &
+Το αρχείο ρυθμίσεων δεν είναι έγκυρο JSON ή έχει ασύμβατο schema. &
+Ελέγξτε ότι το root είναι αντικείμενο JSON και ότι τα πεδία αντιστοιχούν στο export format της εφαρμογής. \\
+\hline
+\texttt{Symplectic solvers require Hamiltonian systems ...} &
+Επιλέχθηκε symplectic solver για μη Hamiltonian μοντέλο (ή λάθος state layout). &
+Χρησιμοποιήστε \texttt{RK45/DOP853/RK4} ή ορίστε σύστημα σε μορφή \texttt{[q..., p...]} με άρτιο πλήθος μεταβλητών. \\
+\hline
+\texttt{Invalid time window ... Showing full range.} &
+Μη έγκυρο παράθυρο χρόνου στη χρονοσειρά. &
+Θέστε \texttt{start < end}. Η εφαρμογή επαναφέρει προσωρινά στο πλήρες διαθέσιμο εύρος. \\
+\hline
+\end{tabular}
+\end{table}
 
 \section{Παραμετρική σάρωση και υπολογισμός
 διαγραμμάτων διακλάδωσης}

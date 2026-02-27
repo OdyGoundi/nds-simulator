@@ -1,0 +1,159 @@
+{
+  "config": {
+    "dt": 0.01,
+    "tf": 5000.0,
+    "sweep_start": 0.0,
+    "sweep_stop": 250.0,
+    "sweep_step": 0.05,
+    "bif_transient_frac": 0.7,
+    "lya_transient_frac": 0.55,
+    "bif_max_hits_user": 200,
+    "bif_chunk_time": 2.0,
+    "bif_solver_kind": "ivp",
+    "lya_solver_kind": "rk4",
+    "qr_interval": 0.1,
+    "rtol": 0.0003,
+    "atol": 1e-06,
+    "bif_probe_count": 12,
+    "lya_probe_count": 6
+  },
+  "derived": {
+    "n_params_full": 5001,
+    "n_steps_per_param": 500000,
+    "n_steps_total_nominal": 2500500000,
+    "transient_steps_bif": 350000,
+    "transient_steps_lya": 275000,
+    "measure_steps_lya": 225000,
+    "full_trajectory_samples_if_stored": 2500505001,
+    "full_trajectory_raw_mib_if_stored": 76309.3567199707
+  },
+  "bifurcation": {
+    "probe_rows": [
+      {
+        "rho": 0.0,
+        "stored_rows": 0,
+        "elapsed_s": 3.982516181000392
+      },
+      {
+        "rho": 22.727272727272727,
+        "stored_rows": 0,
+        "elapsed_s": 4.525496155999463
+      },
+      {
+        "rho": 45.45454545454545,
+        "stored_rows": 59,
+        "elapsed_s": 11.635955474000184
+      },
+      {
+        "rho": 68.18181818181819,
+        "stored_rows": 59,
+        "elapsed_s": 14.64198854300048
+      },
+      {
+        "rho": 90.9090909090909,
+        "stored_rows": 59,
+        "elapsed_s": 16.199935493999874
+      },
+      {
+        "rho": 113.63636363636363,
+        "stored_rows": 59,
+        "elapsed_s": 20.488637804000064
+      },
+      {
+        "rho": 136.36363636363637,
+        "stored_rows": 59,
+        "elapsed_s": 22.821927594000044
+      },
+      {
+        "rho": 159.0909090909091,
+        "stored_rows": 59,
+        "elapsed_s": 21.034181906000413
+      },
+      {
+        "rho": 181.8181818181818,
+        "stored_rows": 59,
+        "elapsed_s": 23.48009365099915
+      },
+      {
+        "rho": 204.54545454545453,
+        "stored_rows": 59,
+        "elapsed_s": 24.377285487000336
+      },
+      {
+        "rho": 227.27272727272725,
+        "stored_rows": 59,
+        "elapsed_s": 24.23882626900013
+      },
+      {
+        "rho": 250.0,
+        "stored_rows": 59,
+        "elapsed_s": 25.48653502399975
+      }
+    ],
+    "n_params_full": 5001,
+    "max_hits_effective": 59,
+    "avg_rows_per_param": 49.166666666666664,
+    "max_rows_per_param_in_probe": 59,
+    "min_rows_per_param_in_probe": 0,
+    "nonzero_hit_fraction": 0.8333333333333334,
+    "avg_elapsed_s_per_param": 17.74278163191669,
+    "projected_total_rows_uncapped": 245882.5,
+    "projected_total_rows_capped": 245882.5,
+    "projected_runtime_h_serial": 24.647680817004264,
+    "projected_raw_data_mib": 5.627803802490234
+  },
+  "lyapunov": {
+    "probe_rows": [
+      {
+        "rho": 0.0,
+        "stored_rows": 1,
+        "stored_lambda_values": 3,
+        "errors": 0,
+        "elapsed_s": 11.13423198199962
+      },
+      {
+        "rho": 50.0,
+        "stored_rows": 1,
+        "stored_lambda_values": 3,
+        "errors": 0,
+        "elapsed_s": 0.9749336209997637
+      },
+      {
+        "rho": 100.0,
+        "stored_rows": 1,
+        "stored_lambda_values": 3,
+        "errors": 0,
+        "elapsed_s": 0.9891032570003517
+      },
+      {
+        "rho": 150.0,
+        "stored_rows": 1,
+        "stored_lambda_values": 3,
+        "errors": 0,
+        "elapsed_s": 0.9761559569997189
+      },
+      {
+        "rho": 200.0,
+        "stored_rows": 1,
+        "stored_lambda_values": 3,
+        "errors": 0,
+        "elapsed_s": 1.031564994999826
+      },
+      {
+        "rho": 250.0,
+        "stored_rows": 1,
+        "stored_lambda_values": 3,
+        "errors": 0,
+        "elapsed_s": 1.1650778639996133
+      }
+    ],
+    "avg_elapsed_s_per_param": 2.711844612666482,
+    "max_elapsed_s_per_param": 11.13423198199962,
+    "min_elapsed_s_per_param": 0.9749336209997637,
+    "total_errors": 0,
+    "projected_rows_full": 5001,
+    "projected_lambda_values_full": 15003,
+    "projected_raw_mib": 0.152618408203125,
+    "projected_runtime_h_serial": 3.7672041410958546
+  }
+}

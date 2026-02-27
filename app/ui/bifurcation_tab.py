@@ -11,6 +11,12 @@ from app.helpers import decimate_indices, downsample_xy, parse_params
 from app.export_utils import build_sweep_config
 from app.logic.bifurcation_sweep import _run_bifurcation_parallel
 from app.logic.lyapunov_sweep import _run_lyapunov_sweep
+from app.logic.reservoir_sampling import (
+    ensure_xy_reservoir,
+    get_xy_reservoir_points,
+    make_xy_reservoir,
+    update_xy_reservoir,
+)
 from app.logic.sweep_utils import (
     _default_worker_count,
     _sweep_settings_fingerprint,
@@ -33,9 +39,10 @@ DT_WARNING_THRESHOLD = 0.05
 DIRECTION_LABEL_BY_VALUE = {1: "+1 (up)", -1: "-1 (down)", 0: "0 (both)"}
 OBSERVABLE_POINCARE_LABEL = "Poincaré crossings"
 OBSERVABLE_EXTREMA_LABEL = "Local extrema (max/min)"
-MAX_BIF_PLOT_POINTS = 200_000
 MAX_LYA_PLOT_POINTS = 200_000
 MAX_SWEEP_ROWS_IN_MEMORY = 300_000
+MAX_BIF_RESERVOIR_POINTS = 120_000
+MAX_BIF_PLOT_POINTS = MAX_SWEEP_ROWS_IN_MEMORY + MAX_BIF_RESERVOIR_POINTS
 
 
 def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
@@ -79,11 +86,33 @@ def _to_int(value: object, default: int) -> int:
         return int(default)
 
 
-def _clip_sweep_df(df: pd.DataFrame, max_rows: int) -> tuple[pd.DataFrame, bool]:
+def _clip_sweep_df(df: pd.DataFrame, max_rows: int) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
     max_rows_i = max(1, int(max_rows))
     if len(df) <= max_rows_i:
-        return df, False
-    return df.tail(max_rows_i).reset_index(drop=True), True
+        return df, pd.DataFrame(columns=df.columns), False
+    drop_n = int(len(df) - max_rows_i)
+    dropped = df.head(drop_n).reset_index(drop=True)
+    kept = df.tail(max_rows_i).reset_index(drop=True)
+    return kept, dropped, True
+
+
+def _append_dropped_rows_to_reservoir(df_dropped: pd.DataFrame, x_col: str, y_col: str) -> None:
+    if df_dropped is None or len(df_dropped) == 0:
+        return
+    if x_col not in df_dropped.columns or y_col not in df_dropped.columns:
+        return
+    x_old = np.asarray(df_dropped[x_col].to_numpy(), dtype=float)
+    y_old = np.asarray(df_dropped[y_col].to_numpy(), dtype=float)
+    reservoir_state = ensure_xy_reservoir(
+        st.session_state.get("sweep_reservoir"),
+        capacity=MAX_BIF_RESERVOIR_POINTS,
+    )
+    reservoir_state = update_xy_reservoir(
+        reservoir_state,
+        x_old,
+        y_old,
+    )
+    st.session_state["sweep_reservoir"] = reservoir_state
 
 
 def _apply_sweep_config_to_state(
@@ -245,6 +274,10 @@ def _init_sweep_state():
         st.session_state["sweep_meta"] = {}
     if "sweep_rows_clipped" not in st.session_state:
         st.session_state["sweep_rows_clipped"] = False
+    st.session_state["sweep_reservoir"] = ensure_xy_reservoir(
+        st.session_state.get("sweep_reservoir"),
+        capacity=MAX_BIF_RESERVOIR_POINTS,
+    )
     if "lya_acc_data" not in st.session_state:
         st.session_state["lya_acc_data"] = None
     if "lya_last_pv" not in st.session_state:
@@ -566,6 +599,9 @@ def render_bifurcation_tab(
                 st.session_state["sweep_boundaries"] = []
                 st.session_state["sweep_meta"] = {}
                 st.session_state["sweep_rows_clipped"] = False
+                st.session_state["sweep_reservoir"] = make_xy_reservoir(
+                    capacity=MAX_BIF_RESERVOIR_POINTS
+                )
                 st.success("Bifurcation sweep cleared.")
 
             have_prev_bif = (
@@ -789,6 +825,7 @@ def render_bifurcation_tab(
             st.success("Sweep configuration saved. Download from the Export tab.")
 
         df_plot = None
+        ycol = f"y{int(output_index)}"
 
         if run_new:
             st.session_state["sweep_acc_df"] = None
@@ -796,6 +833,9 @@ def render_bifurcation_tab(
             st.session_state["sweep_boundaries"] = []
             st.session_state["sweep_meta"] = sweep_meta
             st.session_state["sweep_rows_clipped"] = False
+            st.session_state["sweep_reservoir"] = make_xy_reservoir(
+                capacity=MAX_BIF_RESERVOIR_POINTS
+            )
 
             start_here = float(sweep_start)
             stop_here = float(sweep_stop)
@@ -834,7 +874,9 @@ def render_bifurcation_tab(
                     )
 
             df_chunk = pd.DataFrame(df_chunk) if not isinstance(df_chunk, pd.DataFrame) else df_chunk
-            df_chunk, clipped_new = _clip_sweep_df(df_chunk, MAX_SWEEP_ROWS_IN_MEMORY)
+            df_chunk, dropped_new, clipped_new = _clip_sweep_df(df_chunk, MAX_SWEEP_ROWS_IN_MEMORY)
+            if clipped_new:
+                _append_dropped_rows_to_reservoir(dropped_new, str(sweep_param), str(ycol))
             st.session_state["sweep_rows_clipped"] = bool(clipped_new)
             st.session_state["sweep_acc_df"] = df_chunk
             st.session_state["sweep_last_pv"] = float(stop_here)
@@ -922,7 +964,16 @@ def render_bifurcation_tab(
                         df_chunk = pd.DataFrame(df_chunk) if not isinstance(df_chunk, pd.DataFrame) else df_chunk
                         df_acc = st.session_state["sweep_acc_df"]
                         df_acc = pd.concat([df_acc, df_chunk], ignore_index=True)
-                        df_acc, clipped_acc = _clip_sweep_df(df_acc, MAX_SWEEP_ROWS_IN_MEMORY)
+                        df_acc, dropped_acc, clipped_acc = _clip_sweep_df(
+                            df_acc,
+                            MAX_SWEEP_ROWS_IN_MEMORY,
+                        )
+                        if clipped_acc:
+                            _append_dropped_rows_to_reservoir(
+                                dropped_acc,
+                                str(sweep_param),
+                                str(ycol),
+                            )
                         st.session_state["sweep_rows_clipped"] = bool(
                             st.session_state.get("sweep_rows_clipped", False) or clipped_acc
                         )
@@ -1046,9 +1097,25 @@ def render_bifurcation_tab(
                 if not isinstance(df_plot, pd.DataFrame):
                     df_plot = pd.DataFrame(df_plot)
 
-                ycol = f"y{int(output_index)}"
                 x_vals = np.asarray(df_plot[sweep_param].to_numpy(), dtype=float)
                 y_vals = np.asarray(df_plot[ycol].to_numpy(), dtype=float)
+                reservoir_state = ensure_xy_reservoir(
+                    st.session_state.get("sweep_reservoir"),
+                    capacity=MAX_BIF_RESERVOIR_POINTS,
+                )
+                st.session_state["sweep_reservoir"] = reservoir_state
+                x_hist_raw, y_hist_raw = get_xy_reservoir_points(reservoir_state)
+                history_budget = max(0, int(MAX_BIF_PLOT_POINTS) - int(x_vals.size))
+                if history_budget > 0 and x_hist_raw.size > 0:
+                    x_hist_plot, y_hist_plot = downsample_xy(x_hist_raw, y_hist_raw, history_budget)
+                else:
+                    x_hist_plot = np.empty(0, dtype=float)
+                    y_hist_plot = np.empty(0, dtype=float)
+
+                if x_hist_plot.size > 0:
+                    y_bounds_data = np.concatenate((y_hist_plot, y_vals), axis=0)
+                else:
+                    y_bounds_data = y_vals
                 x_start = float(sweep_start)
                 x_stop_data = float(st.session_state.get("sweep_last_pv", sweep_stop))
                 if not np.isfinite(x_stop_data):
@@ -1056,12 +1123,14 @@ def render_bifurcation_tab(
                 if x_stop_data <= x_start:
                     x_stop_data = x_start + max(1e-12, float(abs(sweep_step)))
                 x_auto = (float(x_start), float(x_stop_data))
-                y_auto = _axis_bounds(y_vals)
+                y_auto = _axis_bounds(y_bounds_data)
 
                 bif_bounds_sig = (
                     str(sweep_param),
                     str(ycol),
                     int(x_vals.size),
+                    int(x_hist_plot.size),
+                    int(st.session_state["sweep_reservoir"].get("seen", 0)),
                     float(x_auto[0]),
                     float(x_auto[1]),
                     float(y_auto[0]),
@@ -1143,17 +1212,25 @@ def render_bifurcation_tab(
                 if expected_params > 0 and observed_params < expected_params:
                     missing_params = int(expected_params - observed_params)
                     st.caption(
-                        f"Coverage: {observed_params}/{expected_params} parameter values have hits "
-                        f"(missing {missing_params}). This is usually due to no section crossings "
-                        f"or numerical divergence; try smaller dt or continuation mode."
+                        f"Recent-buffer coverage: {observed_params}/{expected_params} parameter values have hits "
+                        f"(missing {missing_params})."
                     )
 
-                x_plot, y_plot = downsample_xy(x_vals, y_vals, MAX_BIF_PLOT_POINTS)
                 fig, ax = plt.subplots(figsize=(6.0, 3.2))
                 fig.set_dpi(140)
+                if x_hist_plot.size > 0:
+                    ax.scatter(
+                        x_hist_plot,
+                        y_hist_plot,
+                        s=1,
+                        c="#7f7f7f",
+                        marker=".",
+                        linewidths=0,
+                        alpha=0.22,
+                    )
                 ax.scatter(
-                    x_plot,
-                    y_plot,
+                    x_vals,
+                    y_vals,
                     s=2,
                     c="black",
                     marker=".",
@@ -1179,7 +1256,10 @@ def render_bifurcation_tab(
                     ax.set_aspect("equal", adjustable="box")
                 ax.grid(True, linewidth=0.3)
                 st.pyplot(fig, clear_figure=True)
-                st.caption(f"Plotted points: {len(x_plot)}/{len(x_vals)}")
+                total_plotted = int(x_hist_plot.size + x_vals.size)
+                st.caption(
+                    f"Plotted points: recent {len(x_vals):,} + reservoir {len(x_hist_plot):,} = {total_plotted:,}"
+                )
 
                 last_pv = st.session_state.get("sweep_last_pv", None)
                 if last_pv is not None:
@@ -1190,8 +1270,11 @@ def render_bifurcation_tab(
                     except Exception:
                         pass
                 if bool(st.session_state.get("sweep_rows_clipped", False)):
+                    reservoir_seen = int(st.session_state["sweep_reservoir"].get("seen", 0))
                     st.caption(
-                        f"Stored sweep rows are capped at {MAX_SWEEP_ROWS_IN_MEMORY:,} (oldest rows dropped)."
+                        f"Stored sweep rows are capped at {MAX_SWEEP_ROWS_IN_MEMORY:,} (recent full-resolution). "
+                        f"Dropped history is kept as a reservoir sample up to {MAX_BIF_RESERVOIR_POINTS:,} "
+                        f"points from {reservoir_seen:,} dropped rows."
                     )
 
         with right_col:

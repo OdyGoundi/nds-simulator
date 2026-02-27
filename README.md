@@ -119,7 +119,7 @@ When running very large `tf/dt` combinations:
 
 ## Project Info
 
-- Developed as part of the undergraduate thesis of **Odysseas Gkountinakos**.
+- Developed as part of the master thesis of **Odysseas Gkountinakos**.
 - MSc Program in Computational Physics, Department of Physics, Aristotle University of Thessaloniki.
 - Supervisor: **Christos Volos**.
 - Source: `https://github.com/OdyGoundi/nds-simulator`
