@@ -46,6 +46,7 @@ from app.params import (
     SystemConfig,
 )
 from app.ui.bifurcation_tab import render_bifurcation_tab
+from app.ui.poincare_map_panel import render_poincare_map_panel
 from core import numba_backend
 
 APP_NAME = "DynaSim"
@@ -72,6 +73,7 @@ SYSTEM_LABEL_BY_KEY = {
     "henon_heiles": "Henon-Heiles (4D Hamiltonian)",
     "custom": "Custom (nD)",
 }
+SYSTEM_KEY_BY_LABEL = {label: key for key, label in SYSTEM_LABEL_BY_KEY.items()}
 SOLVER_LABEL_BY_KIND = {
     "ivp": "RK45 (adaptive)",
     "rk45": "RK45 (adaptive)",
@@ -82,10 +84,15 @@ SOLVER_LABEL_BY_KIND = {
 PENDING_STATIC_CFG_KEY = "_pending_static_cfg_apply"
 STATIC_CFG_APPLY_SUCCESS_KEY = "_static_cfg_apply_success_msg"
 STATIC_CFG_APPLY_ERROR_KEY = "_static_cfg_apply_error_msg"
-MAX_PLOT_POINTS_DEFAULT = 120_000
-MAX_STORE_STEPS_DEFAULT = 200_000
+MAX_PLOT_POINTS_DEFAULT = 1_000_000
+MAX_PLOT_POINTS_UI_MAX = 2_000_000
+MAX_STORE_STEPS_DEFAULT = 0
+PHASE_LINEWIDTH_DEFAULT = 0.07
 DIRECT_CSV_MAX_ROWS = 600_000
 EXPORT_CHUNK_ROWS_DEFAULT = 250_000
+TRAJ_EXPORT_SOURCE_STORED = "Current stored trajectory (fast)"
+TRAJ_EXPORT_SOURCE_FULL = "Prepared full-resolution trajectory (recommended)"
+TRAJ_EXPORT_READY_SIG_KEY = "traj_export_full_ready_sig_tab4"
 
 
 def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
@@ -134,6 +141,131 @@ def _to_int(value: Any, default: int) -> int:
 
 def _clamp_int(value: int, low: int, high: int) -> int:
     return max(int(low), min(int(value), int(high)))
+
+
+def _system_key_from_label(system_label: object) -> str:
+    label = str(system_label or "").strip()
+    if label in SYSTEM_KEY_BY_LABEL:
+        return SYSTEM_KEY_BY_LABEL[label]
+    if label.startswith("Lorenz"):
+        return "lorenz"
+    if label.startswith("Rossler"):
+        return "rossler"
+    if label.startswith("Henon-Heiles"):
+        return "henon_heiles"
+    return "custom"
+
+
+def _builtin_system_defaults(system_key: str) -> Dict[str, Any]:
+    defaults: Dict[str, Any] = {
+        "phase_x_idx_tab1": 0,
+        "phase_y_idx_tab1": 1,
+        "phase_z_idx_tab1": 2,
+    }
+    if system_key == "lorenz":
+        defaults.update(
+            {
+                "y0_text_sidebar": "1, 1, 1",
+                "solver_kind_label_sidebar": SOLVER_LABEL_BY_KIND["rk4"],
+                "sigma": 10.0,
+                "rho": 28.0,
+                "beta": float(8.0 / 3.0),
+            }
+        )
+    elif system_key == "rossler":
+        defaults.update(
+            {
+                "y0_text_sidebar": "1, 1, 1",
+                "solver_kind_label_sidebar": SOLVER_LABEL_BY_KIND["rk4"],
+                "ross_a": 0.2,
+                "ross_b": 0.2,
+                "ross_c": 5.7,
+            }
+        )
+    elif system_key == "henon_heiles":
+        defaults.update(
+            {
+                "y0_text_sidebar": "0.1, 0.0, 0.0, 0.1",
+                "solver_kind_label_sidebar": SOLVER_LABEL_BY_KIND["symplectic_fr"],
+                "hh_lambda": 1.0,
+            }
+        )
+    else:
+        defaults = {}
+    return defaults
+
+
+def _apply_state_values(values: Dict[str, Any], *, only_missing: bool = False) -> None:
+    for key, value in values.items():
+        if only_missing and key in st.session_state:
+            continue
+        st.session_state[key] = value
+
+
+def _list_text_token_count(value: object) -> int:
+    return len(str(value or "").replace(",", " ").split())
+
+
+def _ensure_builtin_system_sidebar_state() -> None:
+    system_key = _system_key_from_label(
+        st.session_state.get("system_label_sidebar", SYSTEM_LABEL_BY_KEY["lorenz"])
+    )
+    defaults = _builtin_system_defaults(system_key)
+    if not defaults:
+        return
+
+    expected_dim = 4 if system_key == "henon_heiles" else 3
+    y0_token_count = _list_text_token_count(st.session_state.get("y0_text_sidebar", ""))
+    if y0_token_count not in (0, expected_dim):
+        _apply_state_values(defaults, only_missing=False)
+    else:
+        _apply_state_values(defaults, only_missing=True)
+
+    st.session_state["phase_x_idx_tab1"] = _clamp_int(
+        _to_int(st.session_state.get("phase_x_idx_tab1", 0), 0),
+        0,
+        expected_dim - 1,
+    )
+    st.session_state["phase_y_idx_tab1"] = _clamp_int(
+        _to_int(st.session_state.get("phase_y_idx_tab1", 1), 1),
+        0,
+        expected_dim - 1,
+    )
+    z_default = 2 if expected_dim > 2 else 0
+    st.session_state["phase_z_idx_tab1"] = _clamp_int(
+        _to_int(st.session_state.get("phase_z_idx_tab1", z_default), z_default),
+        0,
+        expected_dim - 1,
+    )
+
+
+def _on_system_selection_change() -> None:
+    system_key = _system_key_from_label(st.session_state.get("system_label_sidebar"))
+    defaults = _builtin_system_defaults(system_key)
+    if defaults:
+        _apply_state_values(defaults, only_missing=False)
+
+
+def _apply_transient_cut(
+    t: np.ndarray,
+    y: np.ndarray,
+    transient_steps: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    t_arr = np.asarray(t, dtype=float).ravel()
+    y_arr = np.asarray(y, dtype=float)
+    if y_arr.ndim != 2:
+        raise ValueError("y must be shape (n_vars, n_steps)")
+    n = min(int(t_arr.size), int(y_arr.shape[1]))
+    if n <= 0:
+        return np.array([], dtype=float), np.zeros((int(y_arr.shape[0]), 0), dtype=float)
+
+    t_use = t_arr[:n]
+    y_use = y_arr[:, :n]
+    if n <= 2:
+        return t_use, y_use
+
+    cut = max(0, min(int(transient_steps), n - 2))
+    return t_use[cut:], y_use[:, cut:]
 
 
 def _image_path_to_data_uri(image_path: Path) -> Optional[str]:
@@ -347,6 +479,12 @@ def _apply_static_config_to_state(cfg: Dict[str, object]) -> None:
         plot_mode = str(plots_obj.get("plot_mode", "")).strip()
         if plot_mode in ("2D phase plane", "3D phase plot"):
             st.session_state["plot_mode_tab1"] = plot_mode
+        if "phase_linewidth" in plots_obj:
+            phase_linewidth_cfg = max(
+                0.001,
+                _to_float(plots_obj.get("phase_linewidth", PHASE_LINEWIDTH_DEFAULT), PHASE_LINEWIDTH_DEFAULT),
+            )
+            st.session_state["phase_linewidth_tab1"] = float(phase_linewidth_cfg)
         phase_axes_obj = plots_obj.get("phase_axes")
         phase_axes = phase_axes_obj if isinstance(phase_axes_obj, dict) else {}
         x_idx_cfg = _to_int(phase_axes.get("x_idx", 0), 0)
@@ -574,34 +712,36 @@ if st.session_state.get("show_info_popup", False):
 
 # Apply uploaded static config before sidebar widgets are instantiated.
 _flush_pending_static_config_apply()
+_ensure_builtin_system_sidebar_state()
 
 # -------- Sidebar: system + initial conditions --------
 with st.sidebar:
     st.header("System")
+    _apply_state_values(
+        {"system_label_sidebar": SYSTEM_LABEL_BY_KEY["lorenz"]},
+        only_missing=True,
+    )
 
     system_label = st.selectbox(
         "Choose system",
         ["Lorenz (3D)", "Rossler (3D)", "Henon-Heiles (4D Hamiltonian)", "Custom (nD)"],
-        index=0,
         key="system_label_sidebar",
+        on_change=_on_system_selection_change,
     )
 
-    if system_label.startswith("Lorenz"):
-        system_key = "lorenz"
+    system_key = _system_key_from_label(system_label)
+    if system_key == "lorenz":
         n_vars = 3
-    elif system_label.startswith("Rossler"):
-        system_key = "rossler"
+    elif system_key == "rossler":
         n_vars = 3
-    elif system_label.startswith("Henon-Heiles"):
-        system_key = "henon_heiles"
+    elif system_key == "henon_heiles":
         n_vars = 4
     else:
-        system_key = "custom"
+        _apply_state_values({"n_vars_sidebar": 3}, only_missing=True)
         n_vars = st.number_input(
             "Number of equations (n)",
             min_value=1,
             max_value=12,
-            value=3,
             step=1,
             key="n_vars_sidebar",
         )
@@ -620,10 +760,10 @@ with st.sidebar:
         "Symplectic Forest-Ruth (4th order)": "symplectic_fr",
     }
     solver_default = "RK4 (fixed step)"
+    _apply_state_values({"solver_kind_label_sidebar": solver_default}, only_missing=True)
     solver_kind_label = st.selectbox(
         "Solver kind",
         solver_kind_labels,
-        index=solver_kind_labels.index(solver_default),
         key="solver_kind_label_sidebar",
     )
     solver_kind = solver_kind_map[solver_kind_label]
@@ -653,9 +793,9 @@ with st.sidebar:
         y0_default = "1, 1, 1"
     else:
         y0_default = "\n".join(["0"] * int(n_vars))
+    _apply_state_values({"y0_text_sidebar": y0_default}, only_missing=True)
     y0_text = st.text_area(
         "y0 values (comma/space/newline separated)",
-        value=y0_default,
         height=90,
         key="y0_text_sidebar",
     )
@@ -688,9 +828,9 @@ else:
         st.header("Custom definitions")
 
         default_names = "\n".join([f"y{i+1}" for i in range(int(n_vars))])
+        _apply_state_values({"var_names_text_sidebar": default_names}, only_missing=True)
         var_names_text = st.text_area(
             "Variable names (one per line)",
-            value=default_names,
             height=120,
             key="var_names_text_sidebar",
         )
@@ -702,16 +842,16 @@ else:
             var_names = tmp_names
 
         default_eq = "\n".join(["0"] * int(n_vars))
+        _apply_state_values({"eqs_text_sidebar": default_eq}, only_missing=True)
         eqs_text = st.text_area(
             "Equations dy/dt (one per line)",
-            value=default_eq,
             height=180,
             key="eqs_text_sidebar",
         )
 
+        _apply_state_values({"params_text_sidebar": ""}, only_missing=True)
         params_text = st.text_area(
             "Parameters (name=value per line)",
-            value="",
             height=120,
             key="params_text_sidebar",
         )
@@ -720,15 +860,20 @@ else:
         eq_lines = (eq_lines + ["0"] * int(n_vars))[:int(n_vars)]
 
         st.markdown("**Jacobian (custom)**")
+        _apply_state_values(
+            {
+                "custom_auto_jac_sidebar": False,
+                "custom_use_jac_sidebar": False,
+            },
+            only_missing=True,
+        )
         custom_auto_jac = st.checkbox(
             "Auto-compute Jacobian (symbolic)",
-            value=False,
             key="custom_auto_jac_sidebar",
             help="Builds a symbolic Jacobian for Lyapunov on custom systems.",
         )
         custom_use_jac = st.checkbox(
             "Use analytic Jacobian",
-            value=custom_auto_jac,
             key="custom_use_jac_sidebar",
             disabled=not custom_auto_jac,
             help="When off, Lyapunov uses finite differences as before.",
@@ -797,33 +942,48 @@ try:
 
         with phase_col_controls:
             st.header("Integration")
-            t0 = st.number_input("initial time", value=0.0, step=1.0, key="t0_tab1")
-            tf = st.number_input("final time", value=50.0, step=1.0, key="tf_tab1")
-            dt = st.number_input("time step", value=0.01, step=0.01, format="%.5f", key="dt_tab1")
+            _apply_state_values(
+                {
+                    "t0_tab1": 0.0,
+                    "tf_tab1": 50.0,
+                    "dt_tab1": 0.01,
+                },
+                only_missing=True,
+            )
+            t0 = st.number_input("initial time", step=1.0, key="t0_tab1")
+            tf = st.number_input("final time", step=1.0, key="tf_tab1")
+            dt = st.number_input("time step", step=0.01, format="%.5f", key="dt_tab1")
 
             st.divider()
             st.header("System parameters")
 
             if system_key == "lorenz":
-                sigma = st.number_input("sigma", value=10.0, step=0.1, format="%.3f", key="sigma")
-                rho = st.number_input("rho", value=28.0, step=0.5, format="%.3f", key="rho")
+                _apply_state_values(
+                    {"sigma": 10.0, "rho": 28.0, "beta": float(8.0 / 3.0)},
+                    only_missing=True,
+                )
+                sigma = st.number_input("sigma", step=0.1, format="%.3f", key="sigma")
+                rho = st.number_input("rho", step=0.5, format="%.3f", key="rho")
                 beta = st.number_input(
                     "beta",
-                    value=float(8.0 / 3.0),
                     step=0.05,
                     format="%.4f",
                     key="beta",
                 )
 
             elif system_key == "rossler":
-                ross_a = st.number_input("a", value=0.2, step=0.01, format="%.4f", key="ross_a")
-                ross_b = st.number_input("b", value=0.2, step=0.01, format="%.4f", key="ross_b")
-                ross_c = st.number_input("c", value=5.7, step=0.1, format="%.3f", key="ross_c")
+                _apply_state_values(
+                    {"ross_a": 0.2, "ross_b": 0.2, "ross_c": 5.7},
+                    only_missing=True,
+                )
+                ross_a = st.number_input("a", step=0.01, format="%.4f", key="ross_a")
+                ross_b = st.number_input("b", step=0.01, format="%.4f", key="ross_b")
+                ross_c = st.number_input("c", step=0.1, format="%.3f", key="ross_c")
 
             elif system_key == "henon_heiles":
+                _apply_state_values({"hh_lambda": 1.0}, only_missing=True)
                 hh_lambda = st.number_input(
                     "lambda",
-                    value=1.0,
                     step=0.05,
                     format="%.4f",
                     key="hh_lambda",
@@ -834,19 +994,19 @@ try:
 
             st.divider()
             st.header("Plot settings")
+            _apply_state_values({"plot_mode_tab1": "2D phase plane"}, only_missing=True)
             plot_mode = st.selectbox(
                 "Plot mode",
                 ["2D phase plane", "3D phase plot"],
-                index=0,
                 key="plot_mode_tab1",
             )
 
             tc_c1, tc_c2 = st.columns([1.2, 1], gap="small")
             with tc_c1:
+                _apply_state_values({"transient_cut_time_tab1": 0.0}, only_missing=True)
                 transient_cut_time = st.number_input(
                     "Transient cut (time to skip)",
                     min_value=0.0,
-                    value=0.0,
                     step=1.0,
                     format="%.6f",
                     key="transient_cut_time_tab1",
@@ -862,35 +1022,38 @@ try:
 
             perf_c1, perf_c2 = st.columns([1, 1], gap="small")
             with perf_c1:
+                _apply_state_values({"max_plot_points_tab1": MAX_PLOT_POINTS_DEFAULT}, only_missing=True)
                 max_plot_points = st.number_input(
                     "Max points per plot",
                     min_value=10_000,
-                    max_value=500_000,
-                    value=MAX_PLOT_POINTS_DEFAULT,
+                    max_value=MAX_PLOT_POINTS_UI_MAX,
                     step=10_000,
                     key="max_plot_points_tab1",
-                    help="Uniformly downsamples trajectories for plotting only.",
+                    help=(
+                        "Uniformly downsamples trajectories for plotting only. "
+                        "Use larger values for denser, publication-oriented phase plots."
+                    ),
                 )
             with perf_c2:
+                _apply_state_values({"max_store_steps_tab1": MAX_STORE_STEPS_DEFAULT}, only_missing=True)
                 max_store_steps_ui = st.number_input(
                     "Max stored trajectory samples (0=all)",
                     min_value=0,
                     max_value=5_000_000,
-                    value=MAX_STORE_STEPS_DEFAULT,
                     step=50_000,
                     key="max_store_steps_tab1",
                     help=(
                         "Limits in-memory trajectory samples to avoid Streamlit Cloud crashes. "
-                        "Integration still runs full duration."
+                        "Set 0 to keep the full trajectory in memory when RAM allows."
                     ),
                 )
 
             st.divider()
             st.header("Lyapunov exponents calculation settings")
+            _apply_state_values({"qr_interval_tab1": 0.1}, only_missing=True)
             qr_interval = st.number_input(
                 "QR interval (time)",
                 min_value=1e-6,
-                value=0.1,
                 step=0.01,
                 format="%.4f",
                 key="qr_interval_tab1",
@@ -898,11 +1061,11 @@ try:
             )
             lya_c1, lya_c2 = st.columns([1, 1], gap="small")
             with lya_c1:
+                _apply_state_values({"lya_transient_frac_tab1": 0.30}, only_missing=True)
                 lyapunov_transient_frac = st.slider(
                     "Lyapunov transient fraction",
                     min_value=0.0,
                     max_value=0.99,
-                    value=0.30,
                     step=0.05,
                     key="lya_transient_frac_tab1",
                     help="Fraction of integration steps discarded before Lyapunov accumulation.",
@@ -920,40 +1083,40 @@ try:
             st.markdown("**Axis selection**")
             axis_options = [(f"{name} (index {i})", i) for i, name in enumerate(var_names)]
             idx_list = [o[1] for o in axis_options]
+            _apply_state_values({"phase_x_idx_tab1": 0}, only_missing=True)
 
             x_idx = st.selectbox(
                 "x-axis",
                 options=idx_list,
                 format_func=lambda i: axis_options[i][0],
-                index=0 if len(idx_list) > 0 else 0,
                 key="phase_x_idx_tab1",
             )
 
             y_default = 1 if len(idx_list) > 1 else 0
+            _apply_state_values({"phase_y_idx_tab1": y_default}, only_missing=True)
             y_idx = st.selectbox(
                 "y-axis",
                 options=idx_list,
                 format_func=lambda i: axis_options[i][0],
-                index=y_default,
                 key="phase_y_idx_tab1",
             )
 
             z_idx = 2 if len(idx_list) > 2 else 0
             if plot_mode == "3D phase plot":
+                _apply_state_values({"phase_z_idx_tab1": z_idx}, only_missing=True)
                 z_idx = st.selectbox(
                     "z-axis",
                     options=idx_list,
                     format_func=lambda i: axis_options[i][0],
-                    index=2 if len(idx_list) > 2 else 0,
                     key="phase_z_idx_tab1",
                 )
             
             st.divider()
             st.header("Solver tolerances")
+            _apply_state_values({"rtol": 1e-6, "atol": 1e-8}, only_missing=True)
             rtol = st.number_input(
                 "relative tolerance (rtol)",
                 min_value=0.0,
-                value=1e-6,
                 step=1e-6,
                 format="%.1e",
                 key="rtol",
@@ -961,7 +1124,6 @@ try:
             atol = st.number_input(
                 "absolute tolerance (atol)",
                 min_value=0.0,
-                value=1e-8,
                 step=1e-8,
                 format="%.1e",
                 key="atol",
@@ -1013,6 +1175,10 @@ try:
     y0 = parse_list_of_floats(y0_text, int(n_vars), label="y0")
     if system_key == "henon_heiles":
         params_text = f"lambda={float(hh_lambda)}"
+    phase_linewidth = max(
+        0.001,
+        _to_float(st.session_state.get("phase_linewidth_tab1", PHASE_LINEWIDTH_DEFAULT), PHASE_LINEWIDTH_DEFAULT),
+    )
     initial = InitialConditions(tuple(float(v) for v in y0))
     max_store_steps = int(max_store_steps_ui)
     if max_store_steps <= 0:
@@ -1055,6 +1221,7 @@ try:
             x_idx=int(x_idx),
             y_idx=int(y_idx),
             z_idx=z_idx_val,
+            phase_linewidth=float(phase_linewidth),
             transient_steps=int(transient_steps),
             lyapunov_transient_steps=int(transient_steps_lya),
             lyapunov_transient_frac=float(lyapunov_transient_frac),
@@ -1071,11 +1238,9 @@ try:
         solve_tols=solve_tols,
     )
 
-    # Apply transient cut safely (keep >= 2 samples)
-    N = int(transient_steps)
-    N = max(0, min(N, y.shape[1] - 2))
-    t_plot = t[N:]
-    y_plot = y[:, N:]
+    # Apply transient cut safely (keep >= 2 samples when possible)
+    t_plot, y_plot = _apply_transient_cut(t, y, int(transient_steps))
+    N = max(0, min(int(transient_steps), max(0, y.shape[1] - 2)))
     max_plot_points_i = max(2, int(max_plot_points))
     t_plot_ds, y_plot_ds = downsample_trajectory(t_plot, y_plot, max_plot_points_i)
 
@@ -1164,6 +1329,7 @@ try:
                 title=title,
                 xlabel=var_names[int(x_idx)],
                 ylabel=var_names[int(y_idx)],
+                linewidth=float(phase_linewidth),
             )
             ax = fig.axes[0]
             ax.set_xlim(float(x_view[0]), float(x_view[1]))
@@ -1181,6 +1347,7 @@ try:
                 k=int(z_idx),
                 title=title,
                 labels=(var_names[int(x_idx)], var_names[int(y_idx)], var_names[int(z_idx)]),
+                linewidth=float(phase_linewidth),
             )
             ax3d = fig.axes[0]
             ax3d.set_xlim(float(x_view[0]), float(x_view[1]))
@@ -1188,6 +1355,32 @@ try:
             if z_view is not None and hasattr(ax3d, "set_zlim"):
                 cast(Any, ax3d).set_zlim(float(z_view[0]), float(z_view[1]))
             st.pyplot(fig, clear_figure=True)
+
+        preferred_poincare_axes = [int(x_idx), int(y_idx)]
+        if plot_mode == "3D phase plot":
+            preferred_poincare_axes.append(int(z_idx))
+        render_poincare_map_panel(
+            t=t_plot,
+            y=y_plot,
+            var_names=var_names,
+            preferred_axes=preferred_poincare_axes,
+            title_prefix=system_label,
+        )
+
+        st.markdown("**Phase style**")
+        _apply_state_values(
+            {"phase_linewidth_tab1": PHASE_LINEWIDTH_DEFAULT},
+            only_missing=True,
+        )
+        st.number_input(
+            "Phase line width",
+            min_value=0.01,
+            max_value=5.0,
+            step=0.01,
+            format="%.3f",
+            key="phase_linewidth_tab1",
+            help="Controls the trajectory line thickness in the phase diagram.",
+        )
 
         st.markdown("**Axis limits (view window)**")
         if plot_mode == "2D phase plane":
@@ -1498,16 +1691,97 @@ try:
 
             st.divider()
             st.markdown("**Export: Trajectory (post-transient)**")
+            export_integration = IntegrationConfig(
+                t0=float(integration.t0),
+                tf=float(integration.tf),
+                dt=float(integration.dt),
+                solver_kind=str(getattr(integration, "solver_kind", "ivp")),
+                max_store_steps=None,
+            )
+            export_sig = (
+                repr(system),
+                repr(export_integration),
+                repr(initial),
+                repr(solve_tols),
+                int(transient_steps),
+            )
+            export_source = st.radio(
+                "Trajectory export source",
+                options=[TRAJ_EXPORT_SOURCE_STORED, TRAJ_EXPORT_SOURCE_FULL],
+                index=1,
+                key="traj_export_source_tab4",
+                help=(
+                    "Use the current in-memory trajectory for fast export, or prepare a separate "
+                    "full-resolution trajectory for publication-oriented CSV/bundle export."
+                ),
+            )
+
+            t_export = t_plot
+            y_export = y_plot
+            export_source_tag = "stored"
+            export_ready = True
+            if export_source == TRAJ_EXPORT_SOURCE_FULL:
+                prep_c1, prep_c2 = st.columns([1.2, 2.2], gap="small")
+                with prep_c1:
+                    prepare_full_export = st.button(
+                        "Prepare full-resolution trajectory",
+                        key="prepare_full_traj_export_tab4",
+                        use_container_width=True,
+                    )
+                if prepare_full_export:
+                    st.session_state[TRAJ_EXPORT_READY_SIG_KEY] = export_sig
+                export_ready = st.session_state.get(TRAJ_EXPORT_READY_SIG_KEY) == export_sig
+                with prep_c2:
+                    if export_ready:
+                        st.caption(
+                            "Full-resolution export is prepared for the current system/integration settings."
+                        )
+                    else:
+                        st.caption(
+                            "Prepare once to recompute the trajectory with full storage for export only."
+                        )
+
+                if export_ready:
+                    with st.spinner("Preparing full-resolution trajectory for export..."):
+                        t_export_full, y_export_full = solve_cached(
+                            system=system,
+                            integration=export_integration,
+                            initial=initial,
+                            solve_tols=solve_tols,
+                        )
+                    t_export, y_export = _apply_transient_cut(
+                        t_export_full,
+                        y_export_full,
+                        int(transient_steps),
+                    )
+                    export_source_tag = "fullres"
+                    st.caption(
+                        f"Export source: full-resolution recompute | rows after transient cut: {len(t_export):,}"
+                    )
+                else:
+                    st.info(
+                        "Full-resolution trajectory is not prepared yet for the current settings. "
+                        "Use the button above to enable export."
+                    )
+            else:
+                st.caption(
+                    f"Export source: current stored trajectory | rows after transient cut: {len(t_export):,}"
+                )
+
             rtol_tag = f"{float(rtol):.0e}"
             atol_tag = f"{float(atol):.0e}"
-            traj_base = f"{system_key}_trajectory_rtol{rtol_tag}_atol{atol_tag}"
+            traj_base = f"{system_key}_trajectory_{export_source_tag}_rtol{rtol_tag}_atol{atol_tag}"
             traj_rows = int(t_plot.size)
+            if export_ready:
+                traj_rows = int(t_export.size)
+            else:
+                traj_rows = 0
 
             if traj_rows <= 0:
                 st.info("No trajectory samples available for export.")
             else:
                 if traj_rows <= int(DIRECT_CSV_MAX_ROWS):
-                    csv_bytes = build_csv_bytes(t_plot, y_plot, var_names)
+                    csv_bytes = build_csv_bytes(t_export, y_export, var_names)
                     st.download_button(
                         label="Download CSV (single file)",
                         data=csv_bytes,
@@ -1548,8 +1822,8 @@ try:
                 start_row = (chunk_idx - 1) * chunk_rows
                 end_row = min(traj_rows, start_row + chunk_rows)
                 chunk_bytes = build_csv_bytes(
-                    t_plot,
-                    y_plot,
+                    t_export,
+                    y_export,
                     var_names,
                     start=start_row,
                     end=end_row,
@@ -1672,6 +1946,7 @@ try:
                     x_idx=int(x_idx),
                     y_idx=int(y_idx),
                     z_idx=z_idx_val,
+                    phase_linewidth=float(phase_linewidth),
                     transient_steps=int(transient_steps),
                     lyapunov_transient_steps=int(transient_steps_lya),
                     lyapunov_transient_frac=float(lyapunov_transient_frac),
@@ -1686,21 +1961,28 @@ try:
             if sweep_cfg is not None:
                 bundle_files["SweepParamConfig.json"] = json.dumps(sweep_cfg, indent=2).encode("utf-8")
 
-            if int(t_plot.size) <= int(DIRECT_CSV_MAX_ROWS):
-                bundle_files["trajectory.csv"] = build_csv_bytes(t_plot, y_plot, var_names)
+            if export_ready and int(t_export.size) > 0:
+                if int(t_export.size) <= int(DIRECT_CSV_MAX_ROWS):
+                    bundle_files["trajectory.csv"] = build_csv_bytes(t_export, y_export, var_names)
+                else:
+                    end_first = min(int(t_export.size), int(EXPORT_CHUNK_ROWS_DEFAULT))
+                    bundle_files["trajectory_part001.csv"] = build_csv_bytes(
+                        t_export,
+                        y_export,
+                        var_names,
+                        start=0,
+                        end=end_first,
+                    )
+                    bundle_files["trajectory_manifest.txt"] = (
+                        f"Trajectory rows: {int(t_export.size)}\n"
+                        f"Trajectory source: {export_source}\n"
+                        "Only the first chunk is included in this zip to keep memory bounded.\n"
+                        "Use Tab 4 chunk export to download the remaining chunks.\n"
+                    ).encode("utf-8")
             else:
-                end_first = min(int(t_plot.size), int(EXPORT_CHUNK_ROWS_DEFAULT))
-                bundle_files["trajectory_part001.csv"] = build_csv_bytes(
-                    t_plot,
-                    y_plot,
-                    var_names,
-                    start=0,
-                    end=end_first,
-                )
                 bundle_files["trajectory_manifest.txt"] = (
-                    f"Trajectory rows: {int(t_plot.size)}\n"
-                    "Only the first chunk is included in this zip to keep memory bounded.\n"
-                    "Use Tab 4 chunk export to download the remaining chunks.\n"
+                    "Trajectory export was not included in this bundle.\n"
+                    "If you want the full-resolution trajectory, prepare it in Tab 4 first.\n"
                 ).encode("utf-8")
 
             if df_sweep is not None and len(df_sweep) > 0:

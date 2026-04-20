@@ -130,6 +130,7 @@ def build_static_config(
     x_idx: int,
     y_idx: int,
     z_idx: Optional[int],
+    phase_linewidth: float,
     transient_steps: int,
     lyapunov_transient_steps: int,
     lyapunov_transient_frac: float,
@@ -153,6 +154,7 @@ def build_static_config(
         },
         "plots": {
             "plot_mode": str(plot_mode),
+            "phase_linewidth": float(phase_linewidth),
             "phase_axes": {
                 "x_idx": int(x_idx),
                 "y_idx": int(y_idx),

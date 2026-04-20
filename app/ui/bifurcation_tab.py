@@ -58,20 +58,6 @@ def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
     return vmin, vmax
 
 
-def _square_xy_bounds(
-    x_bounds: tuple[float, float],
-    y_bounds: tuple[float, float],
-) -> tuple[tuple[float, float], tuple[float, float]]:
-    x0, x1 = float(x_bounds[0]), float(x_bounds[1])
-    y0, y1 = float(y_bounds[0]), float(y_bounds[1])
-    dx = max(1e-12, x1 - x0)
-    dy = max(1e-12, y1 - y0)
-    half_span = 0.5 * max(dx, dy)
-    x_mid = 0.5 * (x0 + x1)
-    y_mid = 0.5 * (y0 + y1)
-    return (x_mid - half_span, x_mid + half_span), (y_mid - half_span, y_mid + half_span)
-
-
 def _to_float(value: object, default: float) -> float:
     try:
         return float(value)
@@ -1160,19 +1146,6 @@ def render_bifurcation_tab(
                     st.session_state["bif_ylim_min_tab3"] = float(y_auto[0])
                     st.session_state["bif_ylim_max_tab3"] = float(y_auto[1])
 
-                square_axes_bif = st.checkbox(
-                    "Square axes (equal x/y scale)",
-                    value=bool(st.session_state.get("bif_square_axes_tab3", False)),
-                    key="bif_square_axes_tab3",
-                    help="Use the same scale on both axes and keep this plot square.",
-                )
-                if square_axes_bif:
-                    x_view, y_view = _square_xy_bounds(x_view, y_view)
-                    st.session_state["bif_xlim_min_tab3"] = float(x_view[0])
-                    st.session_state["bif_xlim_max_tab3"] = float(x_view[1])
-                    st.session_state["bif_ylim_min_tab3"] = float(y_view[0])
-                    st.session_state["bif_ylim_max_tab3"] = float(y_view[1])
-
                 st.markdown("**Axis limits (view window)**")
                 lim_c1, lim_c2, lim_c3, lim_c4 = st.columns([1, 1, 1, 1], gap="small")
                 with lim_c1:
@@ -1223,10 +1196,10 @@ def render_bifurcation_tab(
                         x_hist_plot,
                         y_hist_plot,
                         s=1,
-                        c="#7f7f7f",
+                        c="#212121",
                         marker=".",
                         linewidths=0,
-                        alpha=0.22,
+                        alpha=0.35,
                     )
                 ax.scatter(
                     x_vals,
@@ -1252,8 +1225,6 @@ def render_bifurcation_tab(
                         ax.set_ylabel(f"{out_var} on section ({section_var}={section_value})")
                 ax.set_xlim(float(x_view[0]), float(x_view[1]))
                 ax.set_ylim(float(y_view[0]), float(y_view[1]))
-                if square_axes_bif:
-                    ax.set_aspect("equal", adjustable="box")
                 ax.grid(True, linewidth=0.3)
                 st.pyplot(fig, clear_figure=True)
                 total_plotted = int(x_hist_plot.size + x_vals.size)
@@ -1340,19 +1311,6 @@ def render_bifurcation_tab(
                         st.session_state["lya_ylim_min_tab3"] = float(y_auto[0])
                         st.session_state["lya_ylim_max_tab3"] = float(y_auto[1])
 
-                    square_axes_lya = st.checkbox(
-                        "Square axes (equal x/y scale)",
-                        value=bool(st.session_state.get("lya_square_axes_tab3", False)),
-                        key="lya_square_axes_tab3",
-                        help="Use the same scale on both axes and keep this plot square.",
-                    )
-                    if square_axes_lya:
-                        x_view, y_view = _square_xy_bounds(x_view, y_view)
-                        st.session_state["lya_xlim_min_tab3"] = float(x_view[0])
-                        st.session_state["lya_xlim_max_tab3"] = float(x_view[1])
-                        st.session_state["lya_ylim_min_tab3"] = float(y_view[0])
-                        st.session_state["lya_ylim_max_tab3"] = float(y_view[1])
-
                     fig_lya, ax_lya = plt.subplots(figsize=(6.0, 3.2))
                     fig_lya.set_dpi(140)
 
@@ -1374,8 +1332,6 @@ def render_bifurcation_tab(
                     ax_lya.set_ylabel("Lyapunov exponents")
                     ax_lya.set_xlim(float(x_view[0]), float(x_view[1]))
                     ax_lya.set_ylim(float(y_view[0]), float(y_view[1]))
-                    if square_axes_lya:
-                        ax_lya.set_aspect("equal", adjustable="box")
                     ax_lya.grid(True, linewidth=0.3)
                     ax_lya.legend(loc="best", fontsize=8)
                     st.pyplot(fig_lya, clear_figure=True)
