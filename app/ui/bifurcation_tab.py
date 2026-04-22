@@ -1195,11 +1195,11 @@ def render_bifurcation_tab(
                     ax.scatter(
                         x_hist_plot,
                         y_hist_plot,
-                        s=1,
-                        c="#212121",
+                        s=2,
+                        c="black",
                         marker=".",
                         linewidths=0,
-                        alpha=0.35,
+                        alpha=0.8,
                     )
                 ax.scatter(
                     x_vals,

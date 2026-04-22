@@ -8,11 +8,13 @@
 
 - Προσομοίωση Lorenz, Rossler, Henon-Heiles (Hamiltonian) ή custom nD συστημάτων.
 - Πλοκή πορτρέτων φάσης (2D/3D) και χρονοσειρών.
+- Προβολή Poincaré map από την ήδη υπολογισμένη τροχιά του Tab 1.
 - Επιλογή ολοκληρωτών: RK45, DOP853, σταθερού βήματος RK4, ή συμμεπλεκτικός Forest-Ruth.
 - Η επιτάχυνση Numba χρησιμοποιείται αυτόματα για σταθερού βήματος RK4 και συμμεπλεκτικό Forest-Ruth όταν είναι διαθέσιμη.
 - Υπολογισμός εκθετών Lyapunov για μία τροχιά (Tab 1), με προαιρετικό αναλυτικό/συμβολικό Ιακωβιανό για custom συστήματα.
 - Δημιουργία σαρώσεων παραμέτρων (διακλάδωσης + Lyapunov) με continuation ή ανεξάρτητα runs.
 - Επιτάχυνση ανεξάρτητων sweeps με τοπικούς parallel workers.
+- Bounded-memory plotting για μεγάλα bifurcation sweeps: recent full-resolution buffer + reservoir history.
 - Εξαγωγή τροχιών, σαρώσεων Poincare/διακλάδωσης, και σαρώσεων Lyapunov.
 - Άνοιγμα του in-app manual μέσω Help (Eng) / Help(Ελλ).
 
@@ -21,7 +23,7 @@
 1) Εκκίνηση: `streamlit run app/nlds_app.py`.  
 2) Επιλέξτε σύστημα + ρυθμίσεις ολοκλήρωσης στο sidebar.  
 3) Ρυθμίστε παραμέτρους συστήματος (sidebar) και άξονες (controls του Tab 1).  
-4) Εξερευνήστε tabs: Phase portrait (incl. Lyapunov), Time series, Parameter Sweep Analysis (διακλάδωση + Lyapunov).  
+4) Εξερευνήστε tabs: Phase portrait (incl. Lyapunov + Poincaré map), Time series, Parameter Sweep Analysis (διακλάδωση + Lyapunov).  
 5) Εξαγωγή CSVs από το Export tab (trajectory, sweep, Lyapunov).
 6) Προαιρετικά: ανοίξτε Help (Eng) / Help(Ελλ) για το πλήρες manual.
 

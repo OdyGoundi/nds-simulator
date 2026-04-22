@@ -166,7 +166,28 @@ Ignore an initial fraction of each sweep integration.
 
 - Applied before event collection
 
-## 8. Computational complexity (qualitative)
+## 8. Bounded plotting memory in Tab 3
+
+### What
+
+Keep only a bounded recent sweep buffer in full resolution and move older
+rows into a bounded reservoir sample.
+
+### Why
+
+- Prevents unbounded Streamlit session-state growth
+- Preserves recent rows exactly for continuation and inspection
+- Retains older visual history without storing every point
+
+### How
+
+- Recent sweep rows are clipped to a fixed in-memory row budget
+- Dropped rows are inserted into a fixed-capacity XY reservoir sample
+- Plotting combines recent rows plus a downsampled view of the reservoir
+- Recent and reservoir points now use the same black marker styling; the
+  distinction is internal storage, not color coding
+
+## 9. Computational complexity (qualitative)
 
 Let:
 
@@ -197,7 +218,7 @@ terminates early, the computational cost depends on the number of
 -> This is the key reason why sweeps that originally took **tens of minutes**
 now complete in **a few minutes**.
 
-## 9. Numba acceleration (fixed-step)
+## 10. Numba acceleration (fixed-step)
 
 ### What
 When the user selects **RK4** or **Symplectic Forest-Ruth**, the app attempts to
@@ -212,7 +233,7 @@ use the Numba backend for the fixed-step integrators.
 - Event-based IVP acceleration still applies only to RK45/DOP853 + crossing.
 
 
-## 9. Practical tuning guidelines
+## 11. Practical tuning guidelines
 
 Rules of thumb for **Lorenz bifurcation sweeps**. Express integration length as total steps:
 

@@ -28,6 +28,13 @@ Minimal recipe to generate **bifurcation (Poincare)** and **Lyapunov** diagrams.
 - If Lyapunov curves are noisy, increase `final time` and reduce `time step`.  
 - Reset accumulated data if you change key settings (sweep param, section, solver mode).
 
+## What The Bifurcation Plot Stores
+
+- The app keeps a recent full-resolution sweep buffer in memory and caps its size.  
+- Older dropped bifurcation rows are retained as a bounded reservoir sample instead of keeping the full history.  
+- The plotted chart combines recent rows plus the reservoir sample, so the caption reports `recent + reservoir` point counts.  
+- Reservoir and recent points are rendered with the same black marker style; the difference is memory handling, not visual styling.
+
 ## Solver notes
 
 - Sweeps use the solver selected in the sidebar (same as Tab 1).  

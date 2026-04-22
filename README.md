@@ -29,11 +29,12 @@ It supports system simulation, Lyapunov spectrum estimation, and Poincare-driven
 - **Solvers:** RK45, DOP853, fixed-step RK4, symplectic Forest-Ruth.
 - **Lyapunov Spectrum:** variational equations + periodic QR; analytic/symbolic or finite-difference Jacobians.
 - **Poincare Sections:** plane or expression-based definitions; crossing/slab detection modes.
+- **Poincaré Map (Tab 1):** section crossings extracted from the current trajectory and projected on selectable axes.
 - **Sweeps:** bifurcation (reset ICs) and continuation (warm-start), with optional local parallelism.
 - **Sweep observables:** Poincare crossings or local extrema (max/min/both) in Tab 3.
 - **Acceleration:** automatic Numba backend for fixed-step RK4, symplectic FR, and Lyapunov paths.
 - **Axis controls:** explicit axis limits and optional square/equal-scale view for phase, bifurcation, and Lyapunov charts.
-- **Cloud-safe execution:** bounded in-memory trajectory samples, plot decimation, and bounded sweep row retention.
+- **Cloud-safe execution:** bounded in-memory trajectory samples, plot decimation, and bounded sweep row retention with recent-buffer plus reservoir history.
 - **Export:** trajectories, sweeps, and Lyapunov results to CSV, with chunked trajectory export for very large runs.
 - **Manuals in App:** English and Greek HTML manuals from `docs/user-guide/`.
 
@@ -103,7 +104,9 @@ When running very large `tf/dt` combinations:
 
 - Use `Max stored trajectory samples` in Tab 1 to cap trajectory memory.
 - Use `Max points per plot` to decimate plotting data without changing integration horizon.
+- In Tab 1, `Show Poincaré map` reuses the current trajectory and applies its own `Max points` display cap.
 - Export long trajectories in chunks from Tab 4 (`Trajectory chunk size` + `Chunk number`).
+- In Tab 3, recent sweep rows stay at full resolution while older dropped rows are kept in a bounded reservoir sample.
 - Keep in mind: memory is bounded, but very large runs can still hit CPU/time limits in cloud runtimes.
 
 ## Documentation Map

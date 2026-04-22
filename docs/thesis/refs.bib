@@ -26,11 +26,46 @@
   note   = {Repository file: app/ui/bifurcation\_tab.py}
 }
 
+@misc{nlds_src_app_params,
+  title  = {NDS Simulator Source: Runtime Parameter Dataclasses},
+  author = {Gkountinakos, Odysseas},
+  year   = {2026},
+  note   = {Repository file: app/params.py}
+}
+
+@misc{nlds_src_app_cache,
+  title  = {NDS Simulator Source: Cached Execution Paths},
+  author = {Gkountinakos, Odysseas},
+  year   = {2026},
+  note   = {Repository file: app/cache.py}
+}
+
 @misc{nlds_src_logic_bifurcation,
   title  = {NDS Simulator Source: Bifurcation Sweep Logic},
   author = {Gkountinakos, Odysseas},
   year   = {2026},
   note   = {Repository file: app/logic/bifurcation\_sweep.py}
+}
+
+@misc{nlds_src_logic_lyapunov_cached,
+  title  = {NDS Simulator Source: Cached Lyapunov Computation},
+  author = {Gkountinakos, Odysseas},
+  year   = {2026},
+  note   = {Repository file: app/logic/lyapunov\_cached.py}
+}
+
+@misc{nlds_src_logic_lyapunov_sweep,
+  title  = {NDS Simulator Source: Lyapunov Sweep Logic},
+  author = {Gkountinakos, Odysseas},
+  year   = {2026},
+  note   = {Repository file: app/logic/lyapunov\_sweep.py}
+}
+
+@misc{nlds_src_logic_reservoir,
+  title  = {NDS Simulator Source: Reservoir Sampling for Sweep History},
+  author = {Gkountinakos, Odysseas},
+  year   = {2026},
+  note   = {Repository file: app/logic/reservoir\_sampling.py}
 }
 
 @misc{nlds_src_app_sweep,
@@ -40,11 +75,32 @@
   note   = {Repository file: app/sweep.py}
 }
 
+@misc{nlds_src_app_export,
+  title  = {NDS Simulator Source: Export and Configuration Utilities},
+  author = {Gkountinakos, Odysseas},
+  year   = {2026},
+  note   = {Repository file: app/export\_utils.py}
+}
+
+@misc{nlds_src_app_numba_custom,
+  title  = {NDS Simulator Source: Custom Numba Kernel Builders},
+  author = {Gkountinakos, Odysseas},
+  year   = {2026},
+  note   = {Repository file: app/numba\_custom.py}
+}
+
 @misc{nlds_src_core_solver,
   title  = {NDS Simulator Source: Core ODE Integrators},
   author = {Gkountinakos, Odysseas},
   year   = {2026},
   note   = {Repository file: core/solver.py}
+}
+
+@misc{nlds_src_core_lyapunov,
+  title  = {NDS Simulator Source: Lyapunov Spectrum Core},
+  author = {Gkountinakos, Odysseas},
+  year   = {2026},
+  note   = {Repository file: core/lyapunov.py}
 }
 
 @misc{nlds_src_core_poincare,
@@ -61,6 +117,13 @@
   note   = {Repository file: core/symplectic\_solver.py}
 }
 
+@misc{nlds_src_core_numba,
+  title  = {NDS Simulator Source: Numba Numerical Backends},
+  author = {Gkountinakos, Odysseas},
+  year   = {2026},
+  note   = {Repository files: core/numba\_backend/\_common.py; builtins.py; integrators.py; lyapunov.py; sweep.py}
+}
+
 @misc{nlds_internal_scripts,
   title  = {NDS Simulator Internal Scripts for Numba Sweep and Lyapunov Backend Benchmark},
   author = {Gkountinakos, Odysseas},
@@ -75,11 +138,22 @@
   note   = {Internal C++ study and visualization pipeline used for the QR re-orthonormalization animation frames in Figures 1.10 and 1.11}
 }
 
-@misc{koy_poincare_map_2016,
-  title  = {Eisagogi sta Mi Grammika Dynamika Systimata},
-  author = {Voyatzis, K. and Meletlidou, E.},
-  year   = {2016},
-  note   = {Section 7.2: Stroboscopic Poincare map}
+@book{koy_poincare_map_2016,
+  title     = {Εισαγωγή στα Μη Γραμμικά Δυναμικά Συστήματα},
+  author    = {Βουγιατζής, Γεώργιος and Μελετλίδου, Ευθυμία},
+  publisher = {Κάλλιπος, Ανοικτές Ακαδημαϊκές Εκδόσεις},
+  year      = {2015},
+  note      = {Section 7.2: Stroboscopic Poincare map},
+  isbn      = {978-960-603-103-8},
+  url       = {https://www.openbook.gr/eisagwgi-sta-mi-grammika-dynamika-systimata/}
+}
+
+@book{maaita_meletlidou_kallipos,
+  title     = {Ειδικά Θέματα Μη Γραμμικής Δυναμικής},
+  author    = {Μαάιτα, Τζαμάλ-Οδυσσέας and Μελετλίδου, Ευθυμία},
+  publisher = {ΚΑΛΛΙΠΟΣ Ανοιχτές Ακαδημαϊκές Εκδόσεις},
+  year      = {2023},
+  note      = {Open textbook in the Kallipos Repository}
 }
 
 @book{hairer_wanner,
@@ -119,6 +193,15 @@
   edition   = {2nd}
 }
 
+@book{kuznetsov_bifurcation,
+  title     = {Elements of Applied Bifurcation Theory},
+  author    = {Kuznetsov, Yuri A.},
+  publisher = {Springer},
+  year      = {2004},
+  edition   = {3rd},
+  doi       = {10.1007/978-1-4757-3978-7}
+}
+
 @book{ott_chaos,
   title     = {Chaos in Dynamical Systems},
   author    = {Ott, Edward},
@@ -139,7 +222,8 @@
   title     = {Nonlinear Oscillations, Dynamical Systems, and Bifurcations of Vector Fields},
   author    = {Guckenheimer, John and Holmes, Philip},
   publisher = {Springer},
-  year      = {1983}
+  year      = {1983},
+  doi       = {10.1007/978-1-4612-1140-2}
 }
 
 @article{oseledets_scholarpedia,

@@ -1,0 +1,248 @@
+\clearpage
+\section{Αναλυτικό mapping της εκτέλεσης}
+\label{app:ch2-execution-map}
+
+Στο κύριο κείμενο δόθηκε η γενική εικόνα. Εδώ καταγράφονται πιο αναλυτικά οι
+βασικές εκτελεστικές διαδρομές με αναφορά στα modules που συμμετέχουν.
+
+\subsection*{Single run για τροχιά και phase portrait}
+\begin{itemize}
+\item Η διεπαφή διαβάζει τα widgets και συγκροτεί τα objects
+\texttt{SystemConfig}, \texttt{IntegrationConfig}, \texttt{InitialConditions}
+και \texttt{SolverTolerances}.
+\item Η \texttt{solve\_cached} στο \path{app/cache.py} αποφασίζει ποια
+αριθμητική μέθοδος θα χρησιμοποιηθεί.
+\item Για adaptive runs καλείται το \path{core/solver.py}. Για
+symplectic runs καλείται το \path{core/symplectic_solver.py}.
+\item Το αποτέλεσμα επιστρέφει ως πίνακες \(t\) και \(y\), οι οποίοι
+χρησιμοποιούνται από το plotting layer.
+\end{itemize}
+
+\subsection*{Μεμονωμένος υπολογισμός Lyapunov}
+\begin{itemize}
+\item Η διεπαφή ορίζει \(t_{\mathrm{tr}}\), \(t_{\mathrm{m}}\),
+\(\Delta t\) και QR interval.
+\item Η \texttt{compute\_lyapunov\_cached} προετοιμάζει RHS, Jacobian και
+αριθμητικές επιλογές.
+\item Ο πυρήνας \texttt{core/lyapunov.py} ολοκληρώνει το διευρυμένο σύστημα,
+κάνει περιοδικό QR και επιστρέφει το φάσμα.
+\end{itemize}
+
+\subsection*{Bifurcation και Lyapunov sweeps}
+\begin{itemize}
+\item Το \path{app/ui/bifurcation_tab.py} συγκεντρώνει τις ρυθμίσεις sweep
+και συντηρεί το state για continue workflows.
+\item Για bifurcation sweep η βασική είσοδος περνά στο \path{app/sweep.py},
+το οποίο τελικά χρησιμοποιεί το \path{core/poincare_sweep.py}.
+\item Για Lyapunov sweep η ροή περνά από το
+\path{app/logic/lyapunov_sweep.py} και καταλήγει στο
+\path{core/lyapunov.py}.
+\end{itemize}
+
+Τα παραπάνω αντιστοιχούν στις βασικές πηγές κώδικα που αναφέρθηκαν στο
+Κεφάλαιο~\ref{ch:computational-implementation}
+\cite{nlds_src_app_main,nlds_src_ui_bifurcation_tab,nlds_src_app_cache,nlds_src_app_sweep,nlds_src_logic_lyapunov_cached,nlds_src_logic_lyapunov_sweep,nlds_src_core_solver,nlds_src_core_poincare,nlds_src_core_symplectic,nlds_src_core_lyapunov}.
+
+\section{Ανάλυση πολυπλοκότητας}
+\label{app:ch2-complexity}
+
+\subsection{Ορισμοί συμβόλων}
+
+\begin{table}[H]
+\centering
+\caption{Συμβολισμός που χρησιμοποιείται στην ανάλυση πολυπλοκότητας}
+\label{tab:ch2-complexity-symbols}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{|l|p{0.64\textwidth}|}
+\hline
+\textbf{Σύμβολο} & \textbf{Ερμηνεία} \\
+\hline
+\(n\) & Διάσταση του διανύσματος κατάστασης. \\
+\hline
+\(N\) & Πλήθος fixed-step βημάτων, περίπου \((t_f-t_0)/\Delta t\). \\
+\hline
+\(P\) & Πλήθος τιμών παραμέτρου σε sweep. \\
+\hline
+\(H\) & Μέγιστο πλήθος διατηρούμενων hits ανά παράμετρο. \\
+\hline
+\(N_{\mathrm{QR}}\) & Πλήθος QR ορθοκανονικοποιήσεων στον υπολογισμό Lyapunov. \\
+\hline
+\(C_f(n)\) & Κόστος μίας αξιολόγησης του RHS. \\
+\hline
+\(C_J(n)\) & Κόστος μίας αξιολόγησης του Jacobian. \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Μοναδική τροχιά}
+
+Για fixed-step RK4 ο χρόνος κλιμακώνεται γραμμικά με το πλήθος βημάτων:
+\begin{equation}
+T_{\mathrm{RK4}} = O\!\left(N\,C_f(n)\right).
+\end{equation}
+Η πλήρης αποθήκευση της τροχιάς έχει τάξη
+\begin{equation}
+M_{\mathrm{traj}} = O(nN).
+\end{equation}
+
+Για adaptive ολοκληρωτές τύπου \texttt{solve\_ivp}, το πραγματικό κόστος
+εξαρτάται από το πλήθος εσωτερικών evaluations που επιβάλλονται από τις
+ανοχές:
+\begin{equation}
+T_{\mathrm{IVP}} = O\!\left(N_f\,C_f(n)\right).
+\end{equation}
+
+\subsection{Bifurcation sweep}
+
+Στην απλή fixed-step προσέγγιση, ένα sweep παραμέτρου έχει προσεγγιστικό κόστος
+\begin{equation}
+T_{\mathrm{sweep}} = O(PN).
+\end{equation}
+Αν χρησιμοποιούνται events και early stop, ο πραγματικός χρόνος μπορεί να είναι
+μικρότερος, επειδή η συλλογή σταματά μόλις συμπληρωθεί ο αναγκαίος αριθμός
+σημείων.
+
+Η μνήμη που χρειάζεται για τα αποθηκευμένα sweep points είναι της τάξης
+\begin{equation}
+M_{\mathrm{sweep}} = O(PH).
+\end{equation}
+
+\subsection{Lyapunov φάσμα}
+
+Με analytic Jacobian, το κόστος ενός run για πλήρες φάσμα γράφεται
+προσεγγιστικά ως
+\begin{equation}
+T_{\mathrm{lya}}
+=
+O\!\left(N\,[C_f(n)+C_J(n)+n^3]\right)
++ O\!\left(N_{\mathrm{QR}}\,n^3\right).
+\end{equation}
+
+Με finite-difference Jacobian, το κόστος αυξάνεται επειδή κάθε στήλη του
+Jacobian προσεγγίζεται από επιπλέον αξιολογήσεις του RHS:
+\begin{equation}
+T_{\mathrm{lya,FD}}
+=
+O\!\left(N\,[n\,C_f(n)+n^3]\right).
+\end{equation}
+
+\subsection{Παράλληλα sweeps}
+
+Όταν τα runs για διαφορετικές τιμές παραμέτρου είναι ανεξάρτητα, ο ιδανικός
+wall-clock χρόνος γράφεται σχηματικά ως
+\begin{equation}
+T_{\mathrm{wall}} \approx
+O\!\left(\frac{P}{W}\cdot \mathrm{cost\_per\_run}\right)
++ O(T_{\mathrm{overhead}}),
+\end{equation}
+όπου \(W\) είναι ο αριθμός workers. Στο continuation mode τέτοια
+παραλληλοποίηση δεν είναι γενικά δυνατή, επειδή κάθε run εξαρτάται από το
+τελικό state του προηγούμενου.
+
+\section{Διαχείριση μνήμης σε μεγάλα runs}
+\label{app:ch2-memory}
+
+\subsection{Bounded trajectory storage}
+
+Η τρέχουσα υλοποίηση δεν αποθηκεύει υποχρεωτικά όλα τα σημεία μιας μεγάλης
+τροχιάς. Αν το θεωρητικό πλήθος δειγμάτων είναι
+\begin{equation}
+N_{\mathrm{nom}}=
+\left\lfloor\frac{t_f-t_0}{\Delta t}\right\rfloor + 1,
+\end{equation}
+τότε με ενεργό \texttt{max\_store\_steps} αποθηκεύονται τελικά
+\begin{equation}
+N_{\mathrm{store}}=
+\min\!\left(N_{\mathrm{nom}},N_{\mathrm{store,max}}\right).
+\end{equation}
+
+Άρα το raw αποτύπωμα μνήμης των arrays εξόδου μπορεί να εκτιμηθεί από
+\begin{equation}
+M_{\mathrm{traj,out}}
+\approx
+8\,(n+1)\,N_{\mathrm{store}}
+\quad \text{bytes},
+\end{equation}
+καθώς αποθηκεύονται ένας πίνακας χρόνου και \(n\) πίνακες κατάστασης σε
+\texttt{float64}.
+
+\subsection{Decimation για plotting}
+
+Για τα γραφήματα χρησιμοποιείται επιπλέον downsampling. Αν το plot δείχνει
+το πολύ \(N_{\mathrm{plot,max}}\) σημεία, τότε η μνήμη και ο χρόνος render
+παραμένουν ελεγχόμενα με
+\begin{equation}
+N_{\mathrm{plot}}=
+\min\!\left(N_{\mathrm{store}},N_{\mathrm{plot,max}}\right).
+\end{equation}
+
+\subsection{Bounded-memory bifurcation sweeps}
+
+Στο interactive bifurcation plot διατηρούνται:
+\begin{itemize}
+\item ένα πρόσφατο παράθυρο σημείων σε πλήρη ανάλυση,
+\item και ένα reservoir sample από παλαιότερα σημεία.
+\end{itemize}
+
+Αν \(N_{\mathrm{recent}}\) είναι το πλήθος των πρόσφατων σημείων και
+\(N_{\mathrm{res}}\) το μέγεθος του reservoir, τότε το αποτύπωμα των
+ζευγών \((x,y)\) είναι προσεγγιστικά
+\begin{equation}
+M_{\mathrm{bif,plot}}
+\sim
+16\,(N_{\mathrm{recent}}+N_{\mathrm{res}})
+\quad \text{bytes},
+\end{equation}
+αγνοώντας το μικρό σταθερό overhead των δομών Python.
+
+\section{Numba/JIT και compiled πυρήνες}
+\label{app:ch2-numba}
+
+\begin{toolbox}{Interpreted και compiled path στην εφαρμογή}{lam2015_numba,numba_jit_docs,numba_architecture_docs}
+\textbf{Interpreted path:} η ορχήστρωση, η διεπαφή και τα fallback numerical
+μονοπάτια τρέχουν κανονικά στον Python interpreter.
+
+\textbf{Compiled path:} επιλεγμένα numerical kernels μεταγλωττίζονται δυναμικά
+με Numba σε machine code και εκτελούνται εκτός του interpreter.
+\end{toolbox}
+
+Στην πράξη, το project χρησιμοποιεί compiled πυρήνες κυρίως για:
+\begin{itemize}
+\item fixed-step RK4 ολοκλήρωση,
+\item symplectic Forest--Ruth ολοκλήρωση,
+\item υπολογισμό φάσματος Lyapunov,
+\item και ορισμένες διαδρομές Poincar\'e sweep.
+\end{itemize}
+
+Οι υλοποιήσεις αυτές βρίσκονται κυρίως στα
+\path{core/numba_backend/} και \path{app/numba_custom.py}
+\cite{nlds_src_core_numba,nlds_src_app_numba_custom}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.94\textwidth]{figures/ch2/numba_jit_llvm_pipeline.png}
+\caption{Σχηματική ροή μεταγλώττισης μέσω Numba και LLVM προς native machine code
+\cite{numba_architecture_docs,llvmlite_docs,llvm_langref}.}
+\label{fig:ch2-numba-llvm-pipeline}
+\end{figure}
+
+\subsection{Πότε ενεργοποιείται}
+
+Η ενεργοποίηση του compiled path εξαρτάται από δύο πράγματα:
+\begin{itemize}
+\item αν είναι διαθέσιμη η Numba στο περιβάλλον,
+\item και αν το συγκεκριμένο numerical μονοπάτι υποστηρίζεται από τα
+διαθέσιμα kernels.
+\end{itemize}
+
+Τυπικά, τα adaptive \texttt{RK45}/\texttt{DOP853} paths παραμένουν στην SciPy
+διαδρομή, ενώ τα fixed-step runs είναι οι πιο φυσικοί υποψήφιοι για compiled
+εκτέλεση.
+
+\subsection{Fallback συμπεριφορά}
+
+Το έργο δεν βασίζεται απόλυτα σε μία compiled διαδρομή. Αν ένα JIT path
+αποτύχει, το orchestration layer επιστρέφει σε Python fallback χωρίς να αλλάζει
+η διεπαφή του χρήστη. Αυτό κάνει την εφαρμογή πιο ανθεκτική σε custom μοντέλα
+και σε διαφορετικά execution environments
+\cite{nlds_src_app_cache,nlds_src_logic_lyapunov_cached,nlds_src_logic_lyapunov_sweep}.

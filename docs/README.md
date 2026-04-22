@@ -5,14 +5,15 @@ Short index of the docs in this repo.
 ## User guides
 
 - Overview: `docs/user-guide/overview.md`
-- Phase portrait + Lyapunov (Tab 1): `docs/user-guide/phase-portrait.md`
+- Phase portrait + Lyapunov + Poincaré map (Tab 1): `docs/user-guide/phase-portrait.md`
 - Time series (Tab 2): `docs/user-guide/time-series.md`
 - Parameter sweep (bifurcation + Lyapunov, Tab 3): `docs/user-guide/bifurcation-tab3.md`
 
 Key UI capabilities reflected in current app versions:
 - Axis-limit view windows and optional square/equal-scale plots (Tab 1 and Tab 3).
+- Poincaré map extraction from the current Tab 1 trajectory, with a display-point cap.
 - Sweep observable selection (Poincare crossings or local extrema).
-- Large-run safeguards (trajectory storage cap, plot decimation, chunked trajectory CSV export).
+- Large-run safeguards (trajectory storage cap, plot decimation, chunked trajectory CSV export, bounded Tab 3 recent-buffer plus reservoir history).
 
 ## In-app manuals (HTML)
 
