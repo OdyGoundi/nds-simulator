@@ -1,9 +1,12 @@
-import io
 from typing import Callable, Dict, List, Protocol, Tuple
 
 import numpy as np
 import streamlit as st
 import sympy as sp
+
+from .parsing import parse_params, parse_list_of_floats
+from .plotting import decimate_indices, downsample_trajectory, downsample_xy
+from .export import build_csv_bytes
 
 
 SAFE_FUNCS = {
@@ -22,44 +25,6 @@ class DQDT(Protocol):
 class DPDT(Protocol):
     def __call__(self, t: float, q: np.ndarray) -> np.ndarray:
         ...
-
-
-def parse_params(text: str) -> Dict[str, float]:
-    """
-    Parameters format:
-      a=1.2
-      b=3
-    Empty lines ignored.
-    """
-    params: Dict[str, float] = {}
-    for line in (text or "").splitlines():
-        line = line.replace("\u00a0", " ").strip()
-        if not line:
-            continue
-        if "=" not in line:
-            raise ValueError(f"Parameter line must be name=value. Got: '{line}'")
-        name, val = line.split("=", 1)
-        name = name.replace("\u00a0", " ").strip()
-        val = val.replace("\u00a0", " ").strip()
-        if name.lower() == "t":
-            raise ValueError("Parameter name 't' is reserved for the independent variable; use other symbols for constants.")
-        params[name] = float(val)
-    return params
-
-
-def parse_list_of_floats(text: str, n: int, label: str) -> np.ndarray:
-    """
-    Accept either:
-      - one number per line
-      - or comma/space separated
-    """
-    raw = (text or "").strip()
-    if not raw:
-        raise ValueError(f"{label} is empty.")
-    tokens = raw.replace(",", " ").split()
-    if len(tokens) != n:
-        raise ValueError(f"{label} must have exactly {n} values. Got {len(tokens)}.")
-    return np.array([float(t) for t in tokens], dtype=float)
 
 
 def build_custom_rhs(var_names: List[str], eq_lines: List[str], params: Dict[str, float]):
@@ -361,81 +326,5 @@ def slider_with_input(label: str, min_value: float, max_value: float,
     return float(st.session_state[key])
 
 
-def decimate_indices(n_points: int, max_points: int) -> np.ndarray:
-    n = int(max(0, n_points))
-    if n <= 0:
-        return np.array([], dtype=np.int64)
-    max_pts = int(max(2, max_points))
-    if n <= max_pts:
-        return np.arange(n, dtype=np.int64)
-    idx = np.linspace(0, n - 1, num=max_pts, dtype=np.int64)
-    idx[-1] = n - 1
-    return np.unique(idx)
 
 
-def downsample_trajectory(t: np.ndarray, y: np.ndarray, max_points: int) -> Tuple[np.ndarray, np.ndarray]:
-    t_arr = np.asarray(t, dtype=float).ravel()
-    y_arr = np.asarray(y, dtype=float)
-    if y_arr.ndim != 2:
-        raise ValueError("y must be shape (n_vars, n_steps)")
-    n = min(int(t_arr.size), int(y_arr.shape[1]))
-    if n <= 0:
-        return np.array([], dtype=float), np.zeros((int(y_arr.shape[0]), 0), dtype=float)
-    t_use = t_arr[:n]
-    y_use = y_arr[:, :n]
-    idx = decimate_indices(n, max_points)
-    return t_use[idx], y_use[:, idx]
-
-
-def downsample_xy(x: np.ndarray, y: np.ndarray, max_points: int) -> Tuple[np.ndarray, np.ndarray]:
-    x_arr = np.asarray(x, dtype=float).ravel()
-    y_arr = np.asarray(y, dtype=float).ravel()
-    n = min(int(x_arr.size), int(y_arr.size))
-    if n <= 0:
-        return np.array([], dtype=float), np.array([], dtype=float)
-    x_use = x_arr[:n]
-    y_use = y_arr[:n]
-    idx = decimate_indices(n, max_points)
-    return x_use[idx], y_use[idx]
-
-
-def build_csv_bytes(
-    t: np.ndarray,
-    y: np.ndarray,
-    var_names: List[str],
-    *,
-    chunk_rows: int = 200_000,
-    start: int = 0,
-    end: int | None = None,
-    include_header: bool = True,
-) -> bytes:
-    t_arr = np.asarray(t, dtype=float).ravel()
-    y_arr = np.asarray(y, dtype=float)
-    if y_arr.ndim != 2:
-        raise ValueError("y must be shape (n_vars, n_steps)")
-    n = min(int(t_arr.size), int(y_arr.shape[1]))
-    if n < 0:
-        n = 0
-    start_i = max(0, int(start))
-    end_i = n if end is None else min(n, max(start_i, int(end)))
-    chunk = max(1, int(chunk_rows))
-
-    n_vars = int(y_arr.shape[0])
-    if len(var_names) != n_vars:
-        names = [f"y{i}" for i in range(n_vars)]
-    else:
-        names = list(var_names)
-
-    buf = io.StringIO()
-    if include_header:
-        buf.write("t," + ",".join(names) + "\n")
-
-    if end_i > start_i:
-        for lo in range(start_i, end_i, chunk):
-            hi = min(end_i, lo + chunk)
-            block = np.empty((hi - lo, n_vars + 1), dtype=float)
-            block[:, 0] = t_arr[lo:hi]
-            block[:, 1:] = y_arr[:, lo:hi].T
-            np.savetxt(buf, block, delimiter=",", fmt="%.18g")
-
-    return buf.getvalue().encode("utf-8")
