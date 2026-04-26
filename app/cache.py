@@ -31,6 +31,7 @@ from app.params import (
     SweepRunConfig,
     SystemConfig,
 )
+from app.services import get_builtin
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
@@ -290,26 +291,7 @@ def sweep_cached(
     sweep_solver_kind = "ivp" if solver_kind in ("ivp", "rk45", "dop853") else solver_kind
 
     # Build base rhs + base_params (everything except swept param)
-    if system.key == "lorenz":
-        rhs_fn = lorenz_rhs
-        base_params = {
-            "sigma": float(system.lorenz.sigma),
-            "rho": float(system.lorenz.rho),
-            "beta": float(system.lorenz.beta),
-        }
-    elif system.key == "rossler":
-        rhs_fn = rossler_rhs
-        base_params = {
-            "a": float(system.rossler.a),
-            "b": float(system.rossler.b),
-            "c": float(system.rossler.c),
-        }
-    elif system.key == "henon_heiles":
-        rhs_fn = henon_heiles_rhs
-        base_params = {
-            "lambda": float(system.henon_heiles.lam),
-        }
-    elif system.key == "custom":
+    if system.key == "custom":
         custom = system.custom
         var_names = list(custom.var_names)
         eq_lines = list(custom.eq_lines)
@@ -319,7 +301,9 @@ def sweep_cached(
         rhs_fn = None  # handled below
         base_params = dict(params)
     else:
-        raise ValueError(f"Unknown system_key: {system.key}")
+        adapter = get_builtin(system.key)
+        rhs_fn = adapter.rhs_fn
+        base_params = adapter.extract_params(system)
 
     # -----------------------
     # EARLY RETURN: custom
@@ -381,27 +365,9 @@ def sweep_cached(
     # -----------------------
     # Non-custom: use sweep_poincare
     # -----------------------
-    if system.key == "lorenz":
-        rhs_fn = lorenz_rhs
-        base_params = {
-            "sigma": float(system.lorenz.sigma),
-            "rho": float(system.lorenz.rho),
-            "beta": float(system.lorenz.beta),
-        }
-    elif system.key == "rossler":
-        rhs_fn = rossler_rhs
-        base_params = {
-            "a": float(system.rossler.a),
-            "b": float(system.rossler.b),
-            "c": float(system.rossler.c),
-        }
-    elif system.key == "henon_heiles":
-        rhs_fn = henon_heiles_rhs
-        base_params = {
-            "lambda": float(system.henon_heiles.lam),
-        }
-    else:
-        raise ValueError(f"Unknown system_key: {system.key}")
+    adapter = get_builtin(system.key)
+    rhs_fn = adapter.rhs_fn
+    base_params = adapter.extract_params(system)
 
     # Event-based fast path (only for ivp + crossing)
     if sweep_solver_kind == "ivp" and str(poincare.method).lower() == "crossing":

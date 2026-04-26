@@ -55,6 +55,14 @@
 5. `app/parsing/custom_symplectic_builder.py`
 6. `app/numba_custom.py`
 
+Αν ο στόχος σου είναι μόνο το system / solver dispatch layer:
+
+1. `app/services/system_registry.py`
+2. `app/cache.py`
+3. `app/sweep.py`
+4. `app/logic/lyapunov_cached.py`
+5. `app/logic/lyapunov_sweep.py`
+
 Αν ο στόχος σου είναι μόνο τα numerics:
 
 1. `core/solver.py`
@@ -139,6 +147,7 @@ flowchart TD
   F -.re-exports.-> Y[app/export/csv_utils.py]
   F -.re-exports.-> Z[app/ui/widgets.py]
   A --> AA[app/state/defaults.py]
+  B --> AB[app/services/system_registry.py]
 ```
 
 Η βασική ιδέα είναι:
@@ -159,6 +168,7 @@ flowchart TD
 
 - UI (`ui/`)
 - state management (`state/`)
+- services / registries / dispatch (`services/`)
 - cached calls (`cache.py`)
 - export/config builders (`export/`, `export_utils.py`)
 - parsing και symbolic builders (`parsing/`)
@@ -173,6 +183,12 @@ flowchart TD
 - `app/export/csv_utils.py` — CSV byte serialization
 - `app/state/defaults.py` — system/solver registries και UI defaults
 - `app/ui/widgets.py` — reusable Streamlit widgets (`slider_with_input`)
+
+#### Νέα modules μετά το Phase 2 refactor (in progress)
+
+- `app/services/system_registry.py` — `SystemAdapter` frozen dataclass
+  και `BUILTIN_SYSTEMS` read-only mapping (lorenz, rossler, henon_heiles).
+  Αντικαθιστά σταδιακά τα `if/elif system.key == ...` blocks.
 
 ### `core/`
 
@@ -493,6 +509,44 @@ Read-only constants για system labels, solver labels και UI defaults.
 - `slider_with_input(label, min_value, max_value, value, step, key, fmt)`
   — slider + number_input ζευγαρωμένα, με input που δεν clamp-άρει στα όρια
   του slider
+
+---
+
+### `app/services/system_registry.py` — Built-in systems registry
+
+**Ρόλος**
+
+Πρώτο module του services layer (Phase 2). Αντικαθιστά σταδιακά τα
+επαναλαμβανόμενα `if system.key == "lorenz" / elif "rossler" / elif "henon_heiles"`
+blocks που υπάρχουν σε `cache.py`, `sweep.py`, `lyapunov_cached.py`,
+`lyapunov_sweep.py`, `export_utils.py` και `nlds_app.py`.
+
+**Τι περιέχει**
+
+- `SystemAdapter` frozen dataclass:
+  - `key`, `display_name`, `dimension`, `supports_symplectic`
+  - `param_names: tuple[str, ...]`
+  - `rhs_fn: Callable` — η raw built-in RHS function
+  - `extract_params: Callable[[SystemConfig], dict[str, float]]` — βγάζει
+    το params dict από `SystemConfig` με τις σωστές κλειδιά keys
+- `BUILTIN_SYSTEMS: dict[str, SystemAdapter]` με entries για lorenz,
+  rossler, henon_heiles
+- `get_builtin(key)` accessor με ρητό `ValueError` αν το key δεν υπάρχει
+
+**Σημείωση**
+
+Το adapter ξεκινάει εσκεμμένα μικρό. Νέα fields (Numba builders, Jacobian
+builders, symplectic split builders) θα προστεθούν μόνο όταν τα χρειαστεί
+ο επόμενος call site που θα μεταφερθεί. Δεν προστίθενται προληπτικά.
+
+**Συνδέεται με**
+
+- `core/lorenz_system_rhs.py`, `core/rossler_system_rhs.py`,
+  `core/henon_heiles_system_rhs.py` (πηγή των RHS)
+- `app/params.py` (`SystemConfig`)
+- consumers (μετά την σταδιακή μεταφορά): `app/cache.py`, `app/sweep.py`,
+  `app/logic/lyapunov_cached.py`, `app/logic/lyapunov_sweep.py`,
+  `app/export_utils.py`, `app/nlds_app.py`
 
 ---
 
@@ -1515,6 +1569,7 @@ Standalone CLI script για high-resolution 3D render του Hénon-Heiles.
 - `app/export/csv_utils.py`: `build_csv_bytes`
 - `app/state/defaults.py`: system/solver registries και UI default constants
 - `app/ui/widgets.py`: `slider_with_input`
+- `app/services/system_registry.py`: `SystemAdapter` + `BUILTIN_SYSTEMS` registry για built-in systems
 - `app/ui/bifurcation_tab.py`: Tab 3 UI/controller
 - `app/ui/poincare_map_panel.py`: Tab 1 Poincaré panel
 - `app/logic/bifurcation_sweep.py`: parallel bifurcation orchestration
@@ -1579,6 +1634,8 @@ Standalone CLI script για high-resolution 3D render του Hénon-Heiles.
 - `app/cache.py` είναι το glue προς τα numerics
 - `app/parsing/*`, `app/plotting/*`, `app/export/*`, `app/state/*` είναι
   τα νέα μικρά focused modules μετά το Phase 1 refactor
+- `app/services/*` είναι το νέο dispatch / registry layer (Phase 2,
+  in progress) που ενοποιεί τα `if system.key == ...` patterns
 - `app/helpers.py` είναι πλέον thin shim που κάνει re-export από αυτά
 - `core/*` είναι το πραγματικό numerics engine
 - `core/numba_backend/*` είναι ο accelerated mirror του numerics engine
