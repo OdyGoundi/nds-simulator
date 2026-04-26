@@ -36,6 +36,7 @@ from app.params import (
     SweepRunConfig,
     SystemConfig,
 )
+from app.services import get_builtin
 
 DEFAULT_MAX_KEEP = 100
 OBSERVABLE_POINCARE = "poincare"
@@ -205,26 +206,7 @@ def run_sweep_chunk(
     max_hits_user = int(run_cfg.max_hits) if run_cfg.max_hits is not None else DEFAULT_MAX_KEEP
     max_hits_effective = _effective_max_hits(max_hits_user, sweep, MAX_SWEEP_ROWS_BUDGET)
 
-    if system.key == "lorenz":
-        rhs_fn = lorenz_rhs
-        base_params = {
-            "sigma": float(system.lorenz.sigma),
-            "rho": float(system.lorenz.rho),
-            "beta": float(system.lorenz.beta),
-        }
-    elif system.key == "rossler":
-        rhs_fn = rossler_rhs
-        base_params = {
-            "a": float(system.rossler.a),
-            "b": float(system.rossler.b),
-            "c": float(system.rossler.c),
-        }
-    elif system.key == "henon_heiles":
-        rhs_fn = henon_heiles_rhs
-        base_params = {
-            "lambda": float(system.henon_heiles.lam),
-        }
-    elif system.key == "custom":
+    if system.key == "custom":
         base_params = parse_params(system.custom.params_text)
 
         # manual sweep so swept param overrides correctly
@@ -544,6 +526,11 @@ def run_sweep_chunk(
 
         return list(rows)
 
+    # Built-in path (custom returned early above)
+    adapter = get_builtin(system.key)
+    rhs_fn = adapter.rhs_fn
+    base_params = adapter.extract_params(system)
+
     use_numba_sweep = (
         observable_lc == OBSERVABLE_POINCARE
         and sweep_solver_kind == "rk4"
@@ -554,7 +541,7 @@ def run_sweep_chunk(
         use_numba_sweep = False
 
     if use_numba_sweep:
-        dim = 3 if system.key in ("lorenz", "rossler") else 4
+        dim = adapter.dimension
         if int(poincare.section_index) < 0 or int(poincare.section_index) >= dim:
             use_numba_sweep = False
         if int(run_cfg.output_index) < 0 or int(run_cfg.output_index) >= dim:

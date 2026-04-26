@@ -73,54 +73,14 @@ def solve_cached(
     var_names: List[str] = []
     eq_lines: List[str] = []
     custom_params: Dict[str, float] | None = None
-    lorenz_params = None
-    rossler_params = None
-    henon_params = None
-    if system.key == "lorenz":
-        lorenz_params = system.lorenz
-
-        def rhs_lorenz(t, y):
-            return lorenz_rhs(
-                t,
-                y,
-                sigma=lorenz_params.sigma,
-                rho=lorenz_params.rho,
-                beta=lorenz_params.beta,
-            )
-
-        rhs_fn = rhs_lorenz
-
-    elif system.key == "rossler":
-        rossler_params = system.rossler
-
-        def rhs_rossler(t, y):
-            return rossler_rhs(
-                t,
-                y,
-                a=rossler_params.a,
-                b=rossler_params.b,
-                c=rossler_params.c,
-            )
-
-        rhs_fn = rhs_rossler
-
-    elif system.key == "henon_heiles":
-        henon_params = system.henon_heiles
-
-        def rhs_henon(t, y):
-            return henon_heiles_rhs(t, y, lam=henon_params.lam)
-
-        rhs_fn = rhs_henon
-
-    elif system.key == "custom":
+    if system.key == "custom":
         custom = system.custom
         var_names = list(custom.var_names)
         eq_lines = list(custom.eq_lines)
         custom_params = parse_params(custom.params_text)
         rhs_fn = build_custom_rhs(var_names, eq_lines, custom_params)
-
     else:
-        raise ValueError(f"Unknown system_key: {system.key}")
+        rhs_fn = get_builtin(system.key).rhs_builder(system)
 
     if solver_kind == "symplectic_fr":
         if y0.size % 2 != 0:
@@ -131,11 +91,10 @@ def solve_cached(
             from core import numba_backend
             if numba_backend.numba_available():
                 if system.key == "henon_heiles":
-                    if henon_params is None:
-                        raise ValueError("Henon-Heiles parameters not initialized.")
                     dq_dt_nb, dp_dt_nb, param_names = numba_backend.build_builtin_symplectic(system.key)
+                    params_dict = get_builtin(system.key).extract_params(system)
                     params_arr = np.array(
-                        [float(getattr(henon_params, "lam" if name == "lambda" else name)) for name in param_names],
+                        [float(params_dict[name]) for name in param_names],
                         dtype=float,
                     )
                 else:
@@ -167,15 +126,7 @@ def solve_cached(
                 raise ValueError("Custom parameters not initialized.")
             dq_dt_fn, dp_dt_fn = build_custom_symplectic_functions(var_names, eq_lines, custom_params)
         elif system.key == "henon_heiles":
-            if henon_params is None:
-                raise ValueError("Henon-Heiles parameters not initialized.")
-            def dq_dt_hh(t, p):
-                return henon_heiles_dq_dt(t, p, lam=henon_params.lam)
-
-            def dp_dt_hh(t, q):
-                return henon_heiles_dp_dt(t, q, lam=henon_params.lam)
-            dq_dt_fn = dq_dt_hh
-            dp_dt_fn = dp_dt_hh
+            dq_dt_fn, dp_dt_fn = get_builtin(system.key).dq_dp_builder(system)
         else:
             raise ValueError("Symplectic solvers require Hamiltonian systems.")
         sol = integrate_system_symplectic_fr(
@@ -193,27 +144,11 @@ def solve_cached(
             if numba_backend.numba_available():
                 if system.key in ("lorenz", "rossler", "henon_heiles"):
                     rhs_nb, _jac_nb, param_names = numba_backend.build_builtin_system(system.key)
-                    if system.key == "lorenz":
-                        if lorenz_params is None:
-                            raise ValueError("Lorenz parameters not initialized.")
-                        params_arr = np.array(
-                            [float(getattr(lorenz_params, name)) for name in param_names],
-                            dtype=float,
-                        )
-                    elif system.key == "rossler":
-                        if rossler_params is None:
-                            raise ValueError("Rossler parameters not initialized.")
-                        params_arr = np.array(
-                            [float(getattr(rossler_params, name)) for name in param_names],
-                            dtype=float,
-                        )
-                    else:
-                        if henon_params is None:
-                            raise ValueError("Henon-Heiles parameters not initialized.")
-                        params_arr = np.array(
-                            [float(getattr(henon_params, "lam" if name == "lambda" else name)) for name in param_names],
-                            dtype=float,
-                        )
+                    params_dict = get_builtin(system.key).extract_params(system)
+                    params_arr = np.array(
+                        [float(params_dict[name]) for name in param_names],
+                        dtype=float,
+                    )
                     rk4_nb = numba_backend.build_rk4_integrator(rhs_nb)
                     t_arr, y_arr = rk4_nb(
                         y0,

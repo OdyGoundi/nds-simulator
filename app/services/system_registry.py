@@ -1,7 +1,11 @@
 from dataclasses import dataclass
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
-from core.henon_heiles_system_rhs import henon_heiles_rhs
+from core.henon_heiles_system_rhs import (
+    henon_heiles_dp_dt,
+    henon_heiles_dq_dt,
+    henon_heiles_rhs,
+)
 from core.lorenz_system_rhs import lorenz_rhs
 from core.rossler_system_rhs import rossler_rhs
 
@@ -17,6 +21,8 @@ class SystemAdapter:
     param_names: Tuple[str, ...]
     rhs_fn: Callable
     extract_params: Callable[[SystemConfig], Dict[str, float]]
+    rhs_builder: Callable[[SystemConfig], Callable]
+    dq_dp_builder: Optional[Callable[[SystemConfig], Tuple[Callable, Callable]]] = None
 
 
 def _lorenz_params(s: SystemConfig) -> Dict[str, float]:
@@ -39,6 +45,45 @@ def _henon_heiles_params(s: SystemConfig) -> Dict[str, float]:
     return {"lambda": float(s.henon_heiles.lam)}
 
 
+def _lorenz_rhs_builder(s: SystemConfig) -> Callable:
+    p = s.lorenz
+
+    def rhs(t, y):
+        return lorenz_rhs(t, y, sigma=p.sigma, rho=p.rho, beta=p.beta)
+
+    return rhs
+
+
+def _rossler_rhs_builder(s: SystemConfig) -> Callable:
+    p = s.rossler
+
+    def rhs(t, y):
+        return rossler_rhs(t, y, a=p.a, b=p.b, c=p.c)
+
+    return rhs
+
+
+def _henon_heiles_rhs_builder(s: SystemConfig) -> Callable:
+    p = s.henon_heiles
+
+    def rhs(t, y):
+        return henon_heiles_rhs(t, y, lam=p.lam)
+
+    return rhs
+
+
+def _henon_heiles_dq_dp_builder(s: SystemConfig) -> Tuple[Callable, Callable]:
+    lam = s.henon_heiles.lam
+
+    def dq_dt(t, p):
+        return henon_heiles_dq_dt(t, p, lam=lam)
+
+    def dp_dt(t, q):
+        return henon_heiles_dp_dt(t, q, lam=lam)
+
+    return dq_dt, dp_dt
+
+
 BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
     "lorenz": SystemAdapter(
         key="lorenz",
@@ -48,6 +93,7 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         param_names=("sigma", "rho", "beta"),
         rhs_fn=lorenz_rhs,
         extract_params=_lorenz_params,
+        rhs_builder=_lorenz_rhs_builder,
     ),
     "rossler": SystemAdapter(
         key="rossler",
@@ -57,6 +103,7 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         param_names=("a", "b", "c"),
         rhs_fn=rossler_rhs,
         extract_params=_rossler_params,
+        rhs_builder=_rossler_rhs_builder,
     ),
     "henon_heiles": SystemAdapter(
         key="henon_heiles",
@@ -66,6 +113,8 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         param_names=("lambda",),
         rhs_fn=henon_heiles_rhs,
         extract_params=_henon_heiles_params,
+        rhs_builder=_henon_heiles_rhs_builder,
+        dq_dp_builder=_henon_heiles_dq_dp_builder,
     ),
 }
 
