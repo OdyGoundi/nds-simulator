@@ -29,6 +29,8 @@ class SystemAdapter:
     rhs_builder: Callable[[SystemConfig], Callable]
     jac_builder: Optional[Callable[[SystemConfig], Callable]] = None
     dq_dp_builder: Optional[Callable[[SystemConfig], Tuple[Callable, Callable]]] = None
+    rhs_from_dict: Optional[Callable[[Dict[str, float]], Callable]] = None
+    jac_from_dict: Optional[Callable[[Dict[str, float]], Callable]] = None
 
 
 def _lorenz_params(s: SystemConfig) -> Dict[str, float]:
@@ -105,6 +107,42 @@ def _henon_heiles_jac_builder(s: SystemConfig) -> Callable:
     return jac
 
 
+def _lorenz_rhs_from_dict(params: Dict[str, float]) -> Callable:
+    def rhs(t, y):
+        return lorenz_rhs(t, y, sigma=params["sigma"], rho=params["rho"], beta=params["beta"])
+    return rhs
+
+
+def _lorenz_jac_from_dict(params: Dict[str, float]) -> Callable:
+    def jac(t, y):
+        return lorenz_jac(t, y, sigma=params["sigma"], rho=params["rho"], beta=params["beta"])
+    return jac
+
+
+def _rossler_rhs_from_dict(params: Dict[str, float]) -> Callable:
+    def rhs(t, y):
+        return rossler_rhs(t, y, a=params["a"], b=params["b"], c=params["c"])
+    return rhs
+
+
+def _rossler_jac_from_dict(params: Dict[str, float]) -> Callable:
+    def jac(t, y):
+        return rossler_jac(t, y, a=params["a"], b=params["b"], c=params["c"])
+    return jac
+
+
+def _henon_heiles_rhs_from_dict(params: Dict[str, float]) -> Callable:
+    def rhs(t, y):
+        return henon_heiles_rhs(t, y, lam=params["lambda"])
+    return rhs
+
+
+def _henon_heiles_jac_from_dict(params: Dict[str, float]) -> Callable:
+    def jac(t, y):
+        return henon_heiles_jac(t, y, lam=params["lambda"])
+    return jac
+
+
 def _henon_heiles_dq_dp_builder(s: SystemConfig) -> Tuple[Callable, Callable]:
     lam = s.henon_heiles.lam
 
@@ -128,6 +166,8 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         extract_params=_lorenz_params,
         rhs_builder=_lorenz_rhs_builder,
         jac_builder=_lorenz_jac_builder,
+        rhs_from_dict=_lorenz_rhs_from_dict,
+        jac_from_dict=_lorenz_jac_from_dict,
     ),
     "rossler": SystemAdapter(
         key="rossler",
@@ -139,6 +179,8 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         extract_params=_rossler_params,
         rhs_builder=_rossler_rhs_builder,
         jac_builder=_rossler_jac_builder,
+        rhs_from_dict=_rossler_rhs_from_dict,
+        jac_from_dict=_rossler_jac_from_dict,
     ),
     "henon_heiles": SystemAdapter(
         key="henon_heiles",
@@ -151,6 +193,8 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         rhs_builder=_henon_heiles_rhs_builder,
         jac_builder=_henon_heiles_jac_builder,
         dq_dp_builder=_henon_heiles_dq_dp_builder,
+        rhs_from_dict=_henon_heiles_rhs_from_dict,
+        jac_from_dict=_henon_heiles_jac_from_dict,
     ),
 }
 

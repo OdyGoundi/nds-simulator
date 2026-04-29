@@ -6,6 +6,7 @@ import numpy as np
 
 from app.helpers import build_custom_rhs, build_custom_rhs_and_jacobian, parse_params
 from app.logic.sweep_utils import _chunk_param_values, _frange_inclusive
+from app.services import get_builtin
 from app.params import (
     InitialConditions,
     IntegrationConfig,
@@ -13,14 +14,6 @@ from app.params import (
     SolverTolerances,
     SystemConfig,
 )
-from core.jacobians_fixed_systems import (
-    henon_heiles_jac,
-    lorenz_jac,
-    rossler_jac,
-)
-from core.henon_heiles_system_rhs import henon_heiles_rhs
-from core.lorenz_system_rhs import lorenz_rhs
-from core.rossler_system_rhs import rossler_rhs
 from core.lyapunov import JacFn, RhsFn, compute_lyapunov_spectrum
 from core.poincare_sweep import SweepConfig
 
@@ -104,42 +97,7 @@ def _run_lyapunov_chunk(
 
         rhs: RhsFn
         jac: JacFn | None
-        if system_key == "lorenz":
-            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return lorenz_rhs(
-                    tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
-                )
-
-            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return lorenz_jac(
-                    tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
-                )
-
-            rhs = rhs_wrapped
-            jac = jac_wrapped
-        elif system_key == "rossler":
-            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return rossler_rhs(
-                    tt, xx, a=params["a"], b=params["b"], c=params["c"]
-                )
-
-            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return rossler_jac(
-                    tt, xx, a=params["a"], b=params["b"], c=params["c"]
-                )
-
-            rhs = rhs_wrapped
-            jac = jac_wrapped
-        elif system_key == "henon_heiles":
-            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return henon_heiles_rhs(tt, xx, lam=params["lambda"])
-
-            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return henon_heiles_jac(tt, xx, lam=params["lambda"])
-
-            rhs = rhs_wrapped
-            jac = jac_wrapped
-        else:
+        if system_key == "custom":
             jac_custom = None
             if custom_auto_jac:
                 rhs_custom, jac_custom = build_custom_rhs_and_jacobian(
@@ -163,6 +121,10 @@ def _run_lyapunov_chunk(
                     return jac_custom_fn(tt, xx)
 
                 jac = jac_wrapped
+        else:
+            _adapter = get_builtin(system_key)
+            rhs = _adapter.rhs_from_dict(params)
+            jac = _adapter.jac_from_dict(params)
 
         try:
             res = compute_lyapunov_spectrum(
@@ -204,26 +166,10 @@ def _run_lyapunov_sweep(
     y0_base = np.array(initial.y0, dtype=float).copy()
     y0_curr = y0_base.copy()
 
-    if system.key == "lorenz":
-        base_params = {
-            "sigma": float(system.lorenz.sigma),
-            "rho": float(system.lorenz.rho),
-            "beta": float(system.lorenz.beta),
-        }
-    elif system.key == "rossler":
-        base_params = {
-            "a": float(system.rossler.a),
-            "b": float(system.rossler.b),
-            "c": float(system.rossler.c),
-        }
-    elif system.key == "henon_heiles":
-        base_params = {
-            "lambda": float(system.henon_heiles.lam),
-        }
-    elif system.key == "custom":
+    if system.key == "custom":
         base_params = parse_params(system.custom.params_text)
     else:
-        raise ValueError(f"Unknown system_key: {system.key}")
+        base_params = get_builtin(system.key).extract_params(system)
 
     solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
     solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
@@ -364,42 +310,7 @@ def _run_lyapunov_sweep(
 
         rhs: RhsFn
         jac: JacFn | None
-        if system.key == "lorenz":
-            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return lorenz_rhs(
-                    tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
-                )
-
-            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return lorenz_jac(
-                    tt, xx, sigma=params["sigma"], rho=params["rho"], beta=params["beta"]
-                )
-
-            rhs = rhs_wrapped
-            jac = jac_wrapped
-        elif system.key == "rossler":
-            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return rossler_rhs(
-                    tt, xx, a=params["a"], b=params["b"], c=params["c"]
-                )
-
-            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return rossler_jac(
-                    tt, xx, a=params["a"], b=params["b"], c=params["c"]
-                )
-
-            rhs = rhs_wrapped
-            jac = jac_wrapped
-        elif system.key == "henon_heiles":
-            def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return henon_heiles_rhs(tt, xx, lam=params["lambda"])
-
-            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
-                return henon_heiles_jac(tt, xx, lam=params["lambda"])
-
-            rhs = rhs_wrapped
-            jac = jac_wrapped
-        else:
+        if system.key == "custom":
             jac_custom = None
             if custom_auto_jac:
                 rhs_custom, jac_custom = build_custom_rhs_and_jacobian(
@@ -423,6 +334,10 @@ def _run_lyapunov_sweep(
                     return jac_custom_fn(tt, xx)
 
                 jac = jac_wrapped
+        else:
+            _adapter = get_builtin(system.key)
+            rhs = _adapter.rhs_from_dict(params)
+            jac = _adapter.jac_from_dict(params)
 
         try:
             res = compute_lyapunov_spectrum(

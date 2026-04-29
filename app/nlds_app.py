@@ -18,6 +18,7 @@ import streamlit.components.v1 as components
 import pandas as pd
 
 from app.cache import solve_cached
+from app.services import get_builtin
 from app.helpers import (
     build_csv_bytes,
     build_custom_symplectic_functions,
@@ -721,13 +722,7 @@ with st.sidebar:
     )
 
     system_key = _system_key_from_label(system_label)
-    if system_key == "lorenz":
-        n_vars = 3
-    elif system_key == "rossler":
-        n_vars = 3
-    elif system_key == "henon_heiles":
-        n_vars = 4
-    else:
+    if system_key == "custom":
         _apply_state_values({"n_vars_sidebar": 3}, only_missing=True)
         n_vars = st.number_input(
             "Number of equations (n)",
@@ -736,6 +731,8 @@ with st.sidebar:
             step=1,
             key="n_vars_sidebar",
         )
+    else:
+        n_vars = get_builtin(system_key).dimension
 
     st.markdown("**Solver kind**")
     solver_kind_labels = [

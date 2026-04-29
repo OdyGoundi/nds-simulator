@@ -29,6 +29,7 @@ from app.params import (
     SweepRunConfig,
     SystemConfig,
 )
+from app.services import get_builtin
 from app.sweep import run_sweep_chunk
 from core.poincare_sweep import PoincareConfig, SweepConfig
 from core import numba_backend
@@ -295,17 +296,13 @@ def render_bifurcation_tab(
 
         _init_sweep_state()
 
-        if system_key == "lorenz":
-            sweep_choices = ["sigma", "rho", "beta"]
-        elif system_key == "rossler":
-            sweep_choices = ["a", "b", "c"]
-        elif system_key == "henon_heiles":
-            sweep_choices = ["lambda"]
-        else:
+        if system_key == "custom":
             try:
                 sweep_choices = list(parse_params(params_text).keys())
             except Exception:
                 sweep_choices = []
+        else:
+            sweep_choices = list(get_builtin(system_key).param_names)
 
         if not sweep_choices:
             st.warning("No sweep parameters available (check parameters).")
