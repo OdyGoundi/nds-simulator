@@ -1,8 +1,6 @@
 import base64
-import io
 import json
 import sys
-import zipfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, cast
 
@@ -19,6 +17,7 @@ import pandas as pd
 
 from app.cache import solve_cached
 from app.services import get_builtin
+from app.services.export_service import build_run_bundle
 from app.helpers import (
     build_csv_bytes,
     build_custom_symplectic_functions,
@@ -504,13 +503,6 @@ def _apply_static_config_to_state(cfg: Dict[str, object]) -> None:
             if frac is not None:
                 st.session_state["lya_transient_frac_tab1"] = float(max(0.0, min(0.99, frac)))
 
-
-def _zip_bytes(file_map: Dict[str, bytes]) -> bytes:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name, data in file_map.items():
-            zf.writestr(name, data)
-    return buf.getvalue()
 
 
 def _flush_pending_static_config_apply() -> None:
@@ -1919,7 +1911,6 @@ try:
 
             st.divider()
             st.markdown("**Export: Run bundle (zip)**")
-            bundle_files: Dict[str, bytes] = {}
 
             if static_cfg is None:
                 z_idx_val = int(z_idx) if plot_mode == "3D phase plot" else None
@@ -1943,57 +1934,18 @@ try:
             else:
                 bundle_cfg = static_cfg
 
-            bundle_files["config.json"] = json.dumps(bundle_cfg, indent=2).encode("utf-8")
-            if static_cfg is not None:
-                bundle_files["StaticParamsConfig.json"] = json.dumps(static_cfg, indent=2).encode("utf-8")
-            if sweep_cfg is not None:
-                bundle_files["SweepParamConfig.json"] = json.dumps(sweep_cfg, indent=2).encode("utf-8")
-
-            if export_ready and int(t_export.size) > 0:
-                if int(t_export.size) <= int(DIRECT_CSV_MAX_ROWS):
-                    bundle_files["trajectory.csv"] = build_csv_bytes(t_export, y_export, var_names)
-                else:
-                    end_first = min(int(t_export.size), int(EXPORT_CHUNK_ROWS_DEFAULT))
-                    bundle_files["trajectory_part001.csv"] = build_csv_bytes(
-                        t_export,
-                        y_export,
-                        var_names,
-                        start=0,
-                        end=end_first,
-                    )
-                    bundle_files["trajectory_manifest.txt"] = (
-                        f"Trajectory rows: {int(t_export.size)}\n"
-                        f"Trajectory source: {export_source}\n"
-                        "Only the first chunk is included in this zip to keep memory bounded.\n"
-                        "Use Tab 4 chunk export to download the remaining chunks.\n"
-                    ).encode("utf-8")
-            else:
-                bundle_files["trajectory_manifest.txt"] = (
-                    "Trajectory export was not included in this bundle.\n"
-                    "If you want the full-resolution trajectory, prepare it in Tab 4 first.\n"
-                ).encode("utf-8")
-
-            if df_sweep is not None and len(df_sweep) > 0:
-                if not isinstance(df_sweep, pd.DataFrame):
-                    df_sweep = pd.DataFrame(df_sweep)
-                bundle_files["sweep.csv"] = df_sweep.to_csv(index=False).encode("utf-8")
-
-            if lya_data is not None:
-                param_vals = np.array(lya_data.get("param_vals", []), dtype=float)
-                lambdas_arr = np.array(lya_data.get("lambdas", []), dtype=float)
-                if param_vals.size and lambdas_arr.size:
-                    meta = lya_data.get("meta", {})
-                    sweep_param = meta.get("sweep_param", "param")
-                    data = {str(sweep_param): param_vals}
-                    if lambdas_arr.ndim == 1:
-                        data["lambda0"] = lambdas_arr
-                    else:
-                        for k in range(lambdas_arr.shape[1]):
-                            data[f"lambda{k}"] = lambdas_arr[:, k]
-                    df_lya = pd.DataFrame(data)
-                    bundle_files["lyapunov_sweep.csv"] = df_lya.to_csv(index=False).encode("utf-8")
-
-            bundle_bytes = _zip_bytes(bundle_files)
+            bundle_bytes = build_run_bundle(
+                bundle_cfg=bundle_cfg,
+                static_cfg=static_cfg,
+                sweep_cfg=sweep_cfg,
+                t_traj=t_export if export_ready else None,
+                y_traj=y_export if export_ready else None,
+                var_names=var_names,
+                traj_ready=export_ready,
+                traj_source=export_source,
+                df_sweep=df_sweep,
+                lya_data=lya_data,
+            )
             st.download_button(
                 label="Download Run Bundle (zip)",
                 data=bundle_bytes,
