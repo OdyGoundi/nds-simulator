@@ -11,10 +11,7 @@ from app.params import (
     SolverTolerances,
     SystemConfig,
 )
-from core.jacobians_fixed_systems import henon_heiles_jac, lorenz_jac, rossler_jac
-from core.henon_heiles_system_rhs import henon_heiles_rhs
-from core.lorenz_system_rhs import lorenz_rhs
-from core.rossler_system_rhs import rossler_rhs
+from app.services import get_builtin
 from core.lyapunov import compute_lyapunov_spectrum
 
 
@@ -45,62 +42,8 @@ def compute_lyapunov_cached(
     custom_params: Optional[Dict[str, float]] = None
     auto_jac = False
     use_jac = False
-    lorenz_params = None
-    rossler_params = None
-    henon_params = None
 
-    if system.key == "lorenz":
-        lorenz_params = system.lorenz
-
-        def rhs_lorenz(tt, xx):
-            return lorenz_rhs(
-                tt,
-                xx,
-                sigma=lorenz_params.sigma,
-                rho=lorenz_params.rho,
-                beta=lorenz_params.beta,
-            )
-
-        rhs = rhs_lorenz
-        jac = lambda tt, xx: lorenz_jac(
-            tt,
-            xx,
-            sigma=lorenz_params.sigma,
-            rho=lorenz_params.rho,
-            beta=lorenz_params.beta,
-        )
-
-    elif system.key == "rossler":
-        rossler_params = system.rossler
-
-        def rhs_rossler(tt, xx):
-            return rossler_rhs(
-                tt,
-                xx,
-                a=rossler_params.a,
-                b=rossler_params.b,
-                c=rossler_params.c,
-            )
-
-        rhs = rhs_rossler
-        jac = lambda tt, xx: rossler_jac(
-            tt,
-            xx,
-            a=rossler_params.a,
-            b=rossler_params.b,
-            c=rossler_params.c,
-        )
-
-    elif system.key == "henon_heiles":
-        henon_params = system.henon_heiles
-
-        def rhs_henon(tt, xx):
-            return henon_heiles_rhs(tt, xx, lam=henon_params.lam)
-
-        rhs = rhs_henon
-        jac = lambda tt, xx: henon_heiles_jac(tt, xx, lam=henon_params.lam)
-
-    elif system.key == "custom":
+    if system.key == "custom":
         var_names = list(system.custom.var_names)
         eq_lines = list(system.custom.eq_lines)
         custom_params = parse_params(system.custom.params_text)
@@ -124,9 +67,10 @@ def compute_lyapunov_cached(
             if jac_custom_func is None:
                 raise RuntimeError("Analytic Jacobian requested but not available.")
             jac = lambda tt, xx: jac_custom_func(tt, xx)
-
     else:
-        raise ValueError(f"Unknown system_key: {system.key}")
+        adapter = get_builtin(system.key)
+        rhs = adapter.rhs_builder(system)
+        jac = adapter.jac_builder(system)
 
     total_time = float(integration.tf) - float(integration.t0)
     if lyapunov.keep_last_steps is not None:
@@ -156,27 +100,11 @@ def compute_lyapunov_cached(
                 params_arr = None
                 if system.key in ("lorenz", "rossler", "henon_heiles"):
                     rhs_nb, jac_nb, param_names = numba_backend.build_builtin_system(system.key)
-                    if system.key == "lorenz":
-                        if lorenz_params is None:
-                            raise ValueError("Lorenz parameters not initialized.")
-                        params_arr = np.array(
-                            [float(getattr(lorenz_params, name)) for name in param_names],
-                            dtype=float,
-                        )
-                    elif system.key == "rossler":
-                        if rossler_params is None:
-                            raise ValueError("Rossler parameters not initialized.")
-                        params_arr = np.array(
-                            [float(getattr(rossler_params, name)) for name in param_names],
-                            dtype=float,
-                        )
-                    else:
-                        if henon_params is None:
-                            raise ValueError("Henon-Heiles parameters not initialized.")
-                        params_arr = np.array(
-                            [float(getattr(henon_params, "lam" if name == "lambda" else name)) for name in param_names],
-                            dtype=float,
-                        )
+                    params_dict = get_builtin(system.key).extract_params(system)
+                    params_arr = np.array(
+                        [float(params_dict[name]) for name in param_names],
+                        dtype=float,
+                    )
                     lyap_nb = numba_backend.build_lyapunov_solver(rhs_nb, jac_nb, use_fd_jac=False)
                 elif system.key == "custom":
                     from app import numba_custom

@@ -6,6 +6,11 @@ from core.henon_heiles_system_rhs import (
     henon_heiles_dq_dt,
     henon_heiles_rhs,
 )
+from core.jacobians_fixed_systems import (
+    henon_heiles_jac,
+    lorenz_jac,
+    rossler_jac,
+)
 from core.lorenz_system_rhs import lorenz_rhs
 from core.rossler_system_rhs import rossler_rhs
 
@@ -22,6 +27,7 @@ class SystemAdapter:
     rhs_fn: Callable
     extract_params: Callable[[SystemConfig], Dict[str, float]]
     rhs_builder: Callable[[SystemConfig], Callable]
+    jac_builder: Optional[Callable[[SystemConfig], Callable]] = None
     dq_dp_builder: Optional[Callable[[SystemConfig], Tuple[Callable, Callable]]] = None
 
 
@@ -72,6 +78,33 @@ def _henon_heiles_rhs_builder(s: SystemConfig) -> Callable:
     return rhs
 
 
+def _lorenz_jac_builder(s: SystemConfig) -> Callable:
+    p = s.lorenz
+
+    def jac(t, y):
+        return lorenz_jac(t, y, sigma=p.sigma, rho=p.rho, beta=p.beta)
+
+    return jac
+
+
+def _rossler_jac_builder(s: SystemConfig) -> Callable:
+    p = s.rossler
+
+    def jac(t, y):
+        return rossler_jac(t, y, a=p.a, b=p.b, c=p.c)
+
+    return jac
+
+
+def _henon_heiles_jac_builder(s: SystemConfig) -> Callable:
+    lam = s.henon_heiles.lam
+
+    def jac(t, y):
+        return henon_heiles_jac(t, y, lam=lam)
+
+    return jac
+
+
 def _henon_heiles_dq_dp_builder(s: SystemConfig) -> Tuple[Callable, Callable]:
     lam = s.henon_heiles.lam
 
@@ -94,6 +127,7 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         rhs_fn=lorenz_rhs,
         extract_params=_lorenz_params,
         rhs_builder=_lorenz_rhs_builder,
+        jac_builder=_lorenz_jac_builder,
     ),
     "rossler": SystemAdapter(
         key="rossler",
@@ -104,6 +138,7 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         rhs_fn=rossler_rhs,
         extract_params=_rossler_params,
         rhs_builder=_rossler_rhs_builder,
+        jac_builder=_rossler_jac_builder,
     ),
     "henon_heiles": SystemAdapter(
         key="henon_heiles",
@@ -114,6 +149,7 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         rhs_fn=henon_heiles_rhs,
         extract_params=_henon_heiles_params,
         rhs_builder=_henon_heiles_rhs_builder,
+        jac_builder=_henon_heiles_jac_builder,
         dq_dp_builder=_henon_heiles_dq_dp_builder,
     ),
 }

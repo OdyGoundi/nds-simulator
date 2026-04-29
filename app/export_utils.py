@@ -6,6 +6,7 @@ from typing import Dict, Optional, Any
 
 from app.helpers import parse_params
 from app.params import InitialConditions, IntegrationConfig, SolverTolerances, SystemConfig
+from app.services import get_builtin
 
 
 def utc_timestamp() -> str:
@@ -43,24 +44,10 @@ def _safe_parse_params(params_text: str) -> Dict[str, float]:
 
 
 def build_system_block(system: SystemConfig) -> Dict[str, Any]:
-    if system.key == "lorenz":
-        params = {
-            "sigma": float(system.lorenz.sigma),
-            "rho": float(system.lorenz.rho),
-            "beta": float(system.lorenz.beta),
-        }
-    elif system.key == "rossler":
-        params = {
-            "a": float(system.rossler.a),
-            "b": float(system.rossler.b),
-            "c": float(system.rossler.c),
-        }
-    elif system.key == "henon_heiles":
-        params = {
-            "lambda": float(system.henon_heiles.lam),
-        }
-    else:
+    if system.key == "custom":
         params = _safe_parse_params(system.custom.params_text)
+    else:
+        params = get_builtin(system.key).extract_params(system)
 
     eq_lines = list(system.custom.eq_lines) if system.key in ("custom", "henon_heiles") else []
 
