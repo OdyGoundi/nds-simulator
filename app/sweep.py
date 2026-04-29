@@ -36,7 +36,7 @@ from app.params import (
     SweepRunConfig,
     SystemConfig,
 )
-from app.services import get_builtin
+from app.services import get_builtin, resolve_solver, apply_to_solve_options
 
 DEFAULT_MAX_KEEP = 100
 OBSERVABLE_POINCARE = "poincare"
@@ -185,22 +185,10 @@ def run_sweep_chunk(
     else:
         solve_options = dict(solve_options)
     solve_options_any: Dict[str, Any] = dict(solve_options)
-    solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
-    if solver_kind == "symplectic_verlet":
-        solver_kind = "symplectic_fr"
-    method = None
-    if solver_kind in ("rk45", "ivp"):
-        method = "RK45"
-    elif solver_kind == "dop853":
-        method = "DOP853"
-    if method is not None:
-        solve_options_any["method"] = method
-    if solver_kind == "rk4":
-        sweep_solver_kind = "rk4"
-    elif solver_kind == "symplectic_fr":
-        sweep_solver_kind = "symplectic_fr"
-    else:
-        sweep_solver_kind = "ivp"
+    policy = resolve_solver(getattr(integration, "solver_kind", "ivp"))
+    solver_kind = policy.kind
+    sweep_solver_kind = policy.sweep_kind
+    apply_to_solve_options(policy, solve_options_any)
     observable_lc = _normalize_observable(observable)
     extrema_kind_lc = _normalize_extrema_kind(extrema_kind)
     max_hits_user = int(run_cfg.max_hits) if run_cfg.max_hits is not None else DEFAULT_MAX_KEEP

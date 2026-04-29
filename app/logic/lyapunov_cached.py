@@ -11,7 +11,7 @@ from app.params import (
     SolverTolerances,
     SystemConfig,
 )
-from app.services import get_builtin
+from app.services import get_builtin, resolve_solver, apply_to_solve_options
 from core.lyapunov import compute_lyapunov_spectrum
 
 
@@ -23,16 +23,11 @@ def compute_lyapunov_cached(
     lyapunov: LyapunovConfig,
     solve_tols: SolverTolerances,
 ) -> np.ndarray:
+    policy = resolve_solver(getattr(integration, "solver_kind", "ivp"))
+    solver_kind = policy.kind
+    auto_switch_rk4 = policy.auto_switch_rk4
     solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
-    solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
-    method = None
-    if solver_kind in ("rk45", "ivp"):
-        method = "RK45"
-    elif solver_kind == "dop853":
-        method = "DOP853"
-    if method is not None:
-        solve_options["method"] = method
-    auto_switch_rk4 = solver_kind in ("rk45", "dop853", "ivp")
+    apply_to_solve_options(policy, solve_options)
     y0 = np.array(initial.y0, dtype=float)
 
     rhs = None

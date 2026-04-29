@@ -31,7 +31,7 @@ from app.params import (
     SweepRunConfig,
     SystemConfig,
 )
-from app.services import get_builtin
+from app.services import get_builtin, resolve_solver, apply_to_solve_options
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
@@ -57,17 +57,10 @@ def solve_cached(
         except Exception:
             max_store_steps = None
 
+    policy = resolve_solver(getattr(integration, "solver_kind", "ivp"))
+    solver_kind = policy.kind
     solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
-    solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
-    if solver_kind == "symplectic_verlet":
-        solver_kind = "symplectic_fr"
-    method = None
-    if solver_kind in ("rk45", "ivp"):
-        method = "RK45"
-    elif solver_kind == "dop853":
-        method = "DOP853"
-    if method is not None:
-        solve_options["method"] = method
+    apply_to_solve_options(policy, solve_options)
 
     rhs_fn = None
     var_names: List[str] = []
@@ -214,16 +207,11 @@ def sweep_cached(
     import pandas as pd
 
     y0 = np.array(initial.y0, dtype=float)
+    policy = resolve_solver(solver_kind)
+    solver_kind = policy.kind
+    sweep_solver_kind = policy.sweep_kind
     solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
-    solver_kind = str(solver_kind).lower()
-    method = None
-    if solver_kind in ("rk45", "ivp"):
-        method = "RK45"
-    elif solver_kind == "dop853":
-        method = "DOP853"
-    if method is not None:
-        solve_options["method"] = method
-    sweep_solver_kind = "ivp" if solver_kind in ("ivp", "rk45", "dop853") else solver_kind
+    apply_to_solve_options(policy, solve_options)
 
     # Build base rhs + base_params (everything except swept param)
     if system.key == "custom":

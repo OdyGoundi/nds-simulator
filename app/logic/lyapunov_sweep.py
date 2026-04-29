@@ -6,7 +6,7 @@ import numpy as np
 
 from app.helpers import build_custom_rhs, build_custom_rhs_and_jacobian, parse_params
 from app.logic.sweep_utils import _chunk_param_values, _frange_inclusive
-from app.services import get_builtin
+from app.services import get_builtin, resolve_solver, apply_to_solve_options
 from app.params import (
     InitialConditions,
     IntegrationConfig,
@@ -171,16 +171,11 @@ def _run_lyapunov_sweep(
     else:
         base_params = get_builtin(system.key).extract_params(system)
 
+    policy = resolve_solver(getattr(integration, "solver_kind", "ivp"))
+    solver_kind = policy.kind
+    auto_switch_rk4 = policy.auto_switch_rk4
     solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
-    solver_kind = str(getattr(integration, "solver_kind", "ivp")).lower()
-    method = None
-    if solver_kind in ("rk45", "ivp"):
-        method = "RK45"
-    elif solver_kind == "dop853":
-        method = "DOP853"
-    if method is not None:
-        solve_options["method"] = method
-    auto_switch_rk4 = solver_kind in ("rk45", "dop853", "ivp")
+    apply_to_solve_options(policy, solve_options)
     var_names = list(system.custom.var_names)
     eq_lines = list(system.custom.eq_lines)
     custom_auto_jac = bool(system.custom.auto_jacobian)
