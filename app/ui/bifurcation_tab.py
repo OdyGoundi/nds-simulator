@@ -1,4 +1,3 @@
-import math
 import os
 import json
 from pathlib import Path
@@ -9,13 +8,10 @@ import matplotlib.pyplot as plt
 
 from app.helpers import decimate_indices, downsample_xy, parse_params
 from app.export_utils import build_sweep_config
-from app.logic.bifurcation_sweep import _run_bifurcation_parallel
-from app.logic.lyapunov_sweep import _run_lyapunov_sweep
 from app.logic.reservoir_sampling import (
     ensure_xy_reservoir,
     get_xy_reservoir_points,
     make_xy_reservoir,
-    update_xy_reservoir,
 )
 from app.logic.sweep_utils import (
     _default_worker_count,
@@ -30,19 +26,27 @@ from app.params import (
     SystemConfig,
 )
 from app.services import get_builtin
-from app.sweep import run_sweep_chunk
+from app.services.sweep_state_service import (
+    MAX_BIF_RESERVOIR_POINTS,
+    MAX_SWEEP_ROWS_IN_MEMORY,
+    _apply_sweep_config_to_state,
+    _init_sweep_state,
+)
+from app.services.sweep_run_service import (
+    execute_cont_bif_sweep,
+    execute_cont_lya_sweep,
+    execute_new_bif_sweep,
+    execute_new_lya_sweep,
+)
 from core.poincare_sweep import PoincareConfig, SweepConfig
 from core import numba_backend
 
 
 COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 DT_WARNING_THRESHOLD = 0.05
-DIRECTION_LABEL_BY_VALUE = {1: "+1 (up)", -1: "-1 (down)", 0: "0 (both)"}
 OBSERVABLE_POINCARE_LABEL = "Poincaré crossings"
 OBSERVABLE_EXTREMA_LABEL = "Local extrema (max/min)"
 MAX_LYA_PLOT_POINTS = 200_000
-MAX_SWEEP_ROWS_IN_MEMORY = 300_000
-MAX_BIF_RESERVOIR_POINTS = 120_000
 MAX_BIF_PLOT_POINTS = MAX_SWEEP_ROWS_IN_MEMORY + MAX_BIF_RESERVOIR_POINTS
 
 
@@ -58,165 +62,6 @@ def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
         return vmin - delta, vmax + delta
     return vmin, vmax
 
-
-def _to_float(value: object, default: float) -> float:
-    try:
-        return float(value)
-    except Exception:
-        return float(default)
-
-
-def _to_int(value: object, default: int) -> int:
-    try:
-        return int(value)
-    except Exception:
-        return int(default)
-
-
-def _clip_sweep_df(df: pd.DataFrame, max_rows: int) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
-    max_rows_i = max(1, int(max_rows))
-    if len(df) <= max_rows_i:
-        return df, pd.DataFrame(columns=df.columns), False
-    drop_n = int(len(df) - max_rows_i)
-    dropped = df.head(drop_n).reset_index(drop=True)
-    kept = df.tail(max_rows_i).reset_index(drop=True)
-    return kept, dropped, True
-
-
-def _append_dropped_rows_to_reservoir(df_dropped: pd.DataFrame, x_col: str, y_col: str) -> None:
-    if df_dropped is None or len(df_dropped) == 0:
-        return
-    if x_col not in df_dropped.columns or y_col not in df_dropped.columns:
-        return
-    x_old = np.asarray(df_dropped[x_col].to_numpy(), dtype=float)
-    y_old = np.asarray(df_dropped[y_col].to_numpy(), dtype=float)
-    reservoir_state = ensure_xy_reservoir(
-        st.session_state.get("sweep_reservoir"),
-        capacity=MAX_BIF_RESERVOIR_POINTS,
-    )
-    reservoir_state = update_xy_reservoir(
-        reservoir_state,
-        x_old,
-        y_old,
-    )
-    st.session_state["sweep_reservoir"] = reservoir_state
-
-
-def _apply_sweep_config_to_state(
-    cfg: dict,
-    *,
-    sweep_choices: list[str],
-    var_names: list[str],
-    t0_default: float,
-    tf_default: float,
-    dt_default: float,
-) -> None:
-    sweep_obj = cfg.get("sweep")
-    lyapunov_obj = cfg.get("lyapunov")
-    if not isinstance(sweep_obj, dict):
-        raise ValueError("Invalid config: missing 'sweep' block.")
-    sweep_settings = sweep_obj.get("settings")
-    if not isinstance(sweep_settings, dict):
-        raise ValueError("Invalid config: missing 'sweep.settings' block.")
-
-    sweep_param = str(sweep_settings.get("sweep_param", "")).strip()
-    if sweep_param in sweep_choices:
-        st.session_state["sw_param_tab3"] = sweep_param
-
-    sweep_start = _to_float(sweep_settings.get("sweep_start", 0.0), 0.0)
-    sweep_stop = _to_float(sweep_settings.get("sweep_stop", 50.0), 50.0)
-    sweep_step = _to_float(sweep_settings.get("sweep_step", 0.1), 0.1)
-    st.session_state["sw_start_tab3"] = float(sweep_start)
-    st.session_state["sw_stop_tab3"] = float(sweep_stop)
-    st.session_state["sw_step_tab3"] = float(sweep_step)
-    st.session_state["sweep_stop_internal"] = float(sweep_stop)
-
-    sweep_integration = sweep_settings.get("integration")
-    if isinstance(sweep_integration, dict):
-        dt_sweep = max(1e-6, _to_float(sweep_integration.get("dt", dt_default), dt_default))
-        tf_sweep = max(float(t0_default) + 1e-6, _to_float(sweep_integration.get("tf", tf_default), tf_default))
-        st.session_state["dt_sweep_tab3"] = float(dt_sweep)
-        st.session_state["tf_sweep_tab3"] = float(tf_sweep)
-
-    mode = sweep_settings.get("mode")
-    if isinstance(mode, dict):
-        warm_start = bool(mode.get("warm_start", False))
-        st.session_state["sweep_mode_tab3"] = (
-            "Continuation (warm start)" if warm_start else "Bifurcation (reset ICs)"
-        )
-        st.session_state["bif_parallel_tab3"] = bool(mode.get("parallel", False))
-        workers_bif = mode.get("parallel_workers")
-        if workers_bif is not None:
-            st.session_state["bif_workers_tab3"] = max(1, _to_int(workers_bif, 1))
-
-    sweep_solver = sweep_settings.get("solver")
-    if isinstance(sweep_solver, dict):
-        if "rtol" in sweep_solver:
-            st.session_state["rtol_sweep_tab3"] = _to_float(sweep_solver.get("rtol"), 3e-4)
-        if "atol" in sweep_solver:
-            st.session_state["atol_sweep_tab3"] = _to_float(sweep_solver.get("atol"), 1e-6)
-
-    poincare = sweep_settings.get("poincare")
-    if isinstance(poincare, dict):
-        section_var = str(poincare.get("section_var", "")).strip()
-        if section_var in var_names:
-            st.session_state["sec_var_tab3"] = section_var
-        st.session_state["sec_val_tab3"] = _to_float(poincare.get("section_value", 0.0), 0.0)
-        st.session_state["sec_expr_tab3"] = str(poincare.get("section_expr", "") or "")
-        direction = _to_int(poincare.get("direction", 1), 1)
-        st.session_state["sec_dir_tab3"] = DIRECTION_LABEL_BY_VALUE.get(direction, "+1 (up)")
-        method = str(poincare.get("method", "crossing")).strip().lower()
-        st.session_state["sec_method_tab3"] = "slab" if method == "slab" else "crossing"
-        st.session_state["sec_tol_tab3"] = _to_float(poincare.get("tol", 1e-3), 1e-3)
-
-    output = sweep_settings.get("output")
-    if isinstance(output, dict):
-        output_var = str(output.get("var", "")).strip()
-        if output_var in var_names:
-            st.session_state["out_var_tab3"] = output_var
-
-    observable = str(sweep_settings.get("observable", "poincare") or "poincare").strip().lower()
-    st.session_state["obs_kind_tab3"] = (
-        OBSERVABLE_EXTREMA_LABEL if observable == "extrema" else OBSERVABLE_POINCARE_LABEL
-    )
-    extrema_kind = str(sweep_settings.get("extrema_kind", "max") or "max").strip().lower()
-    if extrema_kind not in ("max", "min", "both"):
-        extrema_kind = "max"
-    st.session_state["ext_kind_tab3"] = extrema_kind
-
-    transient = sweep_settings.get("transient")
-    if isinstance(transient, dict) and "fraction" in transient:
-        st.session_state["sw_transient_frac_tab3"] = float(
-            max(0.0, min(0.95, _to_float(transient.get("fraction", 0.75), 0.75)))
-        )
-
-    run = sweep_settings.get("run")
-    if isinstance(run, dict):
-        st.session_state["early_stop_tab3"] = bool(run.get("early_stop", True))
-        st.session_state["max_hits_tab3"] = max(10, _to_int(run.get("max_hits", 200), 200))
-        st.session_state["chunk_time_tab3"] = max(0.1, _to_float(run.get("chunk_time", 2.0), 2.0))
-
-    if isinstance(lyapunov_obj, dict):
-        lyapunov_settings = lyapunov_obj.get("settings")
-        if isinstance(lyapunov_settings, dict):
-            st.session_state["qr_interval_lya_tab3"] = max(
-                1e-6, _to_float(lyapunov_settings.get("qr_interval", 0.1), 0.1)
-            )
-            if "transient_fraction" in lyapunov_settings:
-                st.session_state["lya_transient_frac_tab3"] = float(
-                    max(0.0, min(0.95, _to_float(lyapunov_settings.get("transient_fraction", 0.30), 0.30)))
-                )
-            st.session_state["lya_parallel_tab3"] = bool(lyapunov_settings.get("parallel", False))
-            lya_workers = lyapunov_settings.get("parallel_workers")
-            if lya_workers is not None:
-                st.session_state["lya_workers_tab3"] = max(1, _to_int(lya_workers, 1))
-            clip = lyapunov_settings.get("clip")
-            if isinstance(clip, dict):
-                clip_enabled = bool(clip.get("enabled", False))
-                st.session_state["clip_lyapunov_tab3"] = clip_enabled
-                clip_min = clip.get("min", -50.0)
-                if clip_min is not None:
-                    st.session_state["clip_min_lyapunov_tab3"] = _to_float(clip_min, -50.0)
 
 def _render_tab3_quick_guide() -> None:
     with st.expander("Quick guide: Parameter Sweep Analysis", expanded=False):
@@ -246,33 +91,6 @@ def _render_tab3_quick_guide() -> None:
 - Increase resolution after you verify the overall structure.
 """
         )
-def _init_sweep_state():
-    if "sweep_stop_internal" not in st.session_state:
-        st.session_state["sweep_stop_internal"] = float(
-            st.session_state.get("sweep_stop_internal", 50.0)
-        )
-    if "sweep_acc_df" not in st.session_state:
-        st.session_state["sweep_acc_df"] = None
-    if "sweep_last_pv" not in st.session_state:
-        st.session_state["sweep_last_pv"] = None
-    if "sweep_boundaries" not in st.session_state:
-        st.session_state["sweep_boundaries"] = []
-    if "sweep_meta" not in st.session_state:
-        st.session_state["sweep_meta"] = {}
-    if "sweep_rows_clipped" not in st.session_state:
-        st.session_state["sweep_rows_clipped"] = False
-    st.session_state["sweep_reservoir"] = ensure_xy_reservoir(
-        st.session_state.get("sweep_reservoir"),
-        capacity=MAX_BIF_RESERVOIR_POINTS,
-    )
-    if "lya_acc_data" not in st.session_state:
-        st.session_state["lya_acc_data"] = None
-    if "lya_last_pv" not in st.session_state:
-        st.session_state["lya_last_pv"] = None
-    if "lya_meta" not in st.session_state:
-        st.session_state["lya_meta"] = {}
-    if "lya_boundaries" not in st.session_state:
-        st.session_state["lya_boundaries"] = []
 
 
 def render_bifurcation_tab(
@@ -811,263 +629,89 @@ def render_bifurcation_tab(
         ycol = f"y{int(output_index)}"
 
         if run_new:
-            st.session_state["sweep_acc_df"] = None
-            st.session_state["sweep_last_pv"] = None
-            st.session_state["sweep_boundaries"] = []
-            st.session_state["sweep_meta"] = sweep_meta
-            st.session_state["sweep_rows_clipped"] = False
-            st.session_state["sweep_reservoir"] = make_xy_reservoir(
-                capacity=MAX_BIF_RESERVOIR_POINTS
+            df_plot = execute_new_bif_sweep(
+                system=system,
+                integration_sweep=integration_sweep,
+                initial=initial,
+                sweep_param=str(sweep_param),
+                sweep_start=float(sweep_start),
+                sweep_stop=float(sweep_stop),
+                sweep_step=float(sweep_step),
+                poincare_cfg=poincare_cfg,
+                run_cfg=run_cfg,
+                solve_tols_sweep=solve_tols_sweep,
+                sweep_meta=sweep_meta,
+                ycol=ycol,
+                use_extrema=bool(use_extrema),
+                extrema_kind=str(extrema_kind),
+                parallel_bif_enabled=parallel_bif_enabled,
+                workers_bif=int(workers_bif),
             )
-
-            start_here = float(sweep_start)
-            stop_here = float(sweep_stop)
-            sweep_run = SweepConfig(
-                param_name=str(sweep_param),
-                start=float(start_here),
-                stop=float(stop_here),
-                step=float(sweep_step),
-            )
-
-            with st.spinner("Running sweep..."):
-                if parallel_bif_enabled:
-                    df_chunk = _run_bifurcation_parallel(
-                        system=system,
-                        integration=integration_sweep,
-                        initial=initial,
-                        sweep=sweep_run,
-                        poincare=poincare_cfg,
-                        observable="extrema" if use_extrema else "poincare",
-                        extrema_kind=str(extrema_kind),
-                        run_cfg=run_cfg,
-                        solve_tols=solve_tols_sweep,
-                        max_workers=int(workers_bif),
-                    )
-                else:
-                    df_chunk = run_sweep_chunk(
-                        system=system,
-                        integration=integration_sweep,
-                        initial=initial,
-                        sweep=sweep_run,
-                        poincare=poincare_cfg,
-                        observable="extrema" if use_extrema else "poincare",
-                        extrema_kind=str(extrema_kind),
-                        run_cfg=run_cfg,
-                        solve_tols=solve_tols_sweep,
-                    )
-
-            df_chunk = pd.DataFrame(df_chunk) if not isinstance(df_chunk, pd.DataFrame) else df_chunk
-            df_chunk, dropped_new, clipped_new = _clip_sweep_df(df_chunk, MAX_SWEEP_ROWS_IN_MEMORY)
-            if clipped_new:
-                _append_dropped_rows_to_reservoir(dropped_new, str(sweep_param), str(ycol))
-            st.session_state["sweep_rows_clipped"] = bool(clipped_new)
-            st.session_state["sweep_acc_df"] = df_chunk
-            st.session_state["sweep_last_pv"] = float(stop_here)
-
-            st.session_state["last_sweep_df"] = df_chunk
-            st.session_state["last_sweep_meta"] = st.session_state["sweep_meta"]
-
-            df_plot = df_chunk
 
         elif run_cont:
             acc_df = st.session_state.get("sweep_acc_df", None)
-            last_pv = st.session_state.get("sweep_last_pv", None)
-
-            if acc_df is None or last_pv is None:
+            last_pv_state = st.session_state.get("sweep_last_pv", None)
+            if acc_df is None or last_pv_state is None:
                 st.warning("No previous sweep found. Run 'Generate Bifurcation Diagram' first.")
                 st.stop()
-
-            else:
-                prev_meta = st.session_state.get("sweep_meta", {})
-                now_meta = sweep_meta
-
-                mismatches = []
-                for k, v_prev in prev_meta.items():
-                    if k not in now_meta:
-                        continue
-                    v_now = now_meta[k]
-                    if isinstance(v_prev, float) and isinstance(v_now, float):
-                        if not math.isclose(v_prev, v_now, rel_tol=0.0, abs_tol=1e-12):
-                            mismatches.append(k)
-                    else:
-                        if v_prev != v_now:
-                            mismatches.append(k)
-
-                if mismatches:
-                    st.error(
-                        "Cannot continue: settings changed since last run. "
-                        f"Changed: {', '.join(mismatches)}. Run 'Generate Bifurcation Diagram' to restart."
-                    )
-                else:
-                    last_pv = float(st.session_state["sweep_last_pv"])
-                    start_here = last_pv + float(sweep_step)
-
-                    stop_here = float(continue_stop) if continue_stop is not None else float(sweep_stop)
-
-                    st.session_state["sweep_stop_internal"] = stop_here
-
-                    if start_here > stop_here + 1e-12:
-                        st.warning("Nothing to continue: start is already beyond stop.")
-                    else:
-                        st.session_state["sweep_boundaries"].append(last_pv)
-                        sweep_run = SweepConfig(
-                            param_name=str(sweep_param),
-                            start=float(start_here),
-                            stop=float(stop_here),
-                            step=float(sweep_step),
-                        )
-
-                        with st.spinner("Continuing sweep..."):
-                            if parallel_bif_enabled:
-                                df_chunk = _run_bifurcation_parallel(
-                                    system=system,
-                                    integration=integration_sweep,
-                                    initial=initial,
-                                    sweep=sweep_run,
-                                    poincare=poincare_cfg,
-                                    observable="extrema" if use_extrema else "poincare",
-                                    extrema_kind=str(extrema_kind),
-                                    run_cfg=run_cfg,
-                                    solve_tols=solve_tols_sweep,
-                                    max_workers=int(workers_bif),
-                                )
-                            else:
-                                df_chunk = run_sweep_chunk(
-                                    system=system,
-                                    integration=integration_sweep,
-                                    initial=initial,
-                                    sweep=sweep_run,
-                                    poincare=poincare_cfg,
-                                    observable="extrema" if use_extrema else "poincare",
-                                    extrema_kind=str(extrema_kind),
-                                    run_cfg=run_cfg,
-                                    solve_tols=solve_tols_sweep,
-                                )
-
-                        df_chunk = pd.DataFrame(df_chunk) if not isinstance(df_chunk, pd.DataFrame) else df_chunk
-                        df_acc = st.session_state["sweep_acc_df"]
-                        df_acc = pd.concat([df_acc, df_chunk], ignore_index=True)
-                        df_acc, dropped_acc, clipped_acc = _clip_sweep_df(
-                            df_acc,
-                            MAX_SWEEP_ROWS_IN_MEMORY,
-                        )
-                        if clipped_acc:
-                            _append_dropped_rows_to_reservoir(
-                                dropped_acc,
-                                str(sweep_param),
-                                str(ycol),
-                            )
-                        st.session_state["sweep_rows_clipped"] = bool(
-                            st.session_state.get("sweep_rows_clipped", False) or clipped_acc
-                        )
-
-                        st.session_state["sweep_acc_df"] = df_acc
-                        st.session_state["sweep_last_pv"] = float(stop_here)
-
-                        st.session_state["last_sweep_df"] = df_acc
-                        st.session_state["last_sweep_meta"] = prev_meta
-
-                        df_plot = df_acc
+            df_plot = execute_cont_bif_sweep(
+                system=system,
+                integration_sweep=integration_sweep,
+                initial=initial,
+                sweep_param=str(sweep_param),
+                sweep_step=float(sweep_step),
+                sweep_stop=float(sweep_stop),
+                continue_stop=continue_stop,
+                poincare_cfg=poincare_cfg,
+                run_cfg=run_cfg,
+                solve_tols_sweep=solve_tols_sweep,
+                sweep_meta=sweep_meta,
+                ycol=ycol,
+                use_extrema=bool(use_extrema),
+                extrema_kind=str(extrema_kind),
+                parallel_bif_enabled=parallel_bif_enabled,
+                workers_bif=int(workers_bif),
+            )
 
         if run_lya_cont:
             acc_data = st.session_state.get("lya_acc_data", None)
-            last_pv = st.session_state.get("lya_last_pv", None)
-
-            if acc_data is None or last_pv is None:
+            last_pv_lya = st.session_state.get("lya_last_pv", None)
+            if acc_data is None or last_pv_lya is None:
                 st.warning("No previous Lyapunov sweep found. Run 'Generate Lyapunov Diagram' first.")
             else:
-                prev_meta = st.session_state.get("lya_meta", {})
-                now_meta = lya_meta
-
-                mismatches = []
-                for k, v_prev in prev_meta.items():
-                    if k not in now_meta:
-                        continue
-                    v_now = now_meta[k]
-                    if isinstance(v_prev, float) and isinstance(v_now, float):
-                        if not math.isclose(v_prev, v_now, rel_tol=0.0, abs_tol=1e-12):
-                            mismatches.append(k)
-                    else:
-                        if v_prev != v_now:
-                            mismatches.append(k)
-
-                if mismatches:
-                    st.error(
-                        "Cannot continue Lyapunov: settings changed since last run. "
-                        f"Changed: {', '.join(mismatches)}. Run 'Generate Lyapunov Diagram' to restart."
-                    )
-                else:
-                    start_here = float(last_pv) + float(sweep_step)
-                    stop_here = float(continue_stop_lya) if continue_stop_lya is not None else float(sweep_stop)
-
-                    if start_here > stop_here + 1e-12:
-                        st.warning("Nothing to continue: start is already beyond stop.")
-                    else:
-                        st.session_state["lya_boundaries"].append(float(last_pv))
-                        sweep_run = SweepConfig(
-                            param_name=str(sweep_param),
-                            start=float(start_here),
-                            stop=float(stop_here),
-                            step=float(sweep_step),
-                        )
-                        with st.spinner("Continuing Lyapunov sweep..."):
-                            param_vals, lambdas_arr, errors = _run_lyapunov_sweep(
-                                system=system,
-                                integration=integration_sweep,
-                                initial=initial,
-                                sweep=sweep_run,
-                                lyapunov=lyapunov_cfg,
-                                solve_tols=solve_tols_sweep,
-                                warm_start=bool(warm_start),
-                                parallel=parallel_enabled,
-                                max_workers=int(workers),
-                            )
-
-                        prev_vals = acc_data.get("param_vals", np.array([], dtype=float))
-                        prev_lambdas = acc_data.get("lambdas", np.zeros((0, len(var_names))))
-                        prev_errors = acc_data.get("errors", [])
-
-                        new_vals = np.concatenate([prev_vals, param_vals])
-                        new_lambdas = np.vstack([prev_lambdas, lambdas_arr])
-                        new_errors = list(prev_errors) + list(errors)
-
-                        st.session_state["lya_acc_data"] = {
-                            "param_vals": new_vals,
-                            "lambdas": new_lambdas,
-                            "errors": new_errors,
-                            "meta": dict(prev_meta),
-                        }
-                        st.session_state["lya_last_pv"] = float(stop_here)
-
-        if run_lya:
-            st.session_state["lya_acc_data"] = None
-            st.session_state["lya_last_pv"] = None
-            st.session_state["lya_boundaries"] = []
-            st.session_state["lya_meta"] = lya_meta
-
-            with st.spinner("Computing Lyapunov sweep..."):
-                param_vals, lambdas_arr, errors = _run_lyapunov_sweep(
+                execute_cont_lya_sweep(
                     system=system,
-                    integration=integration_sweep,
+                    integration_sweep=integration_sweep,
                     initial=initial,
-                    sweep=sweep_cfg,
-                    lyapunov=lyapunov_cfg,
-                    solve_tols=solve_tols_sweep,
+                    lyapunov_cfg=lyapunov_cfg,
+                    solve_tols_sweep=solve_tols_sweep,
+                    sweep_param=str(sweep_param),
+                    sweep_step=float(sweep_step),
+                    sweep_stop=float(sweep_stop),
+                    continue_stop_lya=continue_stop_lya,
                     warm_start=bool(warm_start),
-                    parallel=parallel_enabled,
-                    max_workers=int(workers),
+                    parallel_enabled=parallel_enabled,
+                    workers=int(workers),
+                    var_names=list(var_names),
+                    lya_meta=lya_meta,
+                    acc_data=acc_data,
+                    last_pv=float(last_pv_lya),
                 )
 
-            st.session_state["lya_acc_data"] = {
-                "param_vals": param_vals,
-                "lambdas": lambdas_arr,
-                "errors": errors,
-                "meta": dict(lya_meta),
-            }
-            st.session_state["lya_last_pv"] = float(sweep_stop)
-
-            if errors:
-                st.warning(f"Lyapunov sweep had {len(errors)} failures. Showing NaNs for those points.")
+        if run_lya:
+            execute_new_lya_sweep(
+                system=system,
+                integration_sweep=integration_sweep,
+                initial=initial,
+                sweep_cfg=sweep_cfg,
+                lyapunov_cfg=lyapunov_cfg,
+                solve_tols_sweep=solve_tols_sweep,
+                sweep_stop=float(sweep_stop),
+                warm_start=bool(warm_start),
+                parallel_enabled=parallel_enabled,
+                workers=int(workers),
+                lya_meta=lya_meta,
+            )
 
         if df_plot is None:
             df_plot = st.session_state.get("sweep_acc_df", None)
