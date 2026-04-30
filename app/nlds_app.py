@@ -1,4 +1,3 @@
-import base64
 import json
 import sys
 from pathlib import Path
@@ -12,7 +11,6 @@ if str(PROJECT_ROOT) not in sys.path:
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 
 from app.cache import solve_cached
@@ -43,6 +41,12 @@ from app.state import (
     TRAJ_EXPORT_SOURCE_FULL,
     TRAJ_EXPORT_READY_SIG_KEY,
 )
+from app.state.apply_config import (
+    clamp_int,
+    flush_pending_static_config_apply,
+    to_float,
+    to_int,
+)
 from app.export_utils import build_static_config
 from app.logic.lyapunov_cached import compute_lyapunov_cached
 from app.plots import (
@@ -63,19 +67,18 @@ from app.params import (
     SystemConfig,
 )
 from app.ui.bifurcation_tab import render_bifurcation_tab
+from app.ui.branding import render_header_logo
+from app.ui.help_panels import (
+    get_dialog_decorator,
+    render_info,
+    render_quick_manual_el,
+    render_quick_manual_eng,
+)
 from app.ui.poincare_map_panel import render_poincare_map_panel
 from core import numba_backend
 
 APP_NAME = "DynaSim"
 APP_SUBTITLE = "Non-linear Dynamical Systems Simulator"
-APP_LOGO_CANDIDATES = [
-    PROJECT_ROOT / "docs" / "thesis" / "figures" / "new_logo.png",
-    PROJECT_ROOT / "docs" / "assets" / "new_logo.png",
-]
-APP_LOGO_INVERT_CANDIDATES = [
-    PROJECT_ROOT / "docs" / "thesis" / "figures" / "new_logo.png",
-    PROJECT_ROOT / "docs" / "assets" / "new_logo.png",
-]
 HENON_HEILES_VAR_NAMES = ["q1", "q2", "p1", "p2"]
 HENON_HEILES_EQ_LINES = [
     "p1",
@@ -113,25 +116,6 @@ def _square_xy_bounds(
     return (x_mid - half_span, x_mid + half_span), (y_mid - half_span, y_mid + half_span)
 
 
-def _to_float(value: Any, default: Any) -> float:
-    try:
-        return float(value)
-    except Exception:
-        try:
-            return float(default)
-        except Exception:
-            return 0.0
-
-
-def _to_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except Exception:
-        return int(default)
-
-
-def _clamp_int(value: int, low: int, high: int) -> int:
-    return max(int(low), min(int(value), int(high)))
 
 
 def _system_key_from_label(system_label: object) -> str:
@@ -212,19 +196,19 @@ def _ensure_builtin_system_sidebar_state() -> None:
     else:
         _apply_state_values(defaults, only_missing=True)
 
-    st.session_state["phase_x_idx_tab1"] = _clamp_int(
-        _to_int(st.session_state.get("phase_x_idx_tab1", 0), 0),
+    st.session_state["phase_x_idx_tab1"] = clamp_int(
+        to_int(st.session_state.get("phase_x_idx_tab1", 0), 0),
         0,
         expected_dim - 1,
     )
-    st.session_state["phase_y_idx_tab1"] = _clamp_int(
-        _to_int(st.session_state.get("phase_y_idx_tab1", 1), 1),
+    st.session_state["phase_y_idx_tab1"] = clamp_int(
+        to_int(st.session_state.get("phase_y_idx_tab1", 1), 1),
         0,
         expected_dim - 1,
     )
     z_default = 2 if expected_dim > 2 else 0
-    st.session_state["phase_z_idx_tab1"] = _clamp_int(
-        _to_int(st.session_state.get("phase_z_idx_tab1", z_default), z_default),
+    st.session_state["phase_z_idx_tab1"] = clamp_int(
+        to_int(st.session_state.get("phase_z_idx_tab1", z_default), z_default),
         0,
         expected_dim - 1,
     )
@@ -259,344 +243,7 @@ def _apply_transient_cut(
     return t_use[cut:], y_use[:, cut:]
 
 
-def _image_path_to_data_uri(image_path: Path) -> Optional[str]:
-    if not image_path.exists():
-        return None
-    suffix = image_path.suffix.lower()
-    mime = "image/png"
-    if suffix in (".jpg", ".jpeg"):
-        mime = "image/jpeg"
-    elif suffix == ".webp":
-        mime = "image/webp"
-    data_b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
-    return f"data:{mime};base64,{data_b64}"
-
-
-def _pick_latest_existing_path(paths: List[Path]) -> Optional[Path]:
-    existing = [p for p in paths if p.exists()]
-    if not existing:
-        return None
-    return max(existing, key=lambda p: p.stat().st_mtime)
-
-
-def _get_runtime_theme_base() -> str:
-    context_obj = getattr(st, "context", None)
-    if context_obj is not None:
-        theme_obj = getattr(context_obj, "theme", None)
-        if isinstance(theme_obj, dict):
-            base_val = theme_obj.get("base")
-            if base_val is not None:
-                return str(base_val).strip().lower()
-        elif theme_obj is not None:
-            base_attr = getattr(theme_obj, "base", None)
-            if base_attr is not None:
-                return str(base_attr).strip().lower()
-    return ""
-
-
-def _render_header_logo(width_px: int = 196, align: str = "center") -> bool:
-    light_logo_path = _pick_latest_existing_path(APP_LOGO_CANDIDATES)
-    dark_logo_path = _pick_latest_existing_path(APP_LOGO_INVERT_CANDIDATES)
-    light_logo_uri = _image_path_to_data_uri(light_logo_path) if light_logo_path is not None else None
-    dark_logo_uri = _image_path_to_data_uri(dark_logo_path) if dark_logo_path is not None else None
-    if light_logo_uri is None and dark_logo_uri is None:
-        return False
-    if light_logo_uri is None:
-        light_logo_uri = dark_logo_uri
-    if dark_logo_uri is None:
-        dark_logo_uri = light_logo_uri
-    if light_logo_uri is None or dark_logo_uri is None:
-        return False
-
-    css_align = "left" if str(align).strip().lower() == "left" else "center"
-    runtime_theme = _get_runtime_theme_base()
-    light_default_display = "none" if runtime_theme == "dark" else "inline-block"
-    dark_default_display = "inline-block" if runtime_theme == "dark" else "none"
-
-    st.markdown(
-        f"""
-<style>
-.dynasim-header-logo-wrap {{
-  width: 100%;
-  text-align: {css_align};
-}}
-.dynasim-header-logo-wrap img {{
-  width: {int(width_px)}px;
-  height: auto;
-}}
-.dynasim-header-logo-dark {{
-  display: {dark_default_display};
-}}
-.dynasim-header-logo-light {{
-  display: {light_default_display};
-}}
-html[data-theme="dark"] .dynasim-header-logo-light,
-html[theme="dark"] .dynasim-header-logo-light,
-body[data-theme="dark"] .dynasim-header-logo-light,
-body[theme="dark"] .dynasim-header-logo-light,
-body.dark .dynasim-header-logo-light {{
-  display: none !important;
-}}
-html[data-theme="dark"] .dynasim-header-logo-dark,
-html[theme="dark"] .dynasim-header-logo-dark,
-body[data-theme="dark"] .dynasim-header-logo-dark,
-body[theme="dark"] .dynasim-header-logo-dark,
-body.dark .dynasim-header-logo-dark {{
-  display: inline-block !important;
-}}
-</style>
-<div class="dynasim-header-logo-wrap">
-  <img class="dynasim-header-logo-light" src="{light_logo_uri}" alt="dynaSim logo">
-  <img class="dynasim-header-logo-dark" src="{dark_logo_uri}" alt="dynaSim logo dark">
-</div>
-        """,
-        unsafe_allow_html=True,
-    )
-    return True
-
-
-def _params_dict_to_text(params_obj: object) -> str:
-    if not isinstance(params_obj, dict):
-        return ""
-    lines: List[str] = []
-    for key, val in params_obj.items():
-        try:
-            lines.append(f"{str(key)}={float(val):g}")
-        except Exception:
-            continue
-    return "\n".join(lines)
-
-
-def _apply_static_config_to_state(cfg: Dict[str, object]) -> None:
-    system_obj = cfg.get("system")
-    integration_obj = cfg.get("integration")
-    postprocess_obj = cfg.get("postprocess")
-    plots_obj = cfg.get("plots")
-    lyapunov_obj = cfg.get("lyapunov")
-    if not isinstance(system_obj, dict) or not isinstance(integration_obj, dict):
-        raise ValueError("Invalid config: missing 'system' or 'integration' blocks.")
-
-    system_key = str(system_obj.get("system_key", "")).strip().lower()
-    system_label = SYSTEM_LABEL_BY_KEY.get(system_key)
-    if system_label is not None:
-        st.session_state["system_label_sidebar"] = system_label
-
-    if system_key == "lorenz":
-        params = system_obj.get("params") if isinstance(system_obj.get("params"), dict) else {}
-        st.session_state["sigma"] = _to_float((params or {}).get("sigma", 10.0), 10.0)
-        st.session_state["rho"] = _to_float((params or {}).get("rho", 28.0), 28.0)
-        st.session_state["beta"] = _to_float((params or {}).get("beta", 8.0 / 3.0), 8.0 / 3.0)
-    elif system_key == "rossler":
-        params = system_obj.get("params") if isinstance(system_obj.get("params"), dict) else {}
-        st.session_state["ross_a"] = _to_float((params or {}).get("a", 0.2), 0.2)
-        st.session_state["ross_b"] = _to_float((params or {}).get("b", 0.2), 0.2)
-        st.session_state["ross_c"] = _to_float((params or {}).get("c", 5.7), 5.7)
-    elif system_key == "henon_heiles":
-        params = system_obj.get("params") if isinstance(system_obj.get("params"), dict) else {}
-        st.session_state["hh_lambda"] = _to_float((params or {}).get("lambda", 1.0), 1.0)
-    elif system_key == "custom":
-        var_names = system_obj.get("var_names") if isinstance(system_obj.get("var_names"), list) else []
-        eq_lines = system_obj.get("eq_lines") if isinstance(system_obj.get("eq_lines"), list) else []
-        params_text = str(system_obj.get("params_text", "") or "").strip()
-        if not params_text:
-            params_text = _params_dict_to_text(system_obj.get("params"))
-        var_names_list = var_names if isinstance(var_names, list) else []
-        eq_lines_list = eq_lines if isinstance(eq_lines, list) else []
-        n_vars_custom = len(var_names_list) if len(var_names_list) > 0 else len(eq_lines_list)
-        if n_vars_custom > 0:
-            st.session_state["n_vars_sidebar"] = int(n_vars_custom)
-        if var_names_list and len(var_names_list) > 0:
-            st.session_state["var_names_text_sidebar"] = "\n".join(str(v) for v in var_names_list)
-        if eq_lines_list and len(eq_lines_list) > 0:
-            st.session_state["eqs_text_sidebar"] = "\n".join(str(v) for v in eq_lines_list)
-        st.session_state["params_text_sidebar"] = params_text
-        auto_jac = bool(system_obj.get("auto_jacobian", False))
-        use_jac = bool(system_obj.get("use_jacobian", auto_jac))
-        st.session_state["custom_auto_jac_sidebar"] = auto_jac
-        st.session_state["custom_use_jac_sidebar"] = bool(use_jac and auto_jac)
-
-    t0 = _to_float(integration_obj.get("t0", 0.0), 0.0)
-    tf = _to_float(integration_obj.get("tf", 50.0), 50.0)
-    dt = max(1e-12, _to_float(integration_obj.get("dt", 0.01), 0.01))
-    max_store_cfg_raw = integration_obj.get("max_store_steps", MAX_STORE_STEPS_DEFAULT)
-    try:
-        max_store_cfg = int(max_store_cfg_raw) if max_store_cfg_raw is not None else 0
-    except Exception:
-        max_store_cfg = MAX_STORE_STEPS_DEFAULT
-    if max_store_cfg < 0:
-        max_store_cfg = 0
-    st.session_state["t0_tab1"] = float(t0)
-    st.session_state["tf_tab1"] = float(tf)
-    st.session_state["dt_tab1"] = float(dt)
-    st.session_state["max_store_steps_tab1"] = int(max_store_cfg)
-
-    y0 = integration_obj.get("y0")
-    if isinstance(y0, list) and len(y0) > 0:
-        try:
-            y0_text = ", ".join(f"{float(v):g}" for v in y0)
-            st.session_state["y0_text_sidebar"] = y0_text
-        except Exception:
-            pass
-
-    solver_kind = str(integration_obj.get("solver_kind", "")).strip().lower()
-    solver_label = SOLVER_LABEL_BY_KIND.get(solver_kind)
-    if solver_label is not None:
-        st.session_state["solver_kind_label_sidebar"] = solver_label
-
-    solve_opts = integration_obj.get("solve_options")
-    if isinstance(solve_opts, dict):
-        if "rtol" in solve_opts:
-            st.session_state["rtol"] = _to_float(solve_opts.get("rtol"), 1e-6)
-        if "atol" in solve_opts:
-            st.session_state["atol"] = _to_float(solve_opts.get("atol"), 1e-8)
-
-    if isinstance(postprocess_obj, dict):
-        transient_steps_cfg = max(0, _to_int(postprocess_obj.get("transient_steps", 0), 0))
-        st.session_state["transient_cut_time_tab1"] = float(transient_steps_cfg) * float(dt)
-
-    n_vars_axes = 3
-    if system_key == "henon_heiles":
-        n_vars_axes = 4
-    elif system_key == "custom":
-        var_names_obj = system_obj.get("var_names")
-        var_names_count = len(var_names_obj) if isinstance(var_names_obj, (list, tuple)) else 0
-        n_vars_axes = max(
-            1,
-            _to_int(st.session_state.get("n_vars_sidebar", 0), 0),
-            var_names_count,
-        )
-
-    if isinstance(plots_obj, dict):
-        plot_mode = str(plots_obj.get("plot_mode", "")).strip()
-        if plot_mode in ("2D phase plane", "3D phase plot"):
-            st.session_state["plot_mode_tab1"] = plot_mode
-        if "phase_linewidth" in plots_obj:
-            phase_linewidth_cfg = max(
-                0.001,
-                _to_float(plots_obj.get("phase_linewidth", PHASE_LINEWIDTH_DEFAULT), PHASE_LINEWIDTH_DEFAULT),
-            )
-            st.session_state["phase_linewidth_tab1"] = float(phase_linewidth_cfg)
-        phase_axes_obj = plots_obj.get("phase_axes")
-        phase_axes = phase_axes_obj if isinstance(phase_axes_obj, dict) else {}
-        x_idx_cfg = _to_int(phase_axes.get("x_idx", 0), 0)
-        y_default = 1 if n_vars_axes > 1 else 0
-        y_idx_cfg = _to_int(phase_axes.get("y_idx", y_default), y_default)
-        z_default = 2 if n_vars_axes > 2 else 0
-        z_idx_cfg = _to_int(phase_axes.get("z_idx", z_default), z_default)
-        st.session_state["phase_x_idx_tab1"] = _clamp_int(x_idx_cfg, 0, n_vars_axes - 1)
-        st.session_state["phase_y_idx_tab1"] = _clamp_int(y_idx_cfg, 0, n_vars_axes - 1)
-        st.session_state["phase_z_idx_tab1"] = _clamp_int(z_idx_cfg, 0, n_vars_axes - 1)
-
-    if isinstance(lyapunov_obj, dict):
-        lya_settings = lyapunov_obj.get("settings")
-        if isinstance(lya_settings, dict):
-            if "qr_interval" in lya_settings:
-                st.session_state["qr_interval_tab1"] = max(
-                    1e-6, _to_float(lya_settings.get("qr_interval", 0.1), 0.1)
-                )
-            frac = None
-            if "transient_fraction" in lya_settings:
-                frac = _to_float(lya_settings.get("transient_fraction", 0.3), 0.3)
-            elif "transient_steps" in lya_settings:
-                n_steps_est = max(1.0, (float(tf) - float(t0)) / float(dt))
-                frac = _to_float(lya_settings.get("transient_steps", 0), 0.0) / float(n_steps_est)
-            if frac is not None:
-                st.session_state["lya_transient_frac_tab1"] = float(max(0.0, min(0.99, frac)))
-
-
-
-def _flush_pending_static_config_apply() -> None:
-    pending_cfg = st.session_state.pop(PENDING_STATIC_CFG_KEY, None)
-    if pending_cfg is None:
-        return
-    try:
-        if not isinstance(pending_cfg, dict):
-            raise ValueError("JSON root must be an object.")
-        _apply_static_config_to_state(pending_cfg)
-        st.session_state["static_config"] = pending_cfg
-        st.session_state[STATIC_CFG_APPLY_SUCCESS_KEY] = (
-            "Static configuration loaded. Settings were applied."
-        )
-        st.session_state.pop(STATIC_CFG_APPLY_ERROR_KEY, None)
-    except Exception as exc:
-        st.session_state[STATIC_CFG_APPLY_ERROR_KEY] = str(exc)
-        st.session_state.pop(STATIC_CFG_APPLY_SUCCESS_KEY, None)
-
 st.set_page_config(page_title="dynaSim", layout="wide")
-
-def _render_manual(manual_html_path: Path, manual_pdf_path: Path, fallback_markdown: str) -> None:
-    if manual_html_path.exists():
-        html = manual_html_path.read_text(encoding="utf-8")
-        components.html(html, height=640, scrolling=True)
-        return
-    if manual_pdf_path.exists():
-        pdf_bytes = manual_pdf_path.read_bytes()
-        b64 = base64.b64encode(pdf_bytes).decode("ascii")
-        pdf_html = (
-            "<iframe "
-            f"src=\"data:application/pdf;base64,{b64}\" "
-            "width=\"100%\" height=\"640\" style=\"border:0;\" "
-            "></iframe>"
-        )
-        components.html(pdf_html, height=640, scrolling=True)
-        return
-    st.markdown(fallback_markdown)
-
-
-def _render_quick_manual_eng() -> None:
-    manual_html_path = PROJECT_ROOT / "docs" / "user-guide" / "manual.html"
-    manual_pdf_path = PROJECT_ROOT / "docs" / "user-guide" / "manual.pdf"
-    _render_manual(
-        manual_html_path,
-        manual_pdf_path,
-        """
-**Manual not available**
-
-Please check that `docs/user-guide/manual.html` (or `manual.pdf`) exists.
-        """,
-    )
-
-
-def _render_quick_manual_el() -> None:
-    manual_html_path = PROJECT_ROOT / "docs" / "user-guide" / "manual-el.html"
-    manual_pdf_path = PROJECT_ROOT / "docs" / "user-guide" / "manual-el.pdf"
-    _render_manual(
-        manual_html_path,
-        manual_pdf_path,
-        """
-**Το εγχειρίδιο δεν είναι διαθέσιμο**
-
-Ελέγξτε ότι υπάρχει το `docs/user-guide/manual-el.html` (ή `manual-el.pdf`).
-        """,
-    )
-
-def _render_info() -> None:
-    info_html_path = PROJECT_ROOT / "docs" / "user-guide" / "info.html"
-    if info_html_path.exists():
-        html = info_html_path.read_text(encoding="utf-8")
-        components.html(html, height=520, scrolling=True)
-        return
-    st.markdown(
-        """
-**Info not available**
-
-Please check that `docs/user-guide/info.html` exists.
-        """
-    )
-
-
-DialogDecorator = Callable[[str], Callable[[Callable[[], None]], Callable[[], None]]]
-
-
-def _get_dialog_decorator() -> Optional[DialogDecorator]:
-    dialog = getattr(st, "dialog", None)
-    if callable(dialog):
-        return cast(DialogDecorator, dialog)
-    dialog = getattr(st, "experimental_dialog", None)
-    if callable(dialog):
-        return cast(DialogDecorator, dialog)
-    return None
-
 
 if "show_quick_manual_eng" not in st.session_state:
     st.session_state["show_quick_manual_eng"] = False
@@ -610,7 +257,7 @@ open_manual_el = False
 open_info = False
 header_logo_col, header_actions_col = st.columns([3, 1], gap="large")
 with header_logo_col:
-    if not _render_header_logo(width_px=282, align="left"):
+    if not render_header_logo(PROJECT_ROOT, width_px=282, align="left"):
         st.title("dynaSim")
         st.caption(APP_SUBTITLE)
 with header_actions_col:
@@ -631,7 +278,7 @@ if open_info:
     st.session_state["show_quick_manual_eng"] = False
     st.session_state["show_quick_manual_el"] = False
 
-dialog_decorator = _get_dialog_decorator()
+dialog_decorator = get_dialog_decorator()
 _quick_manual_eng_dialog: Optional[Callable[[], None]] = None
 _quick_manual_el_dialog: Optional[Callable[[], None]] = None
 _info_dialog: Optional[Callable[[], None]] = None
@@ -639,7 +286,7 @@ if dialog_decorator is not None:
 
     @dialog_decorator("Quick Start Manual")
     def _quick_manual_eng_dialog_impl() -> None:
-        _render_quick_manual_eng()
+        render_quick_manual_eng(PROJECT_ROOT)
         if st.button("Close manual", key="close_quick_manual_btn"):
             st.session_state["show_quick_manual_eng"] = False
             st.rerun()
@@ -648,7 +295,7 @@ if dialog_decorator is not None:
 
     @dialog_decorator("Σύντομο Εγχειρίδιο")
     def _quick_manual_el_dialog_impl() -> None:
-        _render_quick_manual_el()
+        render_quick_manual_el(PROJECT_ROOT)
         if st.button("Κλείσιμο εγχειριδίου", key="close_quick_manual_el_btn"):
             st.session_state["show_quick_manual_el"] = False
             st.rerun()
@@ -657,7 +304,7 @@ if dialog_decorator is not None:
 
     @dialog_decorator("Info")
     def _info_dialog_impl() -> None:
-        _render_info()
+        render_info(PROJECT_ROOT)
         if st.button("Close info", key="close_info_btn"):
             st.session_state["show_info_popup"] = False
             st.rerun()
@@ -670,7 +317,7 @@ if st.session_state.get("show_quick_manual_eng", False):
         st.session_state["show_quick_manual_eng"] = False
     else:
         with st.expander("Quick Start Manual", expanded=True):
-            _render_quick_manual_eng()
+            render_quick_manual_eng(PROJECT_ROOT)
             if st.button("Hide manual", key="hide_quick_manual_btn"):
                 st.session_state["show_quick_manual_eng"] = False
 
@@ -680,7 +327,7 @@ if st.session_state.get("show_quick_manual_el", False):
         st.session_state["show_quick_manual_el"] = False
     else:
         with st.expander("Σύντομο Εγχειρίδιο", expanded=True):
-            _render_quick_manual_el()
+            render_quick_manual_el(PROJECT_ROOT)
             if st.button("Απόκρυψη εγχειριδίου", key="hide_quick_manual_el_btn"):
                 st.session_state["show_quick_manual_el"] = False
 
@@ -690,12 +337,12 @@ if st.session_state.get("show_info_popup", False):
         st.session_state["show_info_popup"] = False
     else:
         with st.expander("Info", expanded=True):
-            _render_info()
+            render_info(PROJECT_ROOT)
             if st.button("Hide info", key="hide_info_btn"):
                 st.session_state["show_info_popup"] = False
 
 # Apply uploaded static config before sidebar widgets are instantiated.
-_flush_pending_static_config_apply()
+flush_pending_static_config_apply()
 _ensure_builtin_system_sidebar_state()
 
 # -------- Sidebar: system + initial conditions --------
@@ -1157,7 +804,7 @@ try:
         params_text = f"lambda={float(hh_lambda)}"
     phase_linewidth = max(
         0.001,
-        _to_float(st.session_state.get("phase_linewidth_tab1", PHASE_LINEWIDTH_DEFAULT), PHASE_LINEWIDTH_DEFAULT),
+        to_float(st.session_state.get("phase_linewidth_tab1", PHASE_LINEWIDTH_DEFAULT), PHASE_LINEWIDTH_DEFAULT),
     )
     initial = InitialConditions(tuple(float(v) for v in y0))
     max_store_steps = int(max_store_steps_ui)
