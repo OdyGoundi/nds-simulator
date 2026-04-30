@@ -36,6 +36,13 @@ def clamp_int(value: int, low: int, high: int) -> int:
     return max(int(low), min(int(value), int(high)))
 
 
+def apply_state_values(values: Dict[str, Any], *, only_missing: bool = False) -> None:
+    for key, value in values.items():
+        if only_missing and key in st.session_state:
+            continue
+        st.session_state[key] = value
+
+
 def _params_dict_to_text(params_obj: object) -> str:
     if not isinstance(params_obj, dict):
         return ""

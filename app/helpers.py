@@ -8,6 +8,6 @@ from .parsing import (
     DQDT,
     DPDT,
 )
-from .plotting import decimate_indices, downsample_trajectory, downsample_xy
+from .plotting import apply_transient_cut, decimate_indices, downsample_trajectory, downsample_xy
 from .export import build_csv_bytes
 from .ui.widgets import slider_with_input

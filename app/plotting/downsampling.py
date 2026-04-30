@@ -29,6 +29,26 @@ def downsample_trajectory(t: np.ndarray, y: np.ndarray, max_points: int) -> Tupl
     return t_use[idx], y_use[:, idx]
 
 
+def apply_transient_cut(
+    t: np.ndarray,
+    y: np.ndarray,
+    transient_steps: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    t_arr = np.asarray(t, dtype=float).ravel()
+    y_arr = np.asarray(y, dtype=float)
+    if y_arr.ndim != 2:
+        raise ValueError("y must be shape (n_vars, n_steps)")
+    n = min(int(t_arr.size), int(y_arr.shape[1]))
+    if n <= 0:
+        return np.array([], dtype=float), np.zeros((int(y_arr.shape[0]), 0), dtype=float)
+    t_use = t_arr[:n]
+    y_use = y_arr[:, :n]
+    if n <= 2:
+        return t_use, y_use
+    cut = max(0, min(int(transient_steps), n - 2))
+    return t_use[cut:], y_use[:, cut:]
+
+
 def downsample_xy(x: np.ndarray, y: np.ndarray, max_points: int) -> Tuple[np.ndarray, np.ndarray]:
     x_arr = np.asarray(x, dtype=float).ravel()
     y_arr = np.asarray(y, dtype=float).ravel()
