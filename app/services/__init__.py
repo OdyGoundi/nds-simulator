@@ -4,11 +4,17 @@ from .lyapunov_service import (
     LyapunovTimeWindow,
     resolve_time_window,
     build_numba_lyap_solver,
+    build_lyapunov_rhs_jac,
+    extract_lyapunov_params,
+    run_lyapunov_numba,
+    run_lyapunov_scipy,
     compute_single_lyapunov,
 )
 
 __all__ = [
     "BUILTIN_SYSTEMS", "SystemAdapter", "get_builtin",
     "SolverPolicy", "resolve_solver", "apply_to_solve_options",
-    "LyapunovTimeWindow", "resolve_time_window", "build_numba_lyap_solver", "compute_single_lyapunov",
+    "LyapunovTimeWindow", "resolve_time_window", "build_numba_lyap_solver",
+    "build_lyapunov_rhs_jac", "extract_lyapunov_params",
+    "run_lyapunov_numba", "run_lyapunov_scipy", "compute_single_lyapunov",
 ]

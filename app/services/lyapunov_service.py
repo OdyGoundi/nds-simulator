@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -86,6 +86,112 @@ def build_numba_lyap_solver(
         return None, None
 
 
+def extract_lyapunov_params(system: SystemConfig) -> Dict[str, float]:
+    """Parameter dict for any system type — custom uses parse_params, built-in uses adapter."""
+    if system.key == "custom":
+        return parse_params(system.custom.params_text)
+    return get_builtin(system.key).extract_params(system)
+
+
+def build_lyapunov_rhs_jac(
+    system: SystemConfig,
+    params: Dict[str, float],
+) -> Tuple[RhsFn, Optional[JacFn]]:
+    """Build (rhs, jac) callables suitable for compute_lyapunov_spectrum.
+
+    For custom systems: parses var_names/eq_lines from system.custom and respects
+    auto_jacobian / use_jacobian flags. For built-in systems: dispatches via the
+    system_registry adapter.
+    """
+    if system.key == "custom":
+        var_names = list(system.custom.var_names)
+        eq_lines = list(system.custom.eq_lines)
+        auto_jac = bool(system.custom.auto_jacobian)
+        use_jac = bool(system.custom.use_jacobian)
+
+        jac_custom = None
+        if auto_jac:
+            rhs_custom, jac_custom = build_custom_rhs_and_jacobian(var_names, eq_lines, params)
+        else:
+            rhs_custom = build_custom_rhs(var_names, eq_lines, params)
+
+        def rhs_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+            return rhs_custom(tt, xx)
+
+        jac: Optional[JacFn] = None
+        if auto_jac and use_jac:
+            if jac_custom is None:
+                raise RuntimeError("Analytic Jacobian requested but not available.")
+            jac_custom_fn: Callable[[float, np.ndarray], np.ndarray] = jac_custom
+
+            def jac_wrapped(tt: float, xx: np.ndarray) -> np.ndarray:
+                return jac_custom_fn(tt, xx)
+
+            jac = jac_wrapped
+
+        return rhs_wrapped, jac
+
+    adapter = get_builtin(system.key)
+    return adapter.rhs_from_dict(params), adapter.jac_from_dict(params)
+
+
+def run_lyapunov_numba(
+    lyap_nb: Any,
+    param_names: List[str],
+    params: Dict[str, float],
+    y0: np.ndarray,
+    t0: float,
+    dt: float,
+    window: LyapunovTimeWindow,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Invoke the Numba Lyapunov solver. Raises if no QR steps happened.
+
+    Returns (lambdas, x_final) — lambdas in the natural order produced by the solver.
+    """
+    params_arr = np.array([float(params[name]) for name in param_names], dtype=float)
+    lambdas, _sums, _t_meas, n_qr, x_final = lyap_nb(
+        np.asarray(y0, dtype=float),
+        float(t0),
+        float(dt),
+        float(window.t_transient),
+        float(window.t_measure),
+        int(window.qr_every_steps),
+        float(1e-8),
+        params_arr,
+    )
+    if int(n_qr) <= 0:
+        raise ValueError("No QR steps performed. Increase t_measure or reduce qr_every_steps.")
+    return np.asarray(lambdas, dtype=float), np.asarray(x_final, dtype=float)
+
+
+def run_lyapunov_scipy(
+    rhs: RhsFn,
+    jac: Optional[JacFn],
+    y0: np.ndarray,
+    t0: float,
+    dt: float,
+    window: LyapunovTimeWindow,
+    solve_options: Dict[str, Any],
+    solver_kind: str,
+    auto_switch_rk4: bool,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Invoke compute_lyapunov_spectrum and return (lambdas, x_final)."""
+    res = compute_lyapunov_spectrum(
+        rhs=rhs,
+        x0=np.asarray(y0, dtype=float),
+        t0=float(t0),
+        dt=float(dt),
+        t_transient=float(window.t_transient),
+        t_measure=float(window.t_measure),
+        qr_every_steps=int(window.qr_every_steps),
+        solve_options=solve_options,
+        solver_kind=solver_kind,
+        auto_switch_rk4=auto_switch_rk4,
+        jac=jac,
+    )
+    return np.asarray(res.lambdas, dtype=float), np.asarray(res.x_final, dtype=float)
+
+
 def compute_single_lyapunov(
     system: SystemConfig,
     integration: IntegrationConfig,
@@ -100,87 +206,32 @@ def compute_single_lyapunov(
     apply_to_solve_options(policy, solve_options)
 
     y0 = np.array(initial.y0, dtype=float)
-
-    custom_params: Optional[Dict[str, float]] = None
-    var_names: List[str] = []
-    eq_lines: List[str] = []
-    auto_jac = False
-    use_jac = False
-    rhs_fn: RhsFn
-    jac_fn: Optional[JacFn]
-
-    if system.key == "custom":
-        var_names = list(system.custom.var_names)
-        eq_lines = list(system.custom.eq_lines)
-        custom_params = parse_params(system.custom.params_text)
-        auto_jac = bool(system.custom.auto_jacobian)
-        use_jac = bool(system.custom.use_jacobian)
-
-        jac_custom_func = None
-        if auto_jac:
-            rhs_custom_func, jac_custom_func = build_custom_rhs_and_jacobian(
-                var_names, eq_lines, custom_params
-            )
-        else:
-            rhs_custom_func = build_custom_rhs(var_names, eq_lines, custom_params)
-
-        def rhs_fn(tt, xx):
-            return rhs_custom_func(tt, xx)
-
-        jac_fn = None
-        if auto_jac and use_jac:
-            if jac_custom_func is None:
-                raise RuntimeError("Analytic Jacobian requested but not available.")
-            jac_fn = lambda tt, xx: jac_custom_func(tt, xx)
-    else:
-        adapter = get_builtin(system.key)
-        rhs_fn = adapter.rhs_builder(system)
-        jac_fn = adapter.jac_builder(system)
-
+    params = extract_lyapunov_params(system)
     window = resolve_time_window(integration, lyapunov)
 
     if solver_kind == "rk4":
-        param_keys = list(custom_params.keys()) if custom_params is not None else []
+        var_names = list(system.custom.var_names) if system.key == "custom" else []
+        eq_lines = list(system.custom.eq_lines) if system.key == "custom" else []
+        auto_jac = bool(system.custom.auto_jacobian) if system.key == "custom" else False
+        use_jac = bool(system.custom.use_jacobian) if system.key == "custom" else False
+        param_keys = list(params.keys()) if system.key == "custom" else []
         lyap_nb, param_names = build_numba_lyap_solver(
             system.key, var_names, eq_lines, param_keys, auto_jac, use_jac
         )
         if lyap_nb is not None and param_names is not None:
             try:
-                params_dict = (
-                    custom_params
-                    if custom_params is not None
-                    else get_builtin(system.key).extract_params(system)
+                lambdas, _x_final = run_lyapunov_numba(
+                    lyap_nb, param_names, params, y0,
+                    float(integration.t0), float(integration.dt), window,
                 )
-                params_arr = np.array(
-                    [float(params_dict[name]) for name in param_names], dtype=float
-                )
-                lambdas, _sums, _t_meas, n_qr, _x_final = lyap_nb(
-                    np.asarray(y0, dtype=float),
-                    float(integration.t0),
-                    float(integration.dt),
-                    float(window.t_transient),
-                    float(window.t_measure),
-                    int(window.qr_every_steps),
-                    float(1e-8),
-                    params_arr,
-                )
-                if int(n_qr) <= 0:
-                    raise ValueError("No QR steps performed. Increase t_measure or reduce qr_every_steps.")
-                return np.asarray(lambdas, dtype=float)
+                return lambdas
             except Exception:
                 pass
 
-    result = compute_lyapunov_spectrum(
-        rhs=rhs_fn,
-        x0=y0,
-        t0=float(integration.t0),
-        dt=float(integration.dt),
-        t_transient=float(window.t_transient),
-        t_measure=float(window.t_measure),
-        qr_every_steps=window.qr_every_steps,
-        solve_options=solve_options,
-        solver_kind=solver_kind,
-        auto_switch_rk4=auto_switch_rk4,
-        jac=jac_fn,
+    rhs, jac = build_lyapunov_rhs_jac(system, params)
+    lambdas, _x_final = run_lyapunov_scipy(
+        rhs, jac, y0,
+        float(integration.t0), float(integration.dt), window,
+        solve_options, solver_kind, auto_switch_rk4,
     )
-    return result.lambdas
+    return lambdas
