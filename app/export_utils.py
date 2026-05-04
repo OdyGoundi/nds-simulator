@@ -9,11 +9,11 @@ from app.params import InitialConditions, IntegrationConfig, SolverTolerances, S
 from app.services import get_builtin
 
 
-def utc_timestamp() -> str:
+def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def get_git_commit(repo_root: Optional[Path]) -> Optional[str]:
+def _get_git_commit(repo_root: Optional[Path]) -> Optional[str]:
     if repo_root is None:
         return None
     head_path = repo_root / ".git" / "HEAD"
@@ -29,10 +29,10 @@ def get_git_commit(repo_root: Optional[Path]) -> Optional[str]:
     return head or None
 
 
-def build_app_block(app_name: str, repo_root: Optional[Path]) -> Dict[str, Optional[str]]:
+def _build_app_block(app_name: str, repo_root: Optional[Path]) -> Dict[str, Optional[str]]:
     return {
         "name": str(app_name),
-        "commit": get_git_commit(repo_root),
+        "commit": _get_git_commit(repo_root),
     }
 
 
@@ -43,7 +43,7 @@ def _safe_parse_params(params_text: str) -> Dict[str, float]:
         return {}
 
 
-def build_system_block(system: SystemConfig) -> Dict[str, Any]:
+def _build_system_block(system: SystemConfig) -> Dict[str, Any]:
     if system.key == "custom":
         params = _safe_parse_params(system.custom.params_text)
     else:
@@ -64,7 +64,7 @@ def build_system_block(system: SystemConfig) -> Dict[str, Any]:
     return block
 
 
-def build_integration_block(
+def _build_integration_block(
     integration: IntegrationConfig,
     initial: InitialConditions,
     solve_tols: SolverTolerances,
@@ -132,10 +132,10 @@ def build_static_config(
 
     return {
         "schema_version": "1.0",
-        "app": build_app_block(app_name, repo_root),
-        "timestamp_utc": utc_timestamp(),
-        "system": build_system_block(system),
-        "integration": build_integration_block(integration, initial, solve_tols),
+        "app": _build_app_block(app_name, repo_root),
+        "timestamp_utc": _utc_timestamp(),
+        "system": _build_system_block(system),
+        "integration": _build_integration_block(integration, initial, solve_tols),
         "postprocess": {
             "transient_steps": int(transient_steps),
         },
@@ -281,10 +281,10 @@ def build_sweep_config(
 
     config = {
         "schema_version": "1.0",
-        "app": build_app_block(app_name, repo_root),
-        "timestamp_utc": utc_timestamp(),
-        "system": build_system_block(system),
-        "integration": build_integration_block(integration, initial, solve_tols),
+        "app": _build_app_block(app_name, repo_root),
+        "timestamp_utc": _utc_timestamp(),
+        "system": _build_system_block(system),
+        "integration": _build_integration_block(integration, initial, solve_tols),
         "sweep": {
             "enabled": True,
             "settings": sweep_settings,

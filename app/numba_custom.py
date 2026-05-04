@@ -1,30 +1,38 @@
+"""Compile and cache Numba kernels for custom user-defined systems.
+
+This module owns the JIT layer: Numba presence check, exec of generated
+source, `nb.njit` decoration, and the compiled-kernel cache. The parsing
+and code generation live in `app/parsing/numba_rhs_builder.py`.
+"""
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Sequence, Tuple, cast
+from typing import Dict, Sequence, Tuple
 
 import numpy as np
-import sympy as sp
-from sympy.printing.pycode import pycode
 
 try:
     import numba as nb  # type: ignore
 except Exception:  # pragma: no cover
     nb = None
 
+from app.parsing.numba_rhs_builder import (
+    parse_safe_exprs,
+    parse_symplectic_safe_exprs,
+    render_jacobian_source,
+    render_rhs_source,
+    render_symplectic_dpdt_source,
+    render_symplectic_dqdt_source,
+)
 
-SAFE_FUNCS = {
-    "sin": sp.sin, "cos": sp.cos, "tan": sp.tan,
-    "exp": sp.exp, "log": sp.log, "sqrt": sp.sqrt,
-    "sinh": sp.sinh, "cosh": sp.cosh, "tanh": sp.tanh,
-    "abs": sp.Abs,
-}
 
-_CUSTOM_CACHE: Dict[Tuple[Tuple[str, ...], Tuple[str, ...], Tuple[str, ...]], Tuple[object, object]] = {}
-_CUSTOM_SYMPLECTIC_CACHE: Dict[
-    Tuple[Tuple[str, ...], Tuple[str, ...], Tuple[str, ...]],
-    Tuple[object, object],
-] = {}
+_CacheKey = Tuple[Tuple[str, ...], Tuple[str, ...], Tuple[str, ...]]
+_CUSTOM_CACHE: Dict[_CacheKey, Tuple[object, object]] = {}
+_CUSTOM_SYMPLECTIC_CACHE: Dict[_CacheKey, Tuple[object, object]] = {}
+
+
+def _cache_key(var_names: Sequence[str], eq_lines: Sequence[str], param_names: Sequence[str]) -> _CacheKey:
+    return tuple(var_names), tuple(eq_lines), tuple(param_names)
 
 
 def _require_numba():
@@ -33,67 +41,24 @@ def _require_numba():
     return nb
 
 
-def _expr_to_code(expr: sp.Expr) -> str:
-    try:
-        code = cast(str, pycode(expr, standard="numpy"))
-    except ValueError:
-        # Sympy >= 1.14 accepts only "python3" as standard.
-        code = cast(str, pycode(expr, standard="python3"))
-    return str(code).replace("numpy.", "np.")
-
-
-def _parse_expressions(
-    var_names: Sequence[str],
-    eq_lines: Sequence[str],
-    param_names: Sequence[str],
-) -> Tuple[List[sp.Expr], Sequence[sp.Symbol], Sequence[sp.Symbol]]:
-    n = len(var_names)
-    if len(eq_lines) != n:
-        raise ValueError(f"Need exactly {n} equations (one per variable). Got {len(eq_lines)}.")
-
-    t_sym = sp.Symbol("t")
-    orig_var_syms = sp.symbols(list(var_names))
-    if isinstance(orig_var_syms, sp.Symbol):
-        orig_var_syms = (orig_var_syms,)
-    orig_param_syms = {k: sp.Symbol(k) for k in param_names}
-
-    locals_dict = {
-        **SAFE_FUNCS,
-        "t": t_sym,
-        **{name: sym for name, sym in zip(var_names, orig_var_syms)},
-        **orig_param_syms,
+def _numpy_namespace() -> dict:
+    """Globals for exec() — numpy aliases keep generated code self-contained."""
+    return {
+        "np": np,
+        "math": math,
+        "sin": np.sin, "cos": np.cos, "tan": np.tan,
+        "exp": np.exp, "log": np.log, "sqrt": np.sqrt,
+        "sinh": np.sinh, "cosh": np.cosh, "tanh": np.tanh,
+        "abs": np.abs,
     }
 
-    exprs: List[sp.Expr] = []
-    for i, line in enumerate(eq_lines):
-        s = (line or "").strip()
-        if not s:
-            raise ValueError(f"Equation {i+1} is empty.")
-        exprs.append(sp.sympify(s, locals=locals_dict))
 
-    missing = (
-        set().union(*(e.free_symbols for e in exprs))
-        - {t_sym}
-        - set(orig_var_syms)
-        - set(orig_param_syms.values())
-    )
-    if missing:
-        missing_names = ", ".join(sorted(str(sym) for sym in missing))
-        raise ValueError(f"Missing parameters in equations: {missing_names}")
-
-    safe_var_syms = sp.symbols([f"_x{i}" for i in range(n)])
-    if isinstance(safe_var_syms, sp.Symbol):
-        safe_var_syms = (safe_var_syms,)
-    safe_param_syms = sp.symbols([f"_p{i}" for i in range(len(param_names))])
-    if isinstance(safe_param_syms, sp.Symbol):
-        safe_param_syms = (safe_param_syms,)
-
-    subs_map = {
-        **{orig_var_syms[i]: safe_var_syms[i] for i in range(n)},
-        **{orig_param_syms[name]: safe_param_syms[i] for i, name in enumerate(param_names)},
-    }
-    exprs_safe = [expr.xreplace(subs_map) for expr in exprs]
-    return exprs_safe, safe_var_syms, safe_param_syms
+def _compile_and_jit(src: str, *names: str) -> Tuple[object, ...]:
+    """exec the source and JIT-decorate each named function. Returns them in order."""
+    nb_mod = _require_numba()
+    ns = _numpy_namespace()
+    exec(src, ns)
+    return tuple(nb_mod.njit(cache=False, fastmath=True)(ns[name]) for name in names)
 
 
 def build_custom_numba_rhs(
@@ -101,42 +66,14 @@ def build_custom_numba_rhs(
     eq_lines: Sequence[str],
     param_names: Sequence[str],
 ):
-    nb = _require_numba()
-    key = (tuple(var_names), tuple(eq_lines), tuple(param_names))
+    key = _cache_key(var_names, eq_lines, param_names)
     cached = _CUSTOM_CACHE.get(key)
     if cached is not None and cached[0] is not None:
         return cached[0]
 
-    exprs, safe_vars, safe_params = _parse_expressions(var_names, eq_lines, param_names)
-
-    n = len(exprs)
-    lines = ["def rhs(t, y, p):"]
-    for i in range(n):
-        lines.append(f"    {safe_vars[i]} = y[{i}]")
-    for i in range(len(param_names)):
-        lines.append(f"    {safe_params[i]} = p[{i}]")
-    lines.append(f"    out = np.empty({n}, dtype=np.float64)")
-    for i, expr in enumerate(exprs):
-        lines.append(f"    out[{i}] = {_expr_to_code(expr)}")
-    lines.append("    return out")
-    src = "\n".join(lines)
-    ns = {
-        "np": np,
-        "math": math,
-        "sin": np.sin,
-        "cos": np.cos,
-        "tan": np.tan,
-        "exp": np.exp,
-        "log": np.log,
-        "sqrt": np.sqrt,
-        "sinh": np.sinh,
-        "cosh": np.cosh,
-        "tanh": np.tanh,
-        "abs": np.abs,
-    }
-    exec(src, ns)
-    rhs_py = ns["rhs"]
-    rhs_nb = nb.njit(cache=False, fastmath=True)(rhs_py)
+    safe_exprs, safe_vars, safe_params = parse_safe_exprs(var_names, eq_lines, param_names)
+    src = render_rhs_source(safe_exprs, safe_vars, safe_params, len(param_names))
+    (rhs_nb,) = _compile_and_jit(src, "rhs")
 
     _CUSTOM_CACHE[key] = (rhs_nb, cached[1] if cached is not None else None)
     return rhs_nb
@@ -147,58 +84,15 @@ def build_custom_numba_rhs_and_jacobian(
     eq_lines: Sequence[str],
     param_names: Sequence[str],
 ):
-    nb = _require_numba()
-    key = (tuple(var_names), tuple(eq_lines), tuple(param_names))
+    key = _cache_key(var_names, eq_lines, param_names)
     cached = _CUSTOM_CACHE.get(key)
     if cached is not None and cached[0] is not None and cached[1] is not None:
         return cached[0], cached[1]
 
-    exprs, safe_vars, safe_params = _parse_expressions(var_names, eq_lines, param_names)
-    J = sp.Matrix(exprs).jacobian(list(safe_vars))
-    n = len(exprs)
-
-    rhs_lines = ["def rhs(t, y, p):"]
-    for i in range(n):
-        rhs_lines.append(f"    {safe_vars[i]} = y[{i}]")
-    for i in range(len(param_names)):
-        rhs_lines.append(f"    {safe_params[i]} = p[{i}]")
-    rhs_lines.append(f"    out = np.empty({n}, dtype=np.float64)")
-    for i, expr in enumerate(exprs):
-        rhs_lines.append(f"    out[{i}] = {_expr_to_code(expr)}")
-    rhs_lines.append("    return out")
-
-    jac_lines = ["def jac(t, y, p):"]
-    for i in range(n):
-        jac_lines.append(f"    {safe_vars[i]} = y[{i}]")
-    for i in range(len(param_names)):
-        jac_lines.append(f"    {safe_params[i]} = p[{i}]")
-    jac_lines.append(f"    out = np.empty(({n}, {n}), dtype=np.float64)")
-    for i in range(n):
-        for j in range(n):
-            jac_lines.append(f"    out[{i}, {j}] = {_expr_to_code(J[i, j])}")
-    jac_lines.append("    return out")
-
-    src = "\n".join(rhs_lines + [""] + jac_lines)
-    ns = {
-        "np": np,
-        "math": math,
-        "sin": np.sin,
-        "cos": np.cos,
-        "tan": np.tan,
-        "exp": np.exp,
-        "log": np.log,
-        "sqrt": np.sqrt,
-        "sinh": np.sinh,
-        "cosh": np.cosh,
-        "tanh": np.tanh,
-        "abs": np.abs,
-    }
-    exec(src, ns)
-    rhs_py = ns["rhs"]
-    jac_py = ns["jac"]
-
-    rhs_nb = nb.njit(cache=False, fastmath=True)(rhs_py)
-    jac_nb = nb.njit(cache=False, fastmath=True)(jac_py)
+    safe_exprs, safe_vars, safe_params = parse_safe_exprs(var_names, eq_lines, param_names)
+    rhs_src = render_rhs_source(safe_exprs, safe_vars, safe_params, len(param_names))
+    jac_src = render_jacobian_source(safe_exprs, safe_vars, safe_params, len(param_names))
+    rhs_nb, jac_nb = _compile_and_jit(rhs_src + "\n\n" + jac_src, "rhs", "jac")
 
     _CUSTOM_CACHE[key] = (rhs_nb, jac_nb)
     return rhs_nb, jac_nb
@@ -209,128 +103,18 @@ def build_custom_numba_symplectic_functions(
     eq_lines: Sequence[str],
     param_names: Sequence[str],
 ):
-    nb = _require_numba()
-    key = (tuple(var_names), tuple(eq_lines), tuple(param_names))
+    key = _cache_key(var_names, eq_lines, param_names)
     cached = _CUSTOM_SYMPLECTIC_CACHE.get(key)
     if cached is not None:
         return cached
 
-    n = len(var_names)
-    if n % 2 != 0:
-        raise ValueError("Symplectic solvers require an even number of variables [q..., p...].")
-    if len(eq_lines) != n:
-        raise ValueError(f"Need exactly {n} equations (one per variable). Got {len(eq_lines)}.")
-
-    n_q = n // 2
-    t_sym = sp.Symbol("t")
-    orig_var_syms = sp.symbols(list(var_names))
-    if isinstance(orig_var_syms, sp.Symbol):
-        orig_var_syms = (orig_var_syms,)
-    q_syms = orig_var_syms[:n_q]
-    p_syms = orig_var_syms[n_q:]
-    orig_param_syms = {k: sp.Symbol(k) for k in param_names}
-
-    locals_dict = {
-        **SAFE_FUNCS,
-        "t": t_sym,
-        **{name: sym for name, sym in zip(var_names, orig_var_syms)},
-        **orig_param_syms,
-    }
-
-    exprs: List[sp.Expr] = []
-    for i, line in enumerate(eq_lines):
-        s = (line or "").strip()
-        if not s:
-            raise ValueError(f"Equation {i+1} is empty.")
-        exprs.append(sp.sympify(s, locals=locals_dict))
-
-    missing = (
-        set().union(*(e.free_symbols for e in exprs))
-        - {t_sym}
-        - set(orig_var_syms)
-        - set(orig_param_syms.values())
+    dq_safe, dp_safe, safe_vars, safe_params, n_q = parse_symplectic_safe_exprs(
+        var_names, eq_lines, param_names
     )
-    if missing:
-        missing_names = ", ".join(sorted(str(sym) for sym in missing))
-        raise ValueError(f"Missing parameters in equations: {missing_names}")
+    n_params = len(param_names)
+    dq_src = render_symplectic_dqdt_source(dq_safe, safe_vars, safe_params, n_params, n_q)
+    dp_src = render_symplectic_dpdt_source(dp_safe, safe_vars, safe_params, n_params, n_q)
+    dq_nb, dp_nb = _compile_and_jit(dq_src + "\n\n" + dp_src, "dq_dt", "dp_dt")
 
-    dq_exprs = exprs[:n_q]
-    dp_exprs = exprs[n_q:]
-    q_set = set(q_syms)
-    p_set = set(p_syms)
-
-    for i, expr in enumerate(dq_exprs):
-        bad = expr.free_symbols & q_set
-        if bad:
-            bad_names = ", ".join(sorted(str(sym) for sym in bad))
-            raise ValueError(
-                f"Symplectic dq/dt equation {i+1} depends on q vars: {bad_names}."
-            )
-
-    for i, expr in enumerate(dp_exprs):
-        bad = expr.free_symbols & p_set
-        if bad:
-            bad_names = ", ".join(sorted(str(sym) for sym in bad))
-            eq_idx = n_q + i + 1
-            raise ValueError(
-                f"Symplectic dp/dt equation {eq_idx} depends on p vars: {bad_names}."
-            )
-
-    safe_var_syms = sp.symbols([f"_x{i}" for i in range(n)])
-    if isinstance(safe_var_syms, sp.Symbol):
-        safe_var_syms = (safe_var_syms,)
-    safe_param_syms = sp.symbols([f"_p{i}" for i in range(len(param_names))])
-    if isinstance(safe_param_syms, sp.Symbol):
-        safe_param_syms = (safe_param_syms,)
-
-    subs_map = {
-        **{orig_var_syms[i]: safe_var_syms[i] for i in range(n)},
-        **{orig_param_syms[name]: safe_param_syms[i] for i, name in enumerate(param_names)},
-    }
-    dq_exprs_safe = [expr.xreplace(subs_map) for expr in dq_exprs]
-    dp_exprs_safe = [expr.xreplace(subs_map) for expr in dp_exprs]
-
-    dq_lines = ["def dq_dt(t, p, params):"]
-    for i in range(n_q):
-        dq_lines.append(f"    {safe_var_syms[n_q + i]} = p[{i}]")
-    for i in range(len(param_names)):
-        dq_lines.append(f"    {safe_param_syms[i]} = params[{i}]")
-    dq_lines.append(f"    out = np.empty({n_q}, dtype=np.float64)")
-    for i, expr in enumerate(dq_exprs_safe):
-        dq_lines.append(f"    out[{i}] = {_expr_to_code(expr)}")
-    dq_lines.append("    return out")
-
-    dp_lines = ["def dp_dt(t, q, params):"]
-    for i in range(n_q):
-        dp_lines.append(f"    {safe_var_syms[i]} = q[{i}]")
-    for i in range(len(param_names)):
-        dp_lines.append(f"    {safe_param_syms[i]} = params[{i}]")
-    dp_lines.append(f"    out = np.empty({n_q}, dtype=np.float64)")
-    for i, expr in enumerate(dp_exprs_safe):
-        dp_lines.append(f"    out[{i}] = {_expr_to_code(expr)}")
-    dp_lines.append("    return out")
-
-    src = "\n".join(dq_lines + [""] + dp_lines)
-    ns = {
-        "np": np,
-        "math": math,
-        "sin": np.sin,
-        "cos": np.cos,
-        "tan": np.tan,
-        "exp": np.exp,
-        "log": np.log,
-        "sqrt": np.sqrt,
-        "sinh": np.sinh,
-        "cosh": np.cosh,
-        "tanh": np.tanh,
-        "abs": np.abs,
-    }
-    exec(src, ns)
-    dq_dt_py = ns["dq_dt"]
-    dp_dt_py = ns["dp_dt"]
-
-    dq_dt_nb = nb.njit(cache=False, fastmath=True)(dq_dt_py)
-    dp_dt_nb = nb.njit(cache=False, fastmath=True)(dp_dt_py)
-
-    _CUSTOM_SYMPLECTIC_CACHE[key] = (dq_dt_nb, dp_dt_nb)
-    return dq_dt_nb, dp_dt_nb
+    _CUSTOM_SYMPLECTIC_CACHE[key] = (dq_nb, dp_nb)
+    return dq_nb, dp_nb

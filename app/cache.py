@@ -1,24 +1,10 @@
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import streamlit as st
 
-from core.henon_heiles_system_rhs import (
-    henon_heiles_dp_dt,
-    henon_heiles_dq_dt,
-    henon_heiles_rhs,
-)
-from core.lorenz_system_rhs import lorenz_rhs
-from core.rossler_system_rhs import rossler_rhs
 from core.solver import integrate_system, integrate_system_rk4
 from core.symplectic_solver import integrate_system_symplectic_fr
-from core.poincare_sweep import (
-    poincare_section,
-    sweep_poincare,
-    sweep_poincare_events_ivp,
-    PoincareConfig,
-    SweepConfig,
-)
 from app.helpers import (
     build_custom_rhs,
     build_custom_symplectic_functions,
@@ -28,10 +14,143 @@ from app.params import (
     InitialConditions,
     IntegrationConfig,
     SolverTolerances,
-    SweepRunConfig,
     SystemConfig,
 )
 from app.services import get_builtin, resolve_solver, apply_to_solve_options
+
+
+def _max_store_steps(integration: IntegrationConfig) -> Optional[int]:
+    raw = getattr(integration, "max_store_steps", None)
+    if raw is None:
+        return None
+    try:
+        n = int(raw)
+    except Exception:
+        return None
+    return n if n > 0 else None
+
+
+def _custom_state(system: SystemConfig) -> Tuple[List[str], List[str], Optional[Dict[str, float]]]:
+    """For custom systems return (var_names, eq_lines, parsed_params); else empty/None."""
+    if system.key != "custom":
+        return [], [], None
+    custom = system.custom
+    return list(custom.var_names), list(custom.eq_lines), parse_params(custom.params_text)
+
+
+def _params_array_for_numba(
+    system: SystemConfig,
+    custom_params: Optional[Dict[str, float]],
+    param_names: List[str],
+) -> np.ndarray:
+    """Order params according to the Numba kernel's expected param_names."""
+    if system.key == "custom":
+        if custom_params is None:
+            raise ValueError("Custom parameters not initialized.")
+        source = custom_params
+    else:
+        source = get_builtin(system.key).extract_params(system)
+    return np.array([float(source[name]) for name in param_names], dtype=float)
+
+
+def _try_numba_rk4(
+    system: SystemConfig,
+    integration: IntegrationConfig,
+    y0: np.ndarray,
+    max_store_steps: Optional[int],
+    var_names: List[str],
+    eq_lines: List[str],
+    custom_params: Optional[Dict[str, float]],
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Compile and run the Numba RK4 kernel. Return None if unavailable/unsupported."""
+    try:
+        from core import numba_backend
+        if not numba_backend.numba_available():
+            return None
+
+        if system.key in ("lorenz", "rossler", "henon_heiles"):
+            rhs_nb, _jac_nb, param_names_tpl = numba_backend.build_builtin_system(system.key)
+            param_names = list(param_names_tpl)
+        elif system.key == "custom":
+            if custom_params is None:
+                raise ValueError("Custom parameters not initialized.")
+            from app import numba_custom
+            param_names = list(custom_params.keys())
+            rhs_nb = numba_custom.build_custom_numba_rhs(var_names, eq_lines, param_names)
+        else:
+            return None
+
+        params_arr = _params_array_for_numba(system, custom_params, param_names)
+        rk4_nb = numba_backend.build_rk4_integrator(rhs_nb)
+        return rk4_nb(
+            y0,
+            float(integration.t0),
+            float(integration.tf),
+            float(integration.dt),
+            int(max_store_steps) if max_store_steps is not None else 0,
+            params_arr,
+        )
+    except Exception:
+        return None
+
+
+def _try_numba_symplectic(
+    system: SystemConfig,
+    integration: IntegrationConfig,
+    y0: np.ndarray,
+    max_store_steps: Optional[int],
+    var_names: List[str],
+    eq_lines: List[str],
+    custom_params: Optional[Dict[str, float]],
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Compile and run the Numba symplectic kernel. Return None if unavailable."""
+    try:
+        from core import numba_backend
+        if not numba_backend.numba_available():
+            return None
+
+        if system.key == "henon_heiles":
+            dq_dt_nb, dp_dt_nb, param_names_tpl = numba_backend.build_builtin_symplectic(system.key)
+            param_names = list(param_names_tpl)
+        elif system.key == "custom":
+            if custom_params is None:
+                raise ValueError("Custom parameters not initialized.")
+            from app import numba_custom
+            param_names = list(custom_params.keys())
+            dq_dt_nb, dp_dt_nb = numba_custom.build_custom_numba_symplectic_functions(
+                var_names, eq_lines, param_names
+            )
+        else:
+            return None
+
+        params_arr = _params_array_for_numba(system, custom_params, param_names)
+        fr_nb = numba_backend.build_symplectic_fr_integrator(dq_dt_nb, dp_dt_nb)
+        return fr_nb(
+            y0,
+            float(integration.t0),
+            float(integration.tf),
+            float(integration.dt),
+            int(max_store_steps) if max_store_steps is not None else 0,
+            params_arr,
+        )
+    except Exception:
+        return None
+
+
+def _build_scalar_symplectic_funcs(
+    system: SystemConfig,
+    var_names: List[str],
+    eq_lines: List[str],
+    custom_params: Optional[Dict[str, float]],
+) -> Tuple[Callable[[float, np.ndarray], np.ndarray], Callable[[float, np.ndarray], np.ndarray]]:
+    if system.key == "custom":
+        if custom_params is None:
+            raise ValueError("Custom parameters not initialized.")
+        return build_custom_symplectic_functions(var_names, eq_lines, custom_params)
+    adapter = get_builtin(system.key)
+    if adapter.dq_dp_builder is None:
+        raise ValueError("Symplectic solvers require Hamiltonian systems.")
+    return adapter.dq_dp_builder(system)
 
 
 @st.cache_data(show_spinner=False, max_entries=2)
@@ -41,36 +160,19 @@ def solve_cached(
     initial: InitialConditions,
     solve_tols: SolverTolerances,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Returns (t, y):
-      t: shape (n_steps,)
-      y: shape (n_vars, n_steps)
-    """
+    """Returns (t, y) — t shape (n_steps,), y shape (n_vars, n_steps)."""
     y0 = np.array(initial.y0, dtype=float)
-    max_store_steps_obj = getattr(integration, "max_store_steps", None)
-    max_store_steps: int | None = None
-    if max_store_steps_obj is not None:
-        try:
-            max_store_steps_i = int(max_store_steps_obj)
-            if max_store_steps_i > 0:
-                max_store_steps = max_store_steps_i
-        except Exception:
-            max_store_steps = None
+    max_store_steps = _max_store_steps(integration)
 
     policy = resolve_solver(getattr(integration, "solver_kind", "ivp"))
     solver_kind = policy.kind
     solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
     apply_to_solve_options(policy, solve_options)
 
-    rhs_fn = None
-    var_names: List[str] = []
-    eq_lines: List[str] = []
-    custom_params: Dict[str, float] | None = None
+    var_names, eq_lines, custom_params = _custom_state(system)
     if system.key == "custom":
-        custom = system.custom
-        var_names = list(custom.var_names)
-        eq_lines = list(custom.eq_lines)
-        custom_params = parse_params(custom.params_text)
+        if custom_params is None:
+            raise ValueError("Custom parameters not initialized.")
         rhs_fn = build_custom_rhs(var_names, eq_lines, custom_params)
     else:
         rhs_fn = get_builtin(system.key).rhs_builder(system)
@@ -80,48 +182,16 @@ def solve_cached(
             raise ValueError("Symplectic solvers require an even number of variables [q..., p...].")
         if system.key not in ("custom", "henon_heiles"):
             raise ValueError("Symplectic solvers require Hamiltonian systems.")
-        try:
-            from core import numba_backend
-            if numba_backend.numba_available():
-                if system.key == "henon_heiles":
-                    dq_dt_nb, dp_dt_nb, param_names = numba_backend.build_builtin_symplectic(system.key)
-                    params_dict = get_builtin(system.key).extract_params(system)
-                    params_arr = np.array(
-                        [float(params_dict[name]) for name in param_names],
-                        dtype=float,
-                    )
-                else:
-                    from app import numba_custom
-                    if custom_params is None:
-                        raise ValueError("Custom parameters not initialized.")
-                    param_names = list(custom_params.keys())
-                    dq_dt_nb, dp_dt_nb = numba_custom.build_custom_numba_symplectic_functions(
-                        var_names, eq_lines, param_names
-                    )
-                    params_arr = np.array([float(custom_params[name]) for name in param_names], dtype=float)
-                fr_nb = numba_backend.build_symplectic_fr_integrator(dq_dt_nb, dp_dt_nb)
-                t_arr, y_arr = fr_nb(
-                    y0,
-                    float(integration.t0),
-                    float(integration.tf),
-                    float(integration.dt),
-                    int(max_store_steps) if max_store_steps is not None else 0,
-                    params_arr,
-                )
-                return t_arr, y_arr
-        except Exception:
-            pass
 
-        dq_dt_fn: Callable[[float, np.ndarray], np.ndarray]
-        dp_dt_fn: Callable[[float, np.ndarray], np.ndarray]
-        if system.key == "custom":
-            if custom_params is None:
-                raise ValueError("Custom parameters not initialized.")
-            dq_dt_fn, dp_dt_fn = build_custom_symplectic_functions(var_names, eq_lines, custom_params)
-        elif system.key == "henon_heiles":
-            dq_dt_fn, dp_dt_fn = get_builtin(system.key).dq_dp_builder(system)
-        else:
-            raise ValueError("Symplectic solvers require Hamiltonian systems.")
+        nb_result = _try_numba_symplectic(
+            system, integration, y0, max_store_steps, var_names, eq_lines, custom_params
+        )
+        if nb_result is not None:
+            return nb_result
+
+        dq_dt_fn, dp_dt_fn = _build_scalar_symplectic_funcs(
+            system, var_names, eq_lines, custom_params
+        )
         sol = integrate_system_symplectic_fr(
             rhs_fn,
             t_span=(integration.t0, integration.tf),
@@ -132,45 +202,11 @@ def solve_cached(
             dq_dt=dq_dt_fn,
         )
     elif solver_kind == "rk4":
-        try:
-            from core import numba_backend
-            if numba_backend.numba_available():
-                if system.key in ("lorenz", "rossler", "henon_heiles"):
-                    rhs_nb, _jac_nb, param_names = numba_backend.build_builtin_system(system.key)
-                    params_dict = get_builtin(system.key).extract_params(system)
-                    params_arr = np.array(
-                        [float(params_dict[name]) for name in param_names],
-                        dtype=float,
-                    )
-                    rk4_nb = numba_backend.build_rk4_integrator(rhs_nb)
-                    t_arr, y_arr = rk4_nb(
-                        y0,
-                        float(integration.t0),
-                        float(integration.tf),
-                        float(integration.dt),
-                        int(max_store_steps) if max_store_steps is not None else 0,
-                        params_arr,
-                    )
-                    return t_arr, y_arr
-                if system.key == "custom":
-                    from app import numba_custom
-                    if custom_params is None:
-                        raise ValueError("Custom parameters not initialized.")
-                    param_names = list(custom_params.keys())
-                    rhs_nb = numba_custom.build_custom_numba_rhs(var_names, eq_lines, param_names)
-                    params_arr = np.array([float(custom_params[name]) for name in param_names], dtype=float)
-                    rk4_nb = numba_backend.build_rk4_integrator(rhs_nb)
-                    t_arr, y_arr = rk4_nb(
-                        y0,
-                        float(integration.t0),
-                        float(integration.tf),
-                        float(integration.dt),
-                        int(max_store_steps) if max_store_steps is not None else 0,
-                        params_arr,
-                    )
-                    return t_arr, y_arr
-        except Exception:
-            pass
+        nb_result = _try_numba_rk4(
+            system, integration, y0, max_store_steps, var_names, eq_lines, custom_params
+        )
+        if nb_result is not None:
+            return nb_result
         sol = integrate_system_rk4(
             rhs_fn,
             t_span=(integration.t0, integration.tf),
@@ -187,144 +223,7 @@ def solve_cached(
             max_store_steps=max_store_steps,
             **solve_options,
         )
+
     if not sol.success:
         raise RuntimeError(sol.message)
-
     return sol.t, sol.y
-
-
-@st.cache_data(show_spinner=False)
-def sweep_cached(
-    system: SystemConfig,
-    integration: IntegrationConfig,
-    initial: InitialConditions,
-    sweep: SweepConfig,
-    poincare: PoincareConfig,
-    run_cfg: SweepRunConfig,
-    solve_tols: SolverTolerances,
-    solver_kind: str = "ivp",
-):
-    import pandas as pd
-
-    y0 = np.array(initial.y0, dtype=float)
-    policy = resolve_solver(solver_kind)
-    solver_kind = policy.kind
-    sweep_solver_kind = policy.sweep_kind
-    solve_options: Dict[str, Any] = dict(solve_tols.to_dict())
-    apply_to_solve_options(policy, solve_options)
-
-    # Build base rhs + base_params (everything except swept param)
-    if system.key == "custom":
-        custom = system.custom
-        var_names = list(custom.var_names)
-        eq_lines = list(custom.eq_lines)
-        params = parse_params(custom.params_text)
-        rhs_user = build_custom_rhs(var_names, eq_lines, params)
-
-        rhs_fn = None  # handled below
-        base_params = dict(params)
-    else:
-        adapter = get_builtin(system.key)
-        rhs_fn = adapter.rhs_fn
-        base_params = adapter.extract_params(system)
-
-    # -----------------------
-    # EARLY RETURN: custom
-    # -----------------------
-    if system.key == "custom":
-        custom = system.custom
-        var_names = list(custom.var_names)
-        eq_lines = list(custom.eq_lines)
-        base_params = parse_params(custom.params_text)
-
-        # Generate inclusive sweep values (safe for floats)
-        if sweep.step <= 0:
-            raise ValueError("Sweep step must be > 0.")
-        n = int(np.floor((sweep.stop - sweep.start) / sweep.step + 1e-12)) + 1
-        param_vals = sweep.start + sweep.step * np.arange(n, dtype=float)
-        param_vals = param_vals[param_vals <= sweep.stop + 1e-12]
-
-        rows = []
-        ycol = f"y{int(run_cfg.output_index)}"
-
-        for pv in param_vals:
-            params2 = dict(base_params)
-            params2[sweep.param_name] = float(pv)
-
-            rhs2 = build_custom_rhs(var_names, eq_lines, params2)
-
-            sol = integrate_system(
-                rhs2,
-                t_span=(integration.t0, integration.tf),
-                y0=y0,
-                t_step=integration.dt,
-                **solve_options,
-            )
-
-            if not sol.success:
-                continue
-
-            t_hits, y_hits = poincare_section(sol.t, sol.y, poincare, params=params2)
-
-            # Keep only last K Poincaré hits (bibliography-style)
-            MAX_HITS = 100
-
-            if t_hits.size > MAX_HITS:
-                t_hits = t_hits[-MAX_HITS:]
-                y_hits = y_hits[:, -MAX_HITS:]
-
-            if t_hits.size == 0:
-                continue
-
-            for j in range(t_hits.size):
-                rows.append({
-                    sweep.param_name: float(pv),
-                    "t_hit": float(t_hits[j]),
-                    ycol: float(y_hits[int(run_cfg.output_index), j]),
-                })
-
-        return pd.DataFrame(rows)
-
-    # -----------------------
-    # Non-custom: use sweep_poincare
-    # -----------------------
-    adapter = get_builtin(system.key)
-    rhs_fn = adapter.rhs_fn
-    base_params = adapter.extract_params(system)
-
-    # Event-based fast path (only for ivp + crossing)
-    if sweep_solver_kind == "ivp" and str(poincare.method).lower() == "crossing":
-        df = sweep_poincare_events_ivp(
-            rhs=rhs_fn,
-            y0=tuple(y0),
-            t_span=(float(integration.t0), float(integration.tf)),
-            base_params=base_params,
-            sweep=sweep,
-            poincare=poincare,
-            t_step=float(integration.dt),
-            solve_options=solve_options,
-            output_indices=[int(run_cfg.output_index)],
-            include_all_state=False,
-            warm_start=bool(run_cfg.warm_start),
-            max_hits=int(run_cfg.max_hits),
-            early_stop=bool(run_cfg.early_stop),
-            chunk_time=float(run_cfg.chunk_time),
-        )
-
-    else:
-        df = sweep_poincare(
-            rhs=rhs_fn,
-            y0=tuple(y0),
-            t_span=(float(integration.t0), float(integration.tf)),
-            base_params=base_params,
-            sweep=sweep,
-            poincare=poincare,
-            solver_kind=str(sweep_solver_kind),
-            t_step=float(integration.dt),
-            solve_options=solve_options,
-            output_indices=[int(run_cfg.output_index)],
-            include_all_state=False,
-            warm_start=bool(run_cfg.warm_start),
-        )
-
-    return df
