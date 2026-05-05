@@ -3,11 +3,11 @@ import json
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
 
 from app.export_utils import build_sweep_config
 from app.helpers import decimate_indices, downsample_xy
 from app.logic.reservoir_sampling import ensure_xy_reservoir, get_xy_reservoir_points
+from app.plotting import axis_bounds as _axis_bounds, plot_bifurcation, plot_lyapunov_sweep
 from app.services.sweep_state_service import (
     MAX_BIF_RESERVOIR_POINTS,
     MAX_SWEEP_ROWS_IN_MEMORY,
@@ -16,22 +16,8 @@ from app.services.sweep_state_service import (
 from app.ui.sweep_controls import SweepControlsResult
 
 
-COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 MAX_BIF_PLOT_POINTS = MAX_SWEEP_ROWS_IN_MEMORY + MAX_BIF_RESERVOIR_POINTS
 MAX_LYA_PLOT_POINTS = 200_000
-
-
-def _axis_bounds(values: np.ndarray) -> tuple[float, float]:
-    arr = np.asarray(values, dtype=float).ravel()
-    finite = arr[np.isfinite(arr)]
-    if finite.size == 0:
-        return -1.0, 1.0
-    vmin = float(np.min(finite))
-    vmax = float(np.max(finite))
-    if np.isclose(vmin, vmax):
-        delta = max(1e-6, 0.05 * max(1.0, abs(vmin)))
-        return vmin - delta, vmax + delta
-    return vmin, vmax
 
 
 def _save_sweep_config(ctrl: SweepControlsResult) -> None:
@@ -200,43 +186,26 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                     f"(missing {missing_params})."
                 )
 
-            fig, ax = plt.subplots(figsize=(6.0, 3.2))
-            fig.set_dpi(140)
-            if x_hist_plot.size > 0:
-                ax.scatter(
-                    x_hist_plot,
-                    y_hist_plot,
-                    s=2,
-                    c="black",
-                    marker=".",
-                    linewidths=0,
-                    alpha=0.8,
-                )
-            ax.scatter(
-                x_vals,
-                y_vals,
-                s=2,
-                c="black",
-                marker=".",
-                linewidths=0,
-                alpha=0.8,
-            )
-
-            for x_sep in st.session_state.get("sweep_boundaries", []):
-                ax.axvline(float(x_sep), color="magenta", linewidth=0.3)
-
-            ax.set_xlabel(ctrl.sweep_param)
             if ctrl.use_extrema:
-                ax.set_ylabel(f"{ctrl.out_var} local extrema ({ctrl.extrema_kind})")
+                ylabel = f"{ctrl.out_var} local extrema ({ctrl.extrema_kind})"
             else:
                 section_label = str(ctrl.section_expr).strip()
                 if section_label:
-                    ax.set_ylabel(f"{ctrl.out_var} on section ({section_label})")
+                    ylabel = f"{ctrl.out_var} on section ({section_label})"
                 else:
-                    ax.set_ylabel(f"{ctrl.out_var} on section ({ctrl.section_var}={ctrl.section_value})")
-            ax.set_xlim(float(x_view[0]), float(x_view[1]))
-            ax.set_ylim(float(y_view[0]), float(y_view[1]))
-            ax.grid(True, linewidth=0.3)
+                    ylabel = f"{ctrl.out_var} on section ({ctrl.section_var}={ctrl.section_value})"
+
+            fig = plot_bifurcation(
+                x_vals=x_vals,
+                y_vals=y_vals,
+                x_history=x_hist_plot if x_hist_plot.size > 0 else None,
+                y_history=y_hist_plot if x_hist_plot.size > 0 else None,
+                boundaries=st.session_state.get("sweep_boundaries", []),
+                xlabel=ctrl.sweep_param,
+                ylabel=ylabel,
+                x_view=x_view,
+                y_view=y_view,
+            )
             st.pyplot(fig, clear_figure=True)
             total_plotted = int(x_hist_plot.size + x_vals.size)
             st.caption(
@@ -322,29 +291,14 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                     st.session_state["lya_ylim_min_tab3"] = float(y_auto[0])
                     st.session_state["lya_ylim_max_tab3"] = float(y_auto[1])
 
-                fig_lya, ax_lya = plt.subplots(figsize=(6.0, 3.2))
-                fig_lya.set_dpi(140)
-
-                n_exps = plot_lambdas_plot.shape[1]
-                for k in range(n_exps):
-                    ax_lya.plot(
-                        param_vals_plot,
-                        plot_lambdas_plot[:, k],
-                        color=COLORS[k % len(COLORS)],
-                        linestyle="-",
-                        linewidth=1.1,
-                        label=f"lambda{k}",
-                    )
-
-                for x_sep in st.session_state.get("lya_boundaries", []):
-                    ax_lya.axvline(float(x_sep), color="magenta", linewidth=0.3)
-
-                ax_lya.set_xlabel(ctrl.sweep_param)
-                ax_lya.set_ylabel("Lyapunov exponents")
-                ax_lya.set_xlim(float(x_view[0]), float(x_view[1]))
-                ax_lya.set_ylim(float(y_view[0]), float(y_view[1]))
-                ax_lya.grid(True, linewidth=0.3)
-                ax_lya.legend(loc="best", fontsize=8)
+                fig_lya = plot_lyapunov_sweep(
+                    param_vals=param_vals_plot,
+                    lambdas=plot_lambdas_plot,
+                    boundaries=st.session_state.get("lya_boundaries", []),
+                    xlabel=ctrl.sweep_param,
+                    x_view=x_view,
+                    y_view=y_view,
+                )
                 st.pyplot(fig_lya, clear_figure=True)
                 st.caption(f"Plotted points: {len(param_vals_plot)}/{len(param_vals)}")
 

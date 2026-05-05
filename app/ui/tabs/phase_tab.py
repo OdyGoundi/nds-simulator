@@ -27,7 +27,12 @@ from app.params import (
     SolverTolerances,
     SystemConfig,
 )
-from app.plots import plot_phase_2d, plot_phase_3d
+from app.plotting import (
+    axis_bounds as _axis_bounds,
+    plot_phase_2d,
+    plot_phase_3d,
+    square_xy_bounds as _square_xy_bounds,
+)
 from app.state import (
     MAX_PLOT_POINTS_DEFAULT,
     MAX_PLOT_POINTS_UI_MAX,
@@ -65,33 +70,6 @@ class PhaseTabResult:
     lyapunov_transient_frac: float
     lyapunov_transient_steps: int
     qr_interval: float
-
-
-def _axis_bounds(values: np.ndarray) -> Tuple[float, float]:
-    arr = np.asarray(values, dtype=float).ravel()
-    finite = arr[np.isfinite(arr)]
-    if finite.size == 0:
-        return -1.0, 1.0
-    vmin = float(np.min(finite))
-    vmax = float(np.max(finite))
-    if np.isclose(vmin, vmax):
-        delta = max(1e-6, 0.05 * max(1.0, abs(vmin)))
-        return vmin - delta, vmax + delta
-    return vmin, vmax
-
-
-def _square_xy_bounds(
-    x_bounds: Tuple[float, float],
-    y_bounds: Tuple[float, float],
-) -> Tuple[Tuple[float, float], Tuple[float, float]]:
-    x0, x1 = float(x_bounds[0]), float(x_bounds[1])
-    y0, y1 = float(y_bounds[0]), float(y_bounds[1])
-    dx = max(1e-12, x1 - x0)
-    dy = max(1e-12, y1 - y0)
-    half_span = 0.5 * max(dx, dy)
-    x_mid = 0.5 * (x0 + x1)
-    y_mid = 0.5 * (y0 + y1)
-    return (x_mid - half_span, x_mid + half_span), (y_mid - half_span, y_mid + half_span)
 
 
 def render_phase_tab(

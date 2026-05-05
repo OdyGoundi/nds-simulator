@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 
 from app.helpers import downsample_trajectory
-from app.plots import plot_time_seiries_functional
+from app.plotting import LINE_COLORS, plot_single_variable, plot_time_series
 from app.ui.tabs.phase_tab import PhaseTabResult
 
 
@@ -105,7 +104,7 @@ def render_time_series_tab(tab, *, phase_result: PhaseTabResult) -> None:
         else:
             selected_indices = [var_names.index(name) for name in selected_names]
 
-            fig_ts = plot_time_seiries_functional(
+            fig_ts = plot_time_series(
                 t=t_ts_plot,
                 y=y_ts_plot,
                 indices=selected_indices,
@@ -125,27 +124,12 @@ def render_time_series_tab(tab, *, phase_result: PhaseTabResult) -> None:
         else:
             plot_indices = list(range(len(var_names)))
 
-        COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
         for plot_pos, var_idx in enumerate(plot_indices):
-            fig, ax = plt.subplots(figsize=(7.0, 2.5))
-            fig.set_dpi(140)
-            color = COLORS[plot_pos % len(COLORS)]
-
-            ax.plot(
-                t_ts_plot,
-                y_ts_plot[var_idx, :],
-                linewidth=0.9,
-                label=var_names[var_idx],
-                color=color,
+            fig = plot_single_variable(
+                t=t_ts_plot,
+                y_var=y_ts_plot[var_idx, :],
+                var_name=var_names[var_idx],
+                title=f"{system_label} – {var_names[var_idx]} vs time",
+                color=LINE_COLORS[plot_pos % len(LINE_COLORS)],
             )
-            ax.set_title(
-                f"{system_label} – {var_names[var_idx]} vs time",
-                fontsize=10,
-            )
-            ax.set_xlabel("t", fontsize=9)
-            ax.set_ylabel(var_names[var_idx], fontsize=9)
-            ax.tick_params(labelsize=8)
-            ax.grid(True, linewidth=0.3)
-            ax.legend(loc="best")
-
             st.pyplot(fig, clear_figure=True)
