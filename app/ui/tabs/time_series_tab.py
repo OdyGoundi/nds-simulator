@@ -5,6 +5,7 @@ import streamlit as st
 
 from app.helpers import downsample_trajectory
 from app.plotting import LINE_COLORS, plot_single_variable, plot_time_series
+from app.state import TimeSeriesKeys
 from app.ui.tabs.phase_tab import PhaseTabResult
 
 
@@ -24,26 +25,26 @@ def render_time_series_tab(tab, *, phase_result: PhaseTabResult) -> None:
         time_step_ui = max(float(integration.dt), 1e-6)
         current_ts_range = (float(t_min), float(t_max))
 
-        if "ts_window_start_tab2" not in st.session_state:
-            st.session_state["ts_window_start_tab2"] = t_min
-        if "ts_window_end_tab2" not in st.session_state:
-            st.session_state["ts_window_end_tab2"] = t_max
-        if "ts_window_range_tab2" not in st.session_state:
-            st.session_state["ts_window_range_tab2"] = current_ts_range
+        if TimeSeriesKeys.WINDOW_START not in st.session_state:
+            st.session_state[TimeSeriesKeys.WINDOW_START] = t_min
+        if TimeSeriesKeys.WINDOW_END not in st.session_state:
+            st.session_state[TimeSeriesKeys.WINDOW_END] = t_max
+        if TimeSeriesKeys.WINDOW_RANGE not in st.session_state:
+            st.session_state[TimeSeriesKeys.WINDOW_RANGE] = current_ts_range
 
         # Reset to full range whenever the available integration window changes.
-        if tuple(st.session_state.get("ts_window_range_tab2", ())) != current_ts_range:
-            st.session_state["ts_window_start_tab2"] = t_min
-            st.session_state["ts_window_end_tab2"] = t_max
-            st.session_state["ts_window_range_tab2"] = current_ts_range
+        if tuple(st.session_state.get(TimeSeriesKeys.WINDOW_RANGE, ())) != current_ts_range:
+            st.session_state[TimeSeriesKeys.WINDOW_START] = t_min
+            st.session_state[TimeSeriesKeys.WINDOW_END] = t_max
+            st.session_state[TimeSeriesKeys.WINDOW_RANGE] = current_ts_range
 
         # Keep persisted values inside current bounds when t0/tf/transient changes.
-        st.session_state["ts_window_start_tab2"] = min(
-            max(float(st.session_state["ts_window_start_tab2"]), t_min),
+        st.session_state[TimeSeriesKeys.WINDOW_START] = min(
+            max(float(st.session_state[TimeSeriesKeys.WINDOW_START]), t_min),
             t_max,
         )
-        st.session_state["ts_window_end_tab2"] = min(
-            max(float(st.session_state["ts_window_end_tab2"]), t_min),
+        st.session_state[TimeSeriesKeys.WINDOW_END] = min(
+            max(float(st.session_state[TimeSeriesKeys.WINDOW_END]), t_min),
             t_max,
         )
 
@@ -58,20 +59,20 @@ def render_time_series_tab(tab, *, phase_result: PhaseTabResult) -> None:
                 "start time",
                 min_value=t_min,
                 max_value=t_max,
-                value=float(st.session_state["ts_window_start_tab2"]),
+                value=float(st.session_state[TimeSeriesKeys.WINDOW_START]),
                 step=time_step_ui,
                 format="%.6f",
-                key="ts_window_start_tab2",
+                key=TimeSeriesKeys.WINDOW_START,
             )
         with twc2:
             t_view_end = st.number_input(
                 "end time",
                 min_value=t_min,
                 max_value=t_max,
-                value=float(st.session_state["ts_window_end_tab2"]),
+                value=float(st.session_state[TimeSeriesKeys.WINDOW_END]),
                 step=time_step_ui,
                 format="%.6f",
-                key="ts_window_end_tab2",
+                key=TimeSeriesKeys.WINDOW_END,
             )
 
         if float(t_view_start) >= float(t_view_end):

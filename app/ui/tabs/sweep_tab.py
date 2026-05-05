@@ -3,6 +3,7 @@ from pathlib import Path
 import streamlit as st
 
 from app.params import InitialConditions, IntegrationConfig, SolverTolerances, SystemConfig
+from app.state import LyapunovDataKeys, SweepDataKeys
 from app.services.sweep_run_service import (
     execute_cont_bif_sweep,
     execute_cont_lya_sweep,
@@ -56,8 +57,8 @@ def render_sweep_tab(
             )
 
         elif ctrl.run_cont:
-            acc_df = st.session_state.get("sweep_acc_df", None)
-            last_pv_state = st.session_state.get("sweep_last_pv", None)
+            acc_df = st.session_state.get(SweepDataKeys.ACC_DF, None)
+            last_pv_state = st.session_state.get(SweepDataKeys.LAST_PV, None)
             if acc_df is None or last_pv_state is None:
                 st.warning("No previous sweep found. Run 'Generate Bifurcation Diagram' first.")
                 st.stop()
@@ -81,8 +82,8 @@ def render_sweep_tab(
             )
 
         if ctrl.run_lya_cont:
-            acc_data = st.session_state.get("lya_acc_data", None)
-            last_pv_lya = st.session_state.get("lya_last_pv", None)
+            acc_data = st.session_state.get(LyapunovDataKeys.ACC_DATA, None)
+            last_pv_lya = st.session_state.get(LyapunovDataKeys.LAST_PV, None)
             if acc_data is None or last_pv_lya is None:
                 st.warning("No previous Lyapunov sweep found. Run 'Generate Lyapunov Diagram' first.")
             else:
@@ -121,6 +122,6 @@ def render_sweep_tab(
             )
 
         if df_plot is None:
-            df_plot = st.session_state.get("sweep_acc_df", None)
+            df_plot = st.session_state.get(SweepDataKeys.ACC_DF, None)
 
         render_sweep_plots(ctrl, df_plot)

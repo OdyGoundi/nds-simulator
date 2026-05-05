@@ -18,6 +18,7 @@ from app.params import (
     SystemConfig,
 )
 from app.services import get_builtin
+from app.state import LyapunovDataKeys, SweepControlsKeys, SweepDataKeys
 from app.services.sweep_state_service import (
     MAX_BIF_RESERVOIR_POINTS,
     _init_sweep_state,
@@ -178,19 +179,19 @@ def render_sweep_controls(
         st.markdown("**Parameter sweep setup**")
         p1c1, p1c2, p1c3, p1c4 = st.columns([1, 1, 1, 1], gap="small")
         with p1c1:
-            sweep_param = st.selectbox("Sweep param", sweep_choices, index=0, key="sw_param_tab3")
+            sweep_param = st.selectbox("Sweep param", sweep_choices, index=0, key=SweepControlsKeys.PARAM)
         with p1c2:
-            sweep_start = st.number_input("start", value=0.0, step=0.1, format="%.6f", key="sw_start_tab3")
+            sweep_start = st.number_input("start", value=0.0, step=0.1, format="%.6f", key=SweepControlsKeys.START)
         with p1c3:
             sweep_stop = st.number_input(
                 "stop",
-                value=float(st.session_state["sweep_stop_internal"]),
+                value=float(st.session_state[SweepDataKeys.STOP_INTERNAL]),
                 step=0.1,
                 format="%.6f",
-                key="sw_stop_tab3",
+                key=SweepControlsKeys.STOP,
             )
         with p1c4:
-            sweep_step = st.number_input("step", value=0.1, step=0.01, format="%.6f", key="sw_step_tab3")
+            sweep_step = st.number_input("step", value=0.1, step=0.01, format="%.6f", key=SweepControlsKeys.STEP)
 
     with top_c2:
         st.markdown("**Sweep performance settings**")
@@ -202,7 +203,7 @@ def render_sweep_controls(
                 value=max(float(dt), 0.01),
                 step=0.01,
                 format="%.6f",
-                key="dt_sweep_tab3",
+                key=SweepControlsKeys.DT_SWEEP,
                 help="Time step used for sweep."
             )
         with p2c2:
@@ -212,7 +213,7 @@ def render_sweep_controls(
                 value=min(float(tf), 80.0),
                 step=5.0,
                 format="%.3f",
-                key="tf_sweep_tab3",
+                key=SweepControlsKeys.TF_SWEEP,
                 help="Final integration time for sweep."
             )
         with p2c3:
@@ -220,7 +221,7 @@ def render_sweep_controls(
                 "Sweep mode",
                 ["Bifurcation (reset ICs)", "Continuation (warm start)"],
                 index=0,
-                key="sweep_mode_tab3",
+                key=SweepControlsKeys.MODE,
                 help="Reset ICs = bibliography-style. Warm start = faster continuation."
             )
 
@@ -234,7 +235,7 @@ def render_sweep_controls(
                 value=3e-4,
                 step=1e-4,
                 format="%.1e",
-                key="rtol_sweep_tab3",
+                key=SweepControlsKeys.RTOL_SWEEP,
             )
         with p3c2:
             atol_sweep = st.number_input(
@@ -243,7 +244,7 @@ def render_sweep_controls(
                 value=1e-6,
                 step=1e-6,
                 format="%.1e",
-                key="atol_sweep_tab3",
+                key=SweepControlsKeys.ATOL_SWEEP,
             )
 
     warm_start = sweep_mode.startswith("Continuation")
@@ -269,7 +270,7 @@ def render_sweep_controls(
             "Parallel sweep",
             value=False,
             disabled=parallel_bif_disabled,
-            key="bif_parallel_tab3",
+            key=SweepControlsKeys.BIF_PARALLEL,
         )
         if warm_start:
             st.caption("Continuation mode: sequential (smooth).")
@@ -287,7 +288,7 @@ def render_sweep_controls(
             max_value=max_workers_ui_bif,
             value=workers_default_bif,
             step=1,
-            key="bif_workers_tab3",
+            key=SweepControlsKeys.BIF_WORKERS,
             disabled=parallel_bif_disabled or not parallel_bif,
         )
 
@@ -295,11 +296,11 @@ def render_sweep_controls(
             "Observable",
             [OBSERVABLE_POINCARE_LABEL, OBSERVABLE_EXTREMA_LABEL],
             index=0,
-            key="obs_kind_tab3",
+            key=SweepControlsKeys.OBS_KIND,
         )
         use_extrema = observable.startswith("Local extrema")
         if use_extrema:
-            extrema_kind = st.selectbox("Extrema", ["max", "min", "both"], index=0, key="ext_kind_tab3")
+            extrema_kind = st.selectbox("Extrema", ["max", "min", "both"], index=0, key=SweepControlsKeys.EXTREMA_KIND)
         else:
             extrema_kind = "max"
 
@@ -313,7 +314,7 @@ def render_sweep_controls(
                 "Section var",
                 var_names,
                 index=0,
-                key="sec_var_tab3",
+                key=SweepControlsKeys.SECTION_VAR,
                 disabled=use_extrema,
             )
             section_index = var_names.index(section_var)
@@ -323,7 +324,7 @@ def render_sweep_controls(
                 value=0.0,
                 step=0.1,
                 format="%.6f",
-                key="sec_val_tab3",
+                key=SweepControlsKeys.SECTION_VAL,
                 disabled=use_extrema,
             )
         with r1c3:
@@ -331,7 +332,7 @@ def render_sweep_controls(
                 "Direction",
                 ["+1 (up)", "-1 (down)", "0 (both)"],
                 index=0,
-                key="sec_dir_tab3",
+                key=SweepControlsKeys.SECTION_DIR,
                 disabled=use_extrema,
             )
             direction = +1 if direction_label.startswith("+1") else (-1 if direction_label.startswith("-1") else 0)
@@ -340,7 +341,7 @@ def render_sweep_controls(
                 "Output var (plotted)",
                 var_names,
                 index=min(2, len(var_names) - 1),
-                key="out_var_tab3",
+                key=SweepControlsKeys.OUTPUT_VAR,
             )
             output_index = var_names.index(out_var)
 
@@ -349,7 +350,7 @@ def render_sweep_controls(
         section_expr = st.text_input(
             "Section equation (optional, overrides plane)",
             value="",
-            key="sec_expr_tab3",
+            key=SweepControlsKeys.SECTION_EXPR,
             help=(
                 f"Vars: {var_hint}. Params: {param_hint}."
             ),
@@ -366,7 +367,7 @@ def render_sweep_controls(
                 "Method",
                 ["crossing", "slab"],
                 index=0,
-                key="sec_method_tab3",
+                key=SweepControlsKeys.SECTION_METHOD,
                 disabled=use_extrema,
             )
         with r2c2:
@@ -375,7 +376,7 @@ def render_sweep_controls(
                 value=1e-3,
                 step=1e-3,
                 format="%.1e",
-                key="sec_tol_tab3",
+                key=SweepControlsKeys.SECTION_TOL,
                 disabled=use_extrema,
             )
         with r2c3:
@@ -386,7 +387,7 @@ def render_sweep_controls(
             early_stop = st.checkbox(
                 "Early stop (events)",
                 value=True,
-                key="early_stop_tab3",
+                key=SweepControlsKeys.EARLY_STOP,
                 disabled=use_extrema,
                 help="Stop each run after collecting enough Poincaré hits."
             )
@@ -397,7 +398,7 @@ def render_sweep_controls(
                 max_value=2000,
                 value=200,
                 step=10,
-                key="max_hits_tab3",
+                key=SweepControlsKeys.MAX_HITS,
                 disabled=(not early_stop) and (not use_extrema),
                 help="Maximum number of hits kept per parameter value."
             )
@@ -408,7 +409,7 @@ def render_sweep_controls(
                 value=2.0,
                 step=0.5,
                 format="%.2f",
-                key="chunk_time_tab3",
+                key=SweepControlsKeys.CHUNK_TIME,
                 disabled=use_extrema or (not early_stop),
                 help="Integration time window for event detection."
             )
@@ -422,7 +423,7 @@ def render_sweep_controls(
                 max_value=0.95,
                 value=0.75,
                 step=0.05,
-                key="sw_transient_frac_tab3",
+                key=SweepControlsKeys.TRANSIENT_FRAC,
                 help="Fraction of sweep integration steps to discard before crossings."
             )
         with r4c2:
@@ -438,22 +439,22 @@ def render_sweep_controls(
         with bbtn3:
             run_cont = st.button("Continue Bifurcation", type="secondary", key="run_cont_sweep")
         if reset_bif:
-            st.session_state["sweep_acc_df"] = None
-            st.session_state["sweep_last_pv"] = None
-            st.session_state["sweep_boundaries"] = []
-            st.session_state["sweep_meta"] = {}
-            st.session_state["sweep_rows_clipped"] = False
-            st.session_state["sweep_reservoir"] = make_xy_reservoir(
+            st.session_state[SweepDataKeys.ACC_DF] = None
+            st.session_state[SweepDataKeys.LAST_PV] = None
+            st.session_state[SweepDataKeys.BOUNDARIES] = []
+            st.session_state[SweepDataKeys.META] = {}
+            st.session_state[SweepDataKeys.ROWS_CLIPPED] = False
+            st.session_state[SweepDataKeys.RESERVOIR] = make_xy_reservoir(
                 capacity=MAX_BIF_RESERVOIR_POINTS
             )
             st.success("Bifurcation sweep cleared.")
 
         have_prev_bif = (
-            st.session_state.get("sweep_acc_df", None) is not None and
-            st.session_state.get("sweep_last_pv", None) is not None
+            st.session_state.get(SweepDataKeys.ACC_DF, None) is not None and
+            st.session_state.get(SweepDataKeys.LAST_PV, None) is not None
         )
         if have_prev_bif:
-            last_pv_ui = float(st.session_state["sweep_last_pv"])
+            last_pv_ui = float(st.session_state[SweepDataKeys.LAST_PV])
             continue_stop = st.number_input(
                 f"Continue bifurcation to (stop) [{sweep_param}]",
                 min_value=last_pv_ui + float(sweep_step),
@@ -471,7 +472,7 @@ def render_sweep_controls(
             "Parallel sweep",
             value=False,
             disabled=parallel_disabled,
-            key="lya_parallel_tab3",
+            key=SweepControlsKeys.LYA_PARALLEL,
         )
         if warm_start:
             st.caption("Continuation mode: sequential (smooth).")
@@ -489,7 +490,7 @@ def render_sweep_controls(
             max_value=max_workers_ui,
             value=workers_default,
             step=1,
-            key="lya_workers_tab3",
+            key=SweepControlsKeys.LYA_WORKERS,
             disabled=parallel_disabled or not parallel_lya,
         )
 
@@ -499,13 +500,13 @@ def render_sweep_controls(
             value=0.1,
             step=0.01,
             format="%.4f",
-            key="qr_interval_lya_tab3",
+            key=SweepControlsKeys.QR_INTERVAL_LYA,
             help="Time between orthonormalizations during Lyapunov sweep.",
         )
         clip_lyapunov = st.checkbox(
             "Clip lower exponents",
             value=False,
-            key="clip_lyapunov_tab3",
+            key=SweepControlsKeys.CLIP_LYAPUNOV,
             help="Clamp very negative exponents for cleaner plots.",
         )
         clip_min = st.number_input(
@@ -513,7 +514,7 @@ def render_sweep_controls(
             value=-50.0,
             step=1.0,
             format="%.3f",
-            key="clip_min_lyapunov_tab3",
+            key=SweepControlsKeys.CLIP_MIN_LYAPUNOV,
             disabled=not clip_lyapunov,
         )
 
@@ -526,7 +527,7 @@ def render_sweep_controls(
                 max_value=0.95,
                 value=0.30,
                 step=0.05,
-                key="lya_transient_frac_tab3",
+                key=SweepControlsKeys.LYA_TRANSIENT_FRAC,
                 help="Fraction of sweep integration steps discarded before Lyapunov computation.",
             )
         with ltc2:
@@ -542,18 +543,18 @@ def render_sweep_controls(
         with lbtn3:
             run_lya_cont = st.button("Continue Lyapunov", type="secondary", key="run_cont_lya")
         if reset_lya:
-            st.session_state["lya_acc_data"] = None
-            st.session_state["lya_last_pv"] = None
-            st.session_state["lya_meta"] = {}
-            st.session_state["lya_boundaries"] = []
+            st.session_state[LyapunovDataKeys.ACC_DATA] = None
+            st.session_state[LyapunovDataKeys.LAST_PV] = None
+            st.session_state[LyapunovDataKeys.META] = {}
+            st.session_state[LyapunovDataKeys.BOUNDARIES] = []
             st.success("Lyapunov sweep cleared.")
 
         have_prev_lya = (
-            st.session_state.get("lya_acc_data", None) is not None and
-            st.session_state.get("lya_last_pv", None) is not None
+            st.session_state.get(LyapunovDataKeys.ACC_DATA, None) is not None and
+            st.session_state.get(LyapunovDataKeys.LAST_PV, None) is not None
         )
         if have_prev_lya:
-            last_pv_ui = float(st.session_state["lya_last_pv"])
+            last_pv_ui = float(st.session_state[LyapunovDataKeys.LAST_PV])
             continue_stop_lya = st.number_input(
                 f"Continue Lyapunov to (stop) [{sweep_param}]",
                 min_value=last_pv_ui + float(sweep_step),

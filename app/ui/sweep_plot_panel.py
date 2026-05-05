@@ -8,6 +8,7 @@ from app.export_utils import build_sweep_config
 from app.helpers import decimate_indices, downsample_xy
 from app.logic.reservoir_sampling import ensure_xy_reservoir, get_xy_reservoir_points
 from app.plotting import axis_bounds as _axis_bounds, plot_bifurcation, plot_lyapunov_sweep
+from app.state import BifPlotKeys, LyaPlotKeys, LyapunovDataKeys, SweepDataKeys
 from app.services.sweep_state_service import (
     MAX_BIF_RESERVOIR_POINTS,
     MAX_SWEEP_ROWS_IN_MEMORY,
@@ -65,7 +66,7 @@ def _save_sweep_config(ctrl: SweepControlsResult) -> None:
         sweep_fingerprint=ctrl.sweep_meta,
         lya_fingerprint=ctrl.lya_meta,
     )
-    st.session_state["sweep_config"] = sweep_config
+    st.session_state[SweepDataKeys.CONFIG] = sweep_config
     st.success("Sweep configuration saved. Download from the Export tab.")
 
 
@@ -83,10 +84,10 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
             x_vals = np.asarray(df_plot[ctrl.sweep_param].to_numpy(), dtype=float)
             y_vals = np.asarray(df_plot[ctrl.ycol].to_numpy(), dtype=float)
             reservoir_state = ensure_xy_reservoir(
-                st.session_state.get("sweep_reservoir"),
+                st.session_state.get(SweepDataKeys.RESERVOIR),
                 capacity=MAX_BIF_RESERVOIR_POINTS,
             )
-            st.session_state["sweep_reservoir"] = reservoir_state
+            st.session_state[SweepDataKeys.RESERVOIR] = reservoir_state
             x_hist_raw, y_hist_raw = get_xy_reservoir_points(reservoir_state)
             history_budget = max(0, int(MAX_BIF_PLOT_POINTS) - int(x_vals.size))
             if history_budget > 0 and x_hist_raw.size > 0:
@@ -100,7 +101,7 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
             else:
                 y_bounds_data = y_vals
             x_start = float(ctrl.sweep_start)
-            x_stop_data = float(st.session_state.get("sweep_last_pv", ctrl.sweep_stop))
+            x_stop_data = float(st.session_state.get(SweepDataKeys.LAST_PV, ctrl.sweep_stop))
             if not np.isfinite(x_stop_data):
                 x_stop_data = float(ctrl.sweep_stop)
             if x_stop_data <= x_start:
@@ -113,35 +114,35 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                 str(ctrl.ycol),
                 int(x_vals.size),
                 int(x_hist_plot.size),
-                int(st.session_state["sweep_reservoir"].get("seen", 0)),
+                int(st.session_state[SweepDataKeys.RESERVOIR].get("seen", 0)),
                 float(x_auto[0]),
                 float(x_auto[1]),
                 float(y_auto[0]),
                 float(y_auto[1]),
             )
-            if st.session_state.get("bif_bounds_sig_tab3") != bif_bounds_sig:
-                st.session_state["bif_xlim_min_tab3"] = float(x_auto[0])
-                st.session_state["bif_xlim_max_tab3"] = float(x_auto[1])
-                st.session_state["bif_ylim_min_tab3"] = float(y_auto[0])
-                st.session_state["bif_ylim_max_tab3"] = float(y_auto[1])
-                st.session_state["bif_bounds_sig_tab3"] = bif_bounds_sig
+            if st.session_state.get(BifPlotKeys.BOUNDS_SIG) != bif_bounds_sig:
+                st.session_state[BifPlotKeys.XLIM_MIN] = float(x_auto[0])
+                st.session_state[BifPlotKeys.XLIM_MAX] = float(x_auto[1])
+                st.session_state[BifPlotKeys.YLIM_MIN] = float(y_auto[0])
+                st.session_state[BifPlotKeys.YLIM_MAX] = float(y_auto[1])
+                st.session_state[BifPlotKeys.BOUNDS_SIG] = bif_bounds_sig
 
             x_view = (
-                float(st.session_state.get("bif_xlim_min_tab3", x_auto[0])),
-                float(st.session_state.get("bif_xlim_max_tab3", x_auto[1])),
+                float(st.session_state.get(BifPlotKeys.XLIM_MIN, x_auto[0])),
+                float(st.session_state.get(BifPlotKeys.XLIM_MAX, x_auto[1])),
             )
             y_view = (
-                float(st.session_state.get("bif_ylim_min_tab3", y_auto[0])),
-                float(st.session_state.get("bif_ylim_max_tab3", y_auto[1])),
+                float(st.session_state.get(BifPlotKeys.YLIM_MIN, y_auto[0])),
+                float(st.session_state.get(BifPlotKeys.YLIM_MAX, y_auto[1])),
             )
             if not (x_view[0] < x_view[1] and y_view[0] < y_view[1]):
                 st.warning("Invalid bifurcation axis limits detected. Reverting to data bounds.")
                 x_view = x_auto
                 y_view = y_auto
-                st.session_state["bif_xlim_min_tab3"] = float(x_auto[0])
-                st.session_state["bif_xlim_max_tab3"] = float(x_auto[1])
-                st.session_state["bif_ylim_min_tab3"] = float(y_auto[0])
-                st.session_state["bif_ylim_max_tab3"] = float(y_auto[1])
+                st.session_state[BifPlotKeys.XLIM_MIN] = float(x_auto[0])
+                st.session_state[BifPlotKeys.XLIM_MAX] = float(x_auto[1])
+                st.session_state[BifPlotKeys.YLIM_MIN] = float(y_auto[0])
+                st.session_state[BifPlotKeys.YLIM_MAX] = float(y_auto[1])
 
             st.markdown("**Axis limits (view window)**")
             lim_c1, lim_c2, lim_c3, lim_c4 = st.columns([1, 1, 1, 1], gap="small")
@@ -149,25 +150,25 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                 st.number_input(
                     f"{ctrl.sweep_param} min",
                     format="%.6f",
-                    key="bif_xlim_min_tab3",
+                    key=BifPlotKeys.XLIM_MIN,
                 )
             with lim_c2:
                 st.number_input(
                     f"{ctrl.sweep_param} max",
                     format="%.6f",
-                    key="bif_xlim_max_tab3",
+                    key=BifPlotKeys.XLIM_MAX,
                 )
             with lim_c3:
                 st.number_input(
                     f"{ctrl.out_var} min",
                     format="%.6f",
-                    key="bif_ylim_min_tab3",
+                    key=BifPlotKeys.YLIM_MIN,
                 )
             with lim_c4:
                 st.number_input(
                     f"{ctrl.out_var} max",
                     format="%.6f",
-                    key="bif_ylim_max_tab3",
+                    key=BifPlotKeys.YLIM_MAX,
                 )
             st.caption(
                 f"Default bounds: {ctrl.sweep_param} [{x_auto[0]:.4g}, {x_auto[1]:.4g}], "
@@ -200,7 +201,7 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                 y_vals=y_vals,
                 x_history=x_hist_plot if x_hist_plot.size > 0 else None,
                 y_history=y_hist_plot if x_hist_plot.size > 0 else None,
-                boundaries=st.session_state.get("sweep_boundaries", []),
+                boundaries=st.session_state.get(SweepDataKeys.BOUNDARIES, []),
                 xlabel=ctrl.sweep_param,
                 ylabel=ylabel,
                 x_view=x_view,
@@ -212,7 +213,7 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                 f"Plotted points: recent {len(x_vals):,} + reservoir {len(x_hist_plot):,} = {total_plotted:,}"
             )
 
-            last_pv = st.session_state.get("sweep_last_pv", None)
+            last_pv = st.session_state.get(SweepDataKeys.LAST_PV, None)
             if last_pv is not None:
                 st.caption(f"Accumulated sweep up to {ctrl.sweep_param} = {float(last_pv):g} | Rows: {len(df_plot)}")
             else:
@@ -220,8 +221,8 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                     st.caption(f"Accumulated sweep | Rows: {len(df_plot)}")
                 except Exception:
                     pass
-            if bool(st.session_state.get("sweep_rows_clipped", False)):
-                reservoir_seen = int(st.session_state["sweep_reservoir"].get("seen", 0))
+            if bool(st.session_state.get(SweepDataKeys.ROWS_CLIPPED, False)):
+                reservoir_seen = int(st.session_state[SweepDataKeys.RESERVOIR].get("seen", 0))
                 st.caption(
                     f"Stored sweep rows are capped at {MAX_SWEEP_ROWS_IN_MEMORY:,} (recent full-resolution). "
                     f"Dropped history is kept as a reservoir sample up to {MAX_BIF_RESERVOIR_POINTS:,} "
@@ -230,7 +231,7 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
 
     with ctrl.right_col:
         st.divider()
-        lya_data = st.session_state.get("lya_acc_data", None)
+        lya_data = st.session_state.get(LyapunovDataKeys.ACC_DATA, None)
         if lya_data is None:
             st.info("No Lyapunov sweep data yet. Click 'Generate Lyapunov Diagram'.")
         else:
@@ -267,34 +268,34 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                     float(y_auto[0]),
                     float(y_auto[1]),
                 )
-                if st.session_state.get("lya_bounds_sig_tab3") != lya_bounds_sig:
-                    st.session_state["lya_xlim_min_tab3"] = float(x_auto[0])
-                    st.session_state["lya_xlim_max_tab3"] = float(x_auto[1])
-                    st.session_state["lya_ylim_min_tab3"] = float(y_auto[0])
-                    st.session_state["lya_ylim_max_tab3"] = float(y_auto[1])
-                    st.session_state["lya_bounds_sig_tab3"] = lya_bounds_sig
+                if st.session_state.get(LyaPlotKeys.BOUNDS_SIG) != lya_bounds_sig:
+                    st.session_state[LyaPlotKeys.XLIM_MIN] = float(x_auto[0])
+                    st.session_state[LyaPlotKeys.XLIM_MAX] = float(x_auto[1])
+                    st.session_state[LyaPlotKeys.YLIM_MIN] = float(y_auto[0])
+                    st.session_state[LyaPlotKeys.YLIM_MAX] = float(y_auto[1])
+                    st.session_state[LyaPlotKeys.BOUNDS_SIG] = lya_bounds_sig
 
                 x_view = (
-                    float(st.session_state.get("lya_xlim_min_tab3", x_auto[0])),
-                    float(st.session_state.get("lya_xlim_max_tab3", x_auto[1])),
+                    float(st.session_state.get(LyaPlotKeys.XLIM_MIN, x_auto[0])),
+                    float(st.session_state.get(LyaPlotKeys.XLIM_MAX, x_auto[1])),
                 )
                 y_view = (
-                    float(st.session_state.get("lya_ylim_min_tab3", y_auto[0])),
-                    float(st.session_state.get("lya_ylim_max_tab3", y_auto[1])),
+                    float(st.session_state.get(LyaPlotKeys.YLIM_MIN, y_auto[0])),
+                    float(st.session_state.get(LyaPlotKeys.YLIM_MAX, y_auto[1])),
                 )
                 if not (x_view[0] < x_view[1] and y_view[0] < y_view[1]):
                     st.warning("Invalid Lyapunov axis limits detected. Reverting to data bounds.")
                     x_view = x_auto
                     y_view = y_auto
-                    st.session_state["lya_xlim_min_tab3"] = float(x_auto[0])
-                    st.session_state["lya_xlim_max_tab3"] = float(x_auto[1])
-                    st.session_state["lya_ylim_min_tab3"] = float(y_auto[0])
-                    st.session_state["lya_ylim_max_tab3"] = float(y_auto[1])
+                    st.session_state[LyaPlotKeys.XLIM_MIN] = float(x_auto[0])
+                    st.session_state[LyaPlotKeys.XLIM_MAX] = float(x_auto[1])
+                    st.session_state[LyaPlotKeys.YLIM_MIN] = float(y_auto[0])
+                    st.session_state[LyaPlotKeys.YLIM_MAX] = float(y_auto[1])
 
                 fig_lya = plot_lyapunov_sweep(
                     param_vals=param_vals_plot,
                     lambdas=plot_lambdas_plot,
-                    boundaries=st.session_state.get("lya_boundaries", []),
+                    boundaries=st.session_state.get(LyapunovDataKeys.BOUNDARIES, []),
                     xlabel=ctrl.sweep_param,
                     x_view=x_view,
                     y_view=y_view,
@@ -308,25 +309,25 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                     st.number_input(
                         f"{ctrl.sweep_param} min",
                         format="%.6f",
-                        key="lya_xlim_min_tab3",
+                        key=LyaPlotKeys.XLIM_MIN,
                     )
                 with lim_c2:
                     st.number_input(
                         f"{ctrl.sweep_param} max",
                         format="%.6f",
-                        key="lya_xlim_max_tab3",
+                        key=LyaPlotKeys.XLIM_MAX,
                     )
                 with lim_c3:
                     st.number_input(
                         "lambda min",
                         format="%.6f",
-                        key="lya_ylim_min_tab3",
+                        key=LyaPlotKeys.YLIM_MIN,
                     )
                 with lim_c4:
                     st.number_input(
                         "lambda max",
                         format="%.6f",
-                        key="lya_ylim_max_tab3",
+                        key=LyaPlotKeys.YLIM_MAX,
                     )
                 st.caption(
                     f"Default bounds: {ctrl.sweep_param} [{x_auto[0]:.4g}, {x_auto[1]:.4g}], "
@@ -337,7 +338,7 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                     st.caption(f"Clipped exponents below {float(ctrl.clip_min):g} for plotting.")
                 if errors:
                     st.caption(f"Lyapunov sweep failures: {len(errors)}")
-                last_pv = st.session_state.get("lya_last_pv", None)
+                last_pv = st.session_state.get(LyapunovDataKeys.LAST_PV, None)
                 if last_pv is not None:
                     st.caption(f"Accumulated Lyapunov sweep up to {ctrl.sweep_param} = {float(last_pv):g}")
 
@@ -376,7 +377,7 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                 tf_default=float(ctrl.tf),
                 dt_default=float(ctrl.dt),
             )
-            st.session_state["sweep_config"] = loaded_sweep_cfg
+            st.session_state[SweepDataKeys.CONFIG] = loaded_sweep_cfg
             st.success("Sweep configuration loaded. Applying settings...")
             st.rerun()
         except Exception as exc:

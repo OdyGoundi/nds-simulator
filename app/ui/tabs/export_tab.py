@@ -18,6 +18,9 @@ from app.state import (
     TRAJ_EXPORT_READY_SIG_KEY,
     TRAJ_EXPORT_SOURCE_FULL,
     TRAJ_EXPORT_SOURCE_STORED,
+    ExportKeys,
+    LyapunovDataKeys,
+    SweepDataKeys,
 )
 from app.ui.tabs.phase_tab import PhaseTabResult
 
@@ -55,7 +58,7 @@ def render_export_tab(
                 key="dl_static_cfg",
             )
 
-        sweep_cfg = st.session_state.get("sweep_config", None)
+        sweep_cfg = st.session_state.get(SweepDataKeys.CONFIG, None)
         if sweep_cfg is None:
             st.info("No SweepParamConfig saved yet. Use Save configuration in Tab 3.")
         else:
@@ -104,7 +107,7 @@ def render_export_tab(
             with prep_c1:
                 prepare_full_export = st.button(
                     "Prepare full-resolution trajectory",
-                    key="prepare_full_traj_export_tab4",
+                    key=ExportKeys.PREPARE_FULL_TRAJ,
                     use_container_width=True,
                 )
             if prepare_full_export:
@@ -183,10 +186,10 @@ def render_export_tab(
                 )
             )
             n_chunks = int(np.ceil(traj_rows / float(chunk_rows)))
-            if "traj_export_chunk_index_tab4" in st.session_state:
-                st.session_state["traj_export_chunk_index_tab4"] = max(
+            if ExportKeys.TRAJ_CHUNK_INDEX in st.session_state:
+                st.session_state[ExportKeys.TRAJ_CHUNK_INDEX] = max(
                     1,
-                    min(int(st.session_state["traj_export_chunk_index_tab4"]), max(1, n_chunks)),
+                    min(int(st.session_state[ExportKeys.TRAJ_CHUNK_INDEX]), max(1, n_chunks)),
                 )
             chunk_idx = int(
                 st.number_input(
@@ -195,7 +198,7 @@ def render_export_tab(
                     max_value=max(1, n_chunks),
                     value=1,
                     step=1,
-                    key="traj_export_chunk_index_tab4",
+                    key=ExportKeys.TRAJ_CHUNK_INDEX,
                 )
             )
             start_row = (chunk_idx - 1) * chunk_rows
@@ -221,8 +224,8 @@ def render_export_tab(
         st.divider()
         st.markdown("**Export: Sweep (bifurcation / Poincaré)**")
 
-        df_sweep = st.session_state.get("last_sweep_df", None)
-        meta = st.session_state.get("last_sweep_meta", {})
+        df_sweep = st.session_state.get(SweepDataKeys.LAST_DF, None)
+        meta = st.session_state.get(SweepDataKeys.LAST_META, {})
 
         if df_sweep is None or len(df_sweep) == 0:
             st.info("No sweep results available yet. Run a sweep in Tab 3 first.")
@@ -259,7 +262,7 @@ def render_export_tab(
         st.divider()
         st.markdown("**Export: Lyapunov sweep**")
 
-        lya_data = st.session_state.get("lya_acc_data", None)
+        lya_data = st.session_state.get(LyapunovDataKeys.ACC_DATA, None)
         if lya_data is None:
             st.info("No Lyapunov sweep results available yet. Run Lyapunov in Tab 3 first.")
         else:

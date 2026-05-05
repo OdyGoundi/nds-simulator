@@ -10,6 +10,7 @@ from app.logic.bifurcation_sweep import _run_bifurcation_parallel
 from app.logic.lyapunov_sweep import _run_lyapunov_sweep
 from app.logic.reservoir_sampling import make_xy_reservoir
 from app.params import InitialConditions, IntegrationConfig, LyapunovConfig, SolverTolerances, SweepRunConfig, SystemConfig
+from app.state import LyapunovDataKeys, SweepDataKeys
 from app.services.sweep_state_service import (
     MAX_BIF_RESERVOIR_POINTS,
     MAX_SWEEP_ROWS_IN_MEMORY,
@@ -82,12 +83,12 @@ def execute_new_bif_sweep(
     parallel_bif_enabled: bool,
     workers_bif: int,
 ) -> pd.DataFrame:
-    st.session_state["sweep_acc_df"] = None
-    st.session_state["sweep_last_pv"] = None
-    st.session_state["sweep_boundaries"] = []
-    st.session_state["sweep_meta"] = sweep_meta
-    st.session_state["sweep_rows_clipped"] = False
-    st.session_state["sweep_reservoir"] = make_xy_reservoir(capacity=MAX_BIF_RESERVOIR_POINTS)
+    st.session_state[SweepDataKeys.ACC_DF] = None
+    st.session_state[SweepDataKeys.LAST_PV] = None
+    st.session_state[SweepDataKeys.BOUNDARIES] = []
+    st.session_state[SweepDataKeys.META] = sweep_meta
+    st.session_state[SweepDataKeys.ROWS_CLIPPED] = False
+    st.session_state[SweepDataKeys.RESERVOIR] = make_xy_reservoir(capacity=MAX_BIF_RESERVOIR_POINTS)
 
     sweep_run = SweepConfig(
         param_name=sweep_param,
@@ -115,11 +116,11 @@ def execute_new_bif_sweep(
     df_chunk, dropped, clipped = _clip_sweep_df(df_chunk, MAX_SWEEP_ROWS_IN_MEMORY)
     if clipped:
         _append_dropped_rows_to_reservoir(dropped, sweep_param, ycol)
-    st.session_state["sweep_rows_clipped"] = bool(clipped)
-    st.session_state["sweep_acc_df"] = df_chunk
-    st.session_state["sweep_last_pv"] = float(sweep_stop)
-    st.session_state["last_sweep_df"] = df_chunk
-    st.session_state["last_sweep_meta"] = sweep_meta
+    st.session_state[SweepDataKeys.ROWS_CLIPPED] = bool(clipped)
+    st.session_state[SweepDataKeys.ACC_DF] = df_chunk
+    st.session_state[SweepDataKeys.LAST_PV] = float(sweep_stop)
+    st.session_state[SweepDataKeys.LAST_DF] = df_chunk
+    st.session_state[SweepDataKeys.LAST_META] = sweep_meta
     return df_chunk
 
 
@@ -142,7 +143,7 @@ def execute_cont_bif_sweep(
     parallel_bif_enabled: bool,
     workers_bif: int,
 ) -> Optional[pd.DataFrame]:
-    prev_meta = st.session_state.get("sweep_meta", {})
+    prev_meta = st.session_state.get(SweepDataKeys.META, {})
     mismatches = _meta_mismatches(prev_meta, sweep_meta)
     if mismatches:
         st.error(
@@ -151,16 +152,16 @@ def execute_cont_bif_sweep(
         )
         return None
 
-    last_pv = float(st.session_state["sweep_last_pv"])
+    last_pv = float(st.session_state[SweepDataKeys.LAST_PV])
     start_here = last_pv + float(sweep_step)
     stop_here = float(continue_stop) if continue_stop is not None else float(sweep_stop)
-    st.session_state["sweep_stop_internal"] = stop_here
+    st.session_state[SweepDataKeys.STOP_INTERNAL] = stop_here
 
     if start_here > stop_here + 1e-12:
         st.warning("Nothing to continue: start is already beyond stop.")
         return None
 
-    st.session_state["sweep_boundaries"].append(last_pv)
+    st.session_state[SweepDataKeys.BOUNDARIES].append(last_pv)
     sweep_run = SweepConfig(
         param_name=sweep_param,
         start=float(start_here),
@@ -184,17 +185,17 @@ def execute_cont_bif_sweep(
             workers_bif=workers_bif,
         )
 
-    df_acc = pd.concat([st.session_state["sweep_acc_df"], df_chunk], ignore_index=True)
+    df_acc = pd.concat([st.session_state[SweepDataKeys.ACC_DF], df_chunk], ignore_index=True)
     df_acc, dropped, clipped = _clip_sweep_df(df_acc, MAX_SWEEP_ROWS_IN_MEMORY)
     if clipped:
         _append_dropped_rows_to_reservoir(dropped, sweep_param, ycol)
-    st.session_state["sweep_rows_clipped"] = bool(
-        st.session_state.get("sweep_rows_clipped", False) or clipped
+    st.session_state[SweepDataKeys.ROWS_CLIPPED] = bool(
+        st.session_state.get(SweepDataKeys.ROWS_CLIPPED, False) or clipped
     )
-    st.session_state["sweep_acc_df"] = df_acc
-    st.session_state["sweep_last_pv"] = float(stop_here)
-    st.session_state["last_sweep_df"] = df_acc
-    st.session_state["last_sweep_meta"] = prev_meta
+    st.session_state[SweepDataKeys.ACC_DF] = df_acc
+    st.session_state[SweepDataKeys.LAST_PV] = float(stop_here)
+    st.session_state[SweepDataKeys.LAST_DF] = df_acc
+    st.session_state[SweepDataKeys.LAST_META] = prev_meta
     return df_acc
 
 
@@ -212,10 +213,10 @@ def execute_new_lya_sweep(
     workers: int,
     lya_meta: Dict[str, Any],
 ) -> None:
-    st.session_state["lya_acc_data"] = None
-    st.session_state["lya_last_pv"] = None
-    st.session_state["lya_boundaries"] = []
-    st.session_state["lya_meta"] = lya_meta
+    st.session_state[LyapunovDataKeys.ACC_DATA] = None
+    st.session_state[LyapunovDataKeys.LAST_PV] = None
+    st.session_state[LyapunovDataKeys.BOUNDARIES] = []
+    st.session_state[LyapunovDataKeys.META] = lya_meta
 
     with st.spinner("Computing Lyapunov sweep..."):
         param_vals, lambdas_arr, errors = _run_lyapunov_sweep(
@@ -230,13 +231,13 @@ def execute_new_lya_sweep(
             max_workers=int(workers),
         )
 
-    st.session_state["lya_acc_data"] = {
+    st.session_state[LyapunovDataKeys.ACC_DATA] = {
         "param_vals": param_vals,
         "lambdas": lambdas_arr,
         "errors": errors,
         "meta": dict(lya_meta),
     }
-    st.session_state["lya_last_pv"] = float(sweep_stop)
+    st.session_state[LyapunovDataKeys.LAST_PV] = float(sweep_stop)
 
     if errors:
         st.warning(f"Lyapunov sweep had {len(errors)} failures. Showing NaNs for those points.")
@@ -261,7 +262,7 @@ def execute_cont_lya_sweep(
     acc_data: Dict[str, Any],
     last_pv: float,
 ) -> None:
-    prev_meta = st.session_state.get("lya_meta", {})
+    prev_meta = st.session_state.get(LyapunovDataKeys.META, {})
     mismatches = _meta_mismatches(prev_meta, lya_meta)
     if mismatches:
         st.error(
@@ -277,7 +278,7 @@ def execute_cont_lya_sweep(
         st.warning("Nothing to continue: start is already beyond stop.")
         return
 
-    st.session_state["lya_boundaries"].append(float(last_pv))
+    st.session_state[LyapunovDataKeys.BOUNDARIES].append(float(last_pv))
     sweep_run = SweepConfig(
         param_name=sweep_param,
         start=float(start_here),
@@ -302,10 +303,10 @@ def execute_cont_lya_sweep(
     prev_lambdas = acc_data.get("lambdas", np.zeros((0, len(var_names))))
     prev_errors = acc_data.get("errors", [])
 
-    st.session_state["lya_acc_data"] = {
+    st.session_state[LyapunovDataKeys.ACC_DATA] = {
         "param_vals": np.concatenate([prev_vals, param_vals]),
         "lambdas": np.vstack([prev_lambdas, lambdas_arr]),
         "errors": list(prev_errors) + list(errors),
         "meta": dict(prev_meta),
     }
-    st.session_state["lya_last_pv"] = float(stop_here)
+    st.session_state[LyapunovDataKeys.LAST_PV] = float(stop_here)

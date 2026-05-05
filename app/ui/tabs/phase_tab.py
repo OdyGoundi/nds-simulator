@@ -41,6 +41,12 @@ from app.state import (
     PHASE_LINEWIDTH_DEFAULT,
     STATIC_CFG_APPLY_ERROR_KEY,
     STATIC_CFG_APPLY_SUCCESS_KEY,
+    IntegrationKeys,
+    LyapunovTab1Keys,
+    PhaseKeys,
+    StaticConfigKeys,
+    SystemParamKeys,
+    TolKeys,
 )
 from app.state.apply_config import apply_state_values, to_float
 from app.ui.poincare_map_panel import render_poincare_map_panel
@@ -98,56 +104,56 @@ def render_phase_tab(
         with phase_col_controls:
             st.header("Integration")
             apply_state_values(
-                {"t0_tab1": 0.0, "tf_tab1": 50.0, "dt_tab1": 0.01},
+                {IntegrationKeys.T0: 0.0, IntegrationKeys.TF: 50.0, IntegrationKeys.DT: 0.01},
                 only_missing=True,
             )
-            t0 = st.number_input("initial time", step=1.0, key="t0_tab1")
-            tf = st.number_input("final time", step=1.0, key="tf_tab1")
-            dt = st.number_input("time step", step=0.01, format="%.5f", key="dt_tab1")
+            t0 = st.number_input("initial time", step=1.0, key=IntegrationKeys.T0)
+            tf = st.number_input("final time", step=1.0, key=IntegrationKeys.TF)
+            dt = st.number_input("time step", step=0.01, format="%.5f", key=IntegrationKeys.DT)
 
             st.divider()
             st.header("System parameters")
 
             if system_key == "lorenz":
                 apply_state_values(
-                    {"sigma": 10.0, "rho": 28.0, "beta": float(8.0 / 3.0)},
+                    {SystemParamKeys.SIGMA: 10.0, SystemParamKeys.RHO: 28.0, SystemParamKeys.BETA: float(8.0 / 3.0)},
                     only_missing=True,
                 )
-                sigma = st.number_input("sigma", step=0.1, format="%.3f", key="sigma")
-                rho = st.number_input("rho", step=0.5, format="%.3f", key="rho")
-                beta = st.number_input("beta", step=0.05, format="%.4f", key="beta")
+                sigma = st.number_input("sigma", step=0.1, format="%.3f", key=SystemParamKeys.SIGMA)
+                rho = st.number_input("rho", step=0.5, format="%.3f", key=SystemParamKeys.RHO)
+                beta = st.number_input("beta", step=0.05, format="%.4f", key=SystemParamKeys.BETA)
             elif system_key == "rossler":
                 apply_state_values(
-                    {"ross_a": 0.2, "ross_b": 0.2, "ross_c": 5.7},
+                    {SystemParamKeys.ROSS_A: 0.2, SystemParamKeys.ROSS_B: 0.2, SystemParamKeys.ROSS_C: 5.7},
                     only_missing=True,
                 )
-                ross_a = st.number_input("a", step=0.01, format="%.4f", key="ross_a")
-                ross_b = st.number_input("b", step=0.01, format="%.4f", key="ross_b")
-                ross_c = st.number_input("c", step=0.1, format="%.3f", key="ross_c")
+                ross_a = st.number_input("a", step=0.01, format="%.4f", key=SystemParamKeys.ROSS_A)
+                ross_b = st.number_input("b", step=0.01, format="%.4f", key=SystemParamKeys.ROSS_B)
+                ross_c = st.number_input("c", step=0.1, format="%.3f", key=SystemParamKeys.ROSS_C)
             elif system_key == "henon_heiles":
-                apply_state_values({"hh_lambda": 1.0}, only_missing=True)
-                hh_lambda = st.number_input("lambda", step=0.05, format="%.4f", key="hh_lambda")
+                apply_state_values({SystemParamKeys.HH_LAMBDA: 1.0}, only_missing=True)
+                hh_lambda = st.number_input("lambda", step=0.05, format="%.4f", key=SystemParamKeys.HH_LAMBDA)
             else:
                 st.caption("Custom: parameters are defined above.")
 
             st.divider()
             st.header("Plot settings")
-            apply_state_values({"plot_mode_tab1": "2D phase plane"}, only_missing=True)
+            apply_state_values({PhaseKeys.PLOT_MODE: "2D phase plane"}, only_missing=True)
             plot_mode = st.selectbox(
                 "Plot mode",
                 ["2D phase plane", "3D phase plot"],
-                key="plot_mode_tab1",
+                key=PhaseKeys.PLOT_MODE,
             )
 
             tc_c1, tc_c2 = st.columns([1.2, 1], gap="small")
             with tc_c1:
-                apply_state_values({"transient_cut_time_tab1": 0.0}, only_missing=True)
+                apply_state_values({IntegrationKeys.TRANSIENT_CUT_TIME: 0.0}, only_missing=True)
                 transient_cut_time = st.number_input(
                     "Transient cut (time to skip)",
                     min_value=0.0,
                     step=1.0,
                     format="%.6f",
-                    key="transient_cut_time_tab1",
+                    key=IntegrationKeys.TRANSIENT_CUT_TIME,
                     help=(
                         "Skips trajectory samples from t0 up to t0 + this duration before plotting/export. "
                         "The equivalent number of steps is shown on the right. Does not affect Lyapunov."
@@ -160,26 +166,26 @@ def render_phase_tab(
 
             perf_c1, perf_c2 = st.columns([1, 1], gap="small")
             with perf_c1:
-                apply_state_values({"max_plot_points_tab1": MAX_PLOT_POINTS_DEFAULT}, only_missing=True)
+                apply_state_values({IntegrationKeys.MAX_PLOT_POINTS: MAX_PLOT_POINTS_DEFAULT}, only_missing=True)
                 max_plot_points = st.number_input(
                     "Max points per plot",
                     min_value=10_000,
                     max_value=MAX_PLOT_POINTS_UI_MAX,
                     step=10_000,
-                    key="max_plot_points_tab1",
+                    key=IntegrationKeys.MAX_PLOT_POINTS,
                     help=(
                         "Uniformly downsamples trajectories for plotting only. "
                         "Use larger values for denser, publication-oriented phase plots."
                     ),
                 )
             with perf_c2:
-                apply_state_values({"max_store_steps_tab1": MAX_STORE_STEPS_DEFAULT}, only_missing=True)
+                apply_state_values({IntegrationKeys.MAX_STORE_STEPS: MAX_STORE_STEPS_DEFAULT}, only_missing=True)
                 max_store_steps_ui = st.number_input(
                     "Max stored trajectory samples (0=all)",
                     min_value=0,
                     max_value=5_000_000,
                     step=50_000,
-                    key="max_store_steps_tab1",
+                    key=IntegrationKeys.MAX_STORE_STEPS,
                     help=(
                         "Limits in-memory trajectory samples to avoid Streamlit Cloud crashes. "
                         "Set 0 to keep the full trajectory in memory when RAM allows."
@@ -188,24 +194,24 @@ def render_phase_tab(
 
             st.divider()
             st.header("Lyapunov exponents calculation settings")
-            apply_state_values({"qr_interval_tab1": 0.1}, only_missing=True)
+            apply_state_values({LyapunovTab1Keys.QR_INTERVAL: 0.1}, only_missing=True)
             qr_interval = st.number_input(
                 "QR interval (time)",
                 min_value=1e-6,
                 step=0.01,
                 format="%.4f",
-                key="qr_interval_tab1",
+                key=LyapunovTab1Keys.QR_INTERVAL,
                 help="Time between orthonormalizations during Lyapunov computation.",
             )
             lya_c1, lya_c2 = st.columns([1, 1], gap="small")
             with lya_c1:
-                apply_state_values({"lya_transient_frac_tab1": 0.30}, only_missing=True)
+                apply_state_values({LyapunovTab1Keys.TRANSIENT_FRAC: 0.30}, only_missing=True)
                 lyapunov_transient_frac = st.slider(
                     "Lyapunov transient fraction",
                     min_value=0.0,
                     max_value=0.99,
                     step=0.05,
-                    key="lya_transient_frac_tab1",
+                    key=LyapunovTab1Keys.TRANSIENT_FRAC,
                     help="Fraction of integration steps discarded before Lyapunov accumulation.",
                 )
             with lya_c2:
@@ -218,47 +224,47 @@ def render_phase_tab(
             st.markdown("**Axis selection**")
             axis_options = [(f"{name} (index {i})", i) for i, name in enumerate(var_names)]
             idx_list = [o[1] for o in axis_options]
-            apply_state_values({"phase_x_idx_tab1": 0}, only_missing=True)
+            apply_state_values({PhaseKeys.X_IDX: 0}, only_missing=True)
             x_idx = st.selectbox(
                 "x-axis",
                 options=idx_list,
                 format_func=lambda i: axis_options[i][0],
-                key="phase_x_idx_tab1",
+                key=PhaseKeys.X_IDX,
             )
             y_default = 1 if len(idx_list) > 1 else 0
-            apply_state_values({"phase_y_idx_tab1": y_default}, only_missing=True)
+            apply_state_values({PhaseKeys.Y_IDX: y_default}, only_missing=True)
             y_idx = st.selectbox(
                 "y-axis",
                 options=idx_list,
                 format_func=lambda i: axis_options[i][0],
-                key="phase_y_idx_tab1",
+                key=PhaseKeys.Y_IDX,
             )
             z_idx = 2 if len(idx_list) > 2 else 0
             if plot_mode == "3D phase plot":
-                apply_state_values({"phase_z_idx_tab1": z_idx}, only_missing=True)
+                apply_state_values({PhaseKeys.Z_IDX: z_idx}, only_missing=True)
                 z_idx = st.selectbox(
                     "z-axis",
                     options=idx_list,
                     format_func=lambda i: axis_options[i][0],
-                    key="phase_z_idx_tab1",
+                    key=PhaseKeys.Z_IDX,
                 )
 
             st.divider()
             st.header("Solver tolerances")
-            apply_state_values({"rtol": 1e-6, "atol": 1e-8}, only_missing=True)
+            apply_state_values({TolKeys.RTOL: 1e-6, TolKeys.ATOL: 1e-8}, only_missing=True)
             rtol = st.number_input(
                 "relative tolerance (rtol)",
                 min_value=0.0,
                 step=1e-6,
                 format="%.1e",
-                key="rtol",
+                key=TolKeys.RTOL,
             )
             atol = st.number_input(
                 "absolute tolerance (atol)",
                 min_value=0.0,
                 step=1e-8,
                 format="%.1e",
-                key="atol",
+                key=TolKeys.ATOL,
             )
             if str(solver_kind_effective) not in ("rk45", "dop853", "ivp"):
                 st.caption("Note: rtol/atol are used only by RK45/DOP853.")
@@ -312,7 +318,7 @@ def render_phase_tab(
     phase_linewidth = max(
         0.001,
         to_float(
-            st.session_state.get("phase_linewidth_tab1", PHASE_LINEWIDTH_DEFAULT),
+            st.session_state.get(PhaseKeys.LINEWIDTH, PHASE_LINEWIDTH_DEFAULT),
             PHASE_LINEWIDTH_DEFAULT,
         ),
     )
@@ -364,7 +370,7 @@ def render_phase_tab(
             lyapunov_transient_frac=float(lyapunov_transient_frac),
             qr_interval=float(qr_interval),
         )
-        st.session_state["static_config"] = static_config
+        st.session_state[StaticConfigKeys.CURRENT] = static_config
         with phase_col_controls:
             st.success("Static configuration saved. Download from the Export tab.")
 
@@ -399,29 +405,29 @@ def render_phase_tab(
             float(z_auto[0]) if z_auto is not None else None,
             float(z_auto[1]) if z_auto is not None else None,
         )
-        if st.session_state.get("phase_bounds_sig_tab1") != phase_bounds_sig:
-            st.session_state["phase_xlim_min_tab1"] = float(x_auto[0])
-            st.session_state["phase_xlim_max_tab1"] = float(x_auto[1])
-            st.session_state["phase_ylim_min_tab1"] = float(y_auto[0])
-            st.session_state["phase_ylim_max_tab1"] = float(y_auto[1])
+        if st.session_state.get(PhaseKeys.BOUNDS_SIG) != phase_bounds_sig:
+            st.session_state[PhaseKeys.XLIM_MIN] = float(x_auto[0])
+            st.session_state[PhaseKeys.XLIM_MAX] = float(x_auto[1])
+            st.session_state[PhaseKeys.YLIM_MIN] = float(y_auto[0])
+            st.session_state[PhaseKeys.YLIM_MAX] = float(y_auto[1])
             if z_auto is not None:
-                st.session_state["phase_zlim_min_tab1"] = float(z_auto[0])
-                st.session_state["phase_zlim_max_tab1"] = float(z_auto[1])
-            st.session_state["phase_bounds_sig_tab1"] = phase_bounds_sig
+                st.session_state[PhaseKeys.ZLIM_MIN] = float(z_auto[0])
+                st.session_state[PhaseKeys.ZLIM_MAX] = float(z_auto[1])
+            st.session_state[PhaseKeys.BOUNDS_SIG] = phase_bounds_sig
 
         x_view = (
-            float(st.session_state.get("phase_xlim_min_tab1", x_auto[0])),
-            float(st.session_state.get("phase_xlim_max_tab1", x_auto[1])),
+            float(st.session_state.get(PhaseKeys.XLIM_MIN, x_auto[0])),
+            float(st.session_state.get(PhaseKeys.XLIM_MAX, x_auto[1])),
         )
         y_view = (
-            float(st.session_state.get("phase_ylim_min_tab1", y_auto[0])),
-            float(st.session_state.get("phase_ylim_max_tab1", y_auto[1])),
+            float(st.session_state.get(PhaseKeys.YLIM_MIN, y_auto[0])),
+            float(st.session_state.get(PhaseKeys.YLIM_MAX, y_auto[1])),
         )
         z_view: Optional[Tuple[float, float]] = None
         if z_auto is not None:
             z_view = (
-                float(st.session_state.get("phase_zlim_min_tab1", z_auto[0])),
-                float(st.session_state.get("phase_zlim_max_tab1", z_auto[1])),
+                float(st.session_state.get(PhaseKeys.ZLIM_MIN, z_auto[0])),
+                float(st.session_state.get(PhaseKeys.ZLIM_MAX, z_auto[1])),
             )
 
         valid_xy = x_view[0] < x_view[1] and y_view[0] < y_view[1]
@@ -432,28 +438,28 @@ def render_phase_tab(
             y_view = y_auto
             if z_auto is not None:
                 z_view = z_auto
-            st.session_state["phase_xlim_min_tab1"] = float(x_view[0])
-            st.session_state["phase_xlim_max_tab1"] = float(x_view[1])
-            st.session_state["phase_ylim_min_tab1"] = float(y_view[0])
-            st.session_state["phase_ylim_max_tab1"] = float(y_view[1])
+            st.session_state[PhaseKeys.XLIM_MIN] = float(x_view[0])
+            st.session_state[PhaseKeys.XLIM_MAX] = float(x_view[1])
+            st.session_state[PhaseKeys.YLIM_MIN] = float(y_view[0])
+            st.session_state[PhaseKeys.YLIM_MAX] = float(y_view[1])
             if z_view is not None:
-                st.session_state["phase_zlim_min_tab1"] = float(z_view[0])
-                st.session_state["phase_zlim_max_tab1"] = float(z_view[1])
+                st.session_state[PhaseKeys.ZLIM_MIN] = float(z_view[0])
+                st.session_state[PhaseKeys.ZLIM_MAX] = float(z_view[1])
 
         phase_square_axes = False
         if plot_mode == "2D phase plane":
             phase_square_axes = st.checkbox(
                 "Square axes (equal x/y scale)",
-                value=bool(st.session_state.get("phase_square_axes_tab1", False)),
-                key="phase_square_axes_tab1",
+                value=bool(st.session_state.get(PhaseKeys.SQUARE_AXES, False)),
+                key=PhaseKeys.SQUARE_AXES,
                 help="Use the same scale on both axes and keep the phase plot square.",
             )
             if phase_square_axes:
                 x_view, y_view = _square_xy_bounds(x_view, y_view)
-                st.session_state["phase_xlim_min_tab1"] = float(x_view[0])
-                st.session_state["phase_xlim_max_tab1"] = float(x_view[1])
-                st.session_state["phase_ylim_min_tab1"] = float(y_view[0])
-                st.session_state["phase_ylim_max_tab1"] = float(y_view[1])
+                st.session_state[PhaseKeys.XLIM_MIN] = float(x_view[0])
+                st.session_state[PhaseKeys.XLIM_MAX] = float(x_view[1])
+                st.session_state[PhaseKeys.YLIM_MIN] = float(y_view[0])
+                st.session_state[PhaseKeys.YLIM_MAX] = float(y_view[1])
 
         if plot_mode == "2D phase plane":
             title = f"{system_label} – {var_names[int(y_idx)]} vs {var_names[int(x_idx)]}"
@@ -502,14 +508,14 @@ def render_phase_tab(
         )
 
         st.markdown("**Phase style**")
-        apply_state_values({"phase_linewidth_tab1": PHASE_LINEWIDTH_DEFAULT}, only_missing=True)
+        apply_state_values({PhaseKeys.LINEWIDTH: PHASE_LINEWIDTH_DEFAULT}, only_missing=True)
         st.number_input(
             "Phase line width",
             min_value=0.01,
             max_value=5.0,
             step=0.01,
             format="%.3f",
-            key="phase_linewidth_tab1",
+            key=PhaseKeys.LINEWIDTH,
             help="Controls the trajectory line thickness in the phase diagram.",
         )
 
@@ -517,24 +523,24 @@ def render_phase_tab(
         if plot_mode == "2D phase plane":
             lim_c1, lim_c2, lim_c3, lim_c4 = st.columns([1, 1, 1, 1], gap="small")
             with lim_c1:
-                st.number_input(f"{var_names[int(x_idx)]} min", format="%.6f", key="phase_xlim_min_tab1")
+                st.number_input(f"{var_names[int(x_idx)]} min", format="%.6f", key=PhaseKeys.XLIM_MIN)
             with lim_c2:
-                st.number_input(f"{var_names[int(x_idx)]} max", format="%.6f", key="phase_xlim_max_tab1")
+                st.number_input(f"{var_names[int(x_idx)]} max", format="%.6f", key=PhaseKeys.XLIM_MAX)
             with lim_c3:
-                st.number_input(f"{var_names[int(y_idx)]} min", format="%.6f", key="phase_ylim_min_tab1")
+                st.number_input(f"{var_names[int(y_idx)]} min", format="%.6f", key=PhaseKeys.YLIM_MIN)
             with lim_c4:
-                st.number_input(f"{var_names[int(y_idx)]} max", format="%.6f", key="phase_ylim_max_tab1")
+                st.number_input(f"{var_names[int(y_idx)]} max", format="%.6f", key=PhaseKeys.YLIM_MAX)
         else:
             lim_c1, lim_c2, lim_c3 = st.columns([1, 1, 1], gap="small")
             with lim_c1:
-                st.number_input(f"{var_names[int(x_idx)]} min", format="%.6f", key="phase_xlim_min_tab1")
-                st.number_input(f"{var_names[int(x_idx)]} max", format="%.6f", key="phase_xlim_max_tab1")
+                st.number_input(f"{var_names[int(x_idx)]} min", format="%.6f", key=PhaseKeys.XLIM_MIN)
+                st.number_input(f"{var_names[int(x_idx)]} max", format="%.6f", key=PhaseKeys.XLIM_MAX)
             with lim_c2:
-                st.number_input(f"{var_names[int(y_idx)]} min", format="%.6f", key="phase_ylim_min_tab1")
-                st.number_input(f"{var_names[int(y_idx)]} max", format="%.6f", key="phase_ylim_max_tab1")
+                st.number_input(f"{var_names[int(y_idx)]} min", format="%.6f", key=PhaseKeys.YLIM_MIN)
+                st.number_input(f"{var_names[int(y_idx)]} max", format="%.6f", key=PhaseKeys.YLIM_MAX)
             with lim_c3:
-                st.number_input(f"{var_names[int(z_idx)]} min", format="%.6f", key="phase_zlim_min_tab1")
-                st.number_input(f"{var_names[int(z_idx)]} max", format="%.6f", key="phase_zlim_max_tab1")
+                st.number_input(f"{var_names[int(z_idx)]} min", format="%.6f", key=PhaseKeys.ZLIM_MIN)
+                st.number_input(f"{var_names[int(z_idx)]} max", format="%.6f", key=PhaseKeys.ZLIM_MAX)
 
         st.caption(
             f"Default bounds: {var_names[int(x_idx)]} [{x_auto[0]:.4g}, {x_auto[1]:.4g}], "
@@ -584,13 +590,13 @@ def render_phase_tab(
                             lyapunov=lyapunov_cfg,
                             solve_tols=solve_tols,
                         )
-                    st.session_state["lya_result_tab1"] = np.array(lambdas, dtype=float)
-                    st.session_state["lya_result_sig"] = lya_sig
+                    st.session_state[LyapunovTab1Keys.RESULT] = np.array(lambdas, dtype=float)
+                    st.session_state[LyapunovTab1Keys.RESULT_SIG] = lya_sig
                 except Exception as exc:
                     st.warning(f"Lyapunov computation failed: {exc}")
 
-            lambdas = st.session_state.get("lya_result_tab1", None)
-            sig_ok = st.session_state.get("lya_result_sig", None) == lya_sig
+            lambdas = st.session_state.get(LyapunovTab1Keys.RESULT, None)
+            sig_ok = st.session_state.get(LyapunovTab1Keys.RESULT_SIG, None) == lya_sig
             if lambdas is not None and sig_ok:
                 formatted = ", ".join(f"{val:.5f}" for val in lambdas)
                 st.write(f"lambda = [{formatted}]")
