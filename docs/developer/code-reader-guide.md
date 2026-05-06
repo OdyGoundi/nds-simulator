@@ -1,69 +1,327 @@
-# Οδηγός Ανάγνωσης Κώδικα
+# Code Reader Guide
 
-Αυτό το αρχείο είναι ο κεντρικός οδηγός εξερεύνησης του κώδικα του `dynaSim / nds-simulator`.
+A practical, file-by-file map of the `dynaSim / nds-simulator` codebase as it
+exists on `refactor/codebase-cleanup` after refactoring phases 4.1–4.10.
 
-Στόχος του είναι να απαντά σε τέσσερα πρακτικά ερωτήματα:
+This guide answers four questions:
 
-1. Ποιο είναι το πραγματικό entrypoint της εφαρμογής;
-2. Πώς συνδέονται τα αρχεία μεταξύ τους;
-3. Ποια αρχεία είναι μέρος του κύριου runtime path και ποια είναι βοηθητικά, tests ή legacy;
-4. Με ποια σειρά αξίζει να διαβαστεί ο κώδικας;
+1. **What is the entry point?**
+2. **How do the files connect today?**
+3. **In what order should the code be read?**
+4. **Where do common changes go?**
 
-Το αρχείο αυτό δεν αντικαθιστά τα πιο μικρά developer notes:
-
-- [architecture.md](./architecture.md)
-- [sweep-engine.md](./sweep-engine.md)
-- [performance.md](./performance.md)
-- [README.md](./README.md)
-
-Είναι όμως το πιο πλήρες “map” του repo.
+Companion documents:
+- [architecture.md](./architecture.md) — layer responsibilities and contracts
+- [refactoring.md](./refactoring.md) — what changed and why
+- [README.md](./README.md) — Numba decision tree per execution path
 
 ---
 
 ## 1. TL;DR
 
-Αν θέλεις να καταλάβεις γρήγορα το project, διάβασε με αυτή τη σειρά:
+To understand the whole project quickly, read in this order:
 
-1. `app/nlds_app.py`
-2. `app/params.py`
-3. `app/cache.py`
-4. `app/ui/bifurcation_tab.py`
-5. `app/logic/lyapunov_cached.py`
-6. `app/logic/lyapunov_sweep.py`
-7. `app/sweep.py`
-8. `core/solver.py`
-9. `core/poincare_sweep.py`
-10. `core/lyapunov.py`
-11. `core/symplectic_solver.py`
-12. `core/numba_backend/*`
+1. `app/nlds_app.py` — composition root (~320 lines)
+2. `app/params.py` — dataclass contracts
+3. `app/state/defaults.py` and `app/state/session_keys.py`
+4. `app/services/system_registry.py` — built-in systems
+5. `app/services/solver_policy.py` — solver dispatch
+6. `app/cache.py` — cached single-run trajectories
+7. `app/ui/tabs/phase_tab.py` — Tab 1
+8. `app/ui/tabs/sweep_tab.py` — Tab 3 orchestrator
+9. `core/solver.py` and `core/poincare_sweep.py`
 
-Αν ο στόχος σου είναι μόνο το UI:
+Quick by-area entry points:
 
-1. `app/nlds_app.py`
-2. `app/ui/bifurcation_tab.py`
-3. `app/ui/poincare_map_panel.py`
-4. `app/ui/widgets.py`
-5. `app/state/defaults.py`
-6. `app/export_utils.py`
+| You care about | Start with |
+|---|---|
+| UI only | `nlds_app.py`, `ui/sidebar.py`, `ui/tabs/*`, `ui/sweep_controls.py`, `ui/sweep_plot_panel.py` |
+| Services | `services/system_registry.py`, `services/solver_policy.py`, `services/lyapunov_service.py`, `services/sweep_run_service.py`, `services/sweep_state_service.py`, `services/export_service.py` |
+| Plotting | `app/plotting/` (one module per plot kind) |
+| Pure numerics | `core/solver.py`, `core/poincare_sweep.py`, `core/lyapunov.py`, `core/numba_backend/*` |
+| Custom-system parsing | `app/parsing/*` |
 
-Αν ο στόχος σου είναι μόνο το parsing / custom-system layer:
+---
 
-1. `app/parsing/params_parser.py`
-2. `app/parsing/vector_parser.py`
-3. `app/parsing/custom_rhs_builder.py`
-4. `app/parsing/custom_jacobian_builder.py`
-5. `app/parsing/custom_symplectic_builder.py`
-6. `app/numba_custom.py`
+## 2. Entry point
 
-Αν ο στόχος σου είναι μόνο το system / solver dispatch layer:
+### `app/nlds_app.py` (~320 lines)
 
-1. `app/services/system_registry.py`
-2. `app/cache.py`
-3. `app/sweep.py`
-4. `app/logic/lyapunov_cached.py`
-5. `app/logic/lyapunov_sweep.py`
+Run with:
 
-Αν ο στόχος σου είναι μόνο τα numerics:
+```bash
+streamlit run app/nlds_app.py
+```
+
+This file is a **composition root** — no widget logic, no system dispatch,
+no sweep orchestration. It does:
+
+- imports and `sys.path` setup
+- `st.set_page_config(...)` and header rendering via `render_header_logo(...)`
+- help/info dialog plumbing
+- `flush_pending_static_config_apply()` for uploaded configs
+- sidebar via `render_system_sidebar(...)`
+- the four tabs:
+
+```python
+phase_result = render_phase_tab(tabs[0], system_key=..., var_names=..., ...)
+render_time_series_tab(tabs[1], phase_result=phase_result)
+render_sweep_tab(tab=tabs[2], system=..., integration=..., ...)
+render_export_tab(tabs[3], phase_result=phase_result, ...)
+```
+
+Tabs 2 and 4 read from `phase_result` (a `PhaseTabResult` dataclass) so
+the trajectory is not re-solved.
+
+---
+
+## 3. High-level dependency graph
+
+```mermaid
+flowchart TD
+  A[app/nlds_app.py]
+
+  A --> SBR[app/ui/sidebar.py]
+  A --> BR[app/ui/branding.py]
+  A --> HP[app/ui/help_panels.py]
+  A --> PT[app/ui/tabs/phase_tab.py]
+  A --> TST[app/ui/tabs/time_series_tab.py]
+  A --> ST[app/ui/tabs/sweep_tab.py]
+  A --> ET[app/ui/tabs/export_tab.py]
+  A --> APPLY[app/state/apply_config.py]
+
+  PT --> CACHE[app/cache.py]
+  PT --> LYC[app/logic/lyapunov_cached.py]
+  PT --> PMP[app/ui/poincare_map_panel.py]
+  PT --> PLOT[app/plotting/*]
+
+  TST --> PLOT
+
+  ST --> SC[app/ui/sweep_controls.py]
+  ST --> SPP[app/ui/sweep_plot_panel.py]
+  ST --> SRS[app/services/sweep_run_service.py]
+
+  SC --> SSS[app/services/sweep_state_service.py]
+  SC --> SREG[app/services/system_registry.py]
+
+  SPP --> SSS
+  SPP --> EXPU[app/export_utils.py]
+  SPP --> PLOT
+
+  ET --> EXPS[app/services/export_service.py]
+  ET --> EXPU
+
+  SRS --> BIF[app/logic/bifurcation_sweep.py]
+  SRS --> LSW[app/logic/lyapunov_sweep.py]
+  SRS --> SWPC[app/sweep.py]
+
+  CACHE --> SREG
+  CACHE --> SPOL[app/services/solver_policy.py]
+  CACHE --> SOL[core/solver.py]
+  CACHE --> SYM[core/symplectic_solver.py]
+
+  LYC --> LYS[app/services/lyapunov_service.py]
+  LSW --> LYS
+  LYS --> LCORE[core/lyapunov.py]
+
+  SWPC --> PSWEEP[core/poincare_sweep.py]
+
+  SREG --> RHS[core/*_rhs.py]
+  SREG --> JAC[core/jacobians_fixed_systems.py]
+
+  CACHE --> NUMBA[core/numba_backend/*]
+  SWPC --> NUMBA
+  LYS --> NUMBA
+
+  PMP --> PMAP[app/logic/poincare_map.py]
+  PMAP --> PSWEEP
+
+  EXPS --> CSV[app/export/csv_utils.py]
+```
+
+The pattern is consistent:
+
+- `app/ui/*` = UI composition (small, single-concern files)
+- `app/ui/tabs/*` = thin orchestrators (one per tab)
+- `app/services/*` = registries, dispatch, business logic
+- `app/state/*` = session-state defaults, typed keys, apply layer
+- `app/parsing/*` = parsing and symbolic builders (incl. Numba codegen)
+- `app/plotting/*` = one module per plot kind, plus bounds + downsampling
+- `app/export/*` = CSV builders
+- `app/logic/*` = controllers near numerics
+- `core/*` = pure numerics
+- `core/numba_backend/*` = JIT-accelerated mirror
+
+---
+
+## 4. Folder structure
+
+### `app/` (root)
+
+| File | Lines | Purpose |
+|---|---|---|
+| `nlds_app.py` | 318 | Composition root. Header, sidebar, four `render_*_tab` calls. |
+| `params.py` | 78 | Frozen dataclass contracts: `IntegrationConfig`, `InitialConditions`, `SolverTolerances`, `SystemConfig`, `LorenzParams`, `RosslerParams`, `HenonHeilesParams`, `CustomSystemDefinition`, `LyapunovConfig`, `SweepRunConfig`. |
+| `cache.py` | 229 | `solve_cached(...)` (`@st.cache_data`). Dispatches Numba/scalar via `system_registry` and `solver_policy`. |
+| `sweep.py` | 752 | `run_sweep_chunk(...)` plus six per-path runners. Single dispatch surface for all sweep observables. |
+| `export_utils.py` | 303 | Public: `build_static_config`, `build_sweep_config`. Everything else is private. |
+| `numba_custom.py` | 120 | JIT compile + cache for custom-system kernels. Parsing lives in `parsing/numba_rhs_builder.py`. |
+| `helpers.py` | 13 | Re-export shim for backwards compatibility. New code imports from the real module. |
+
+### `app/ui/`
+
+The Streamlit UI layer.
+
+| File | Lines | Purpose |
+|---|---|---|
+| `sidebar.py` | 217 | `render_system_sidebar()` → `SidebarSystemResult`. System selection, custom editor, symplectic preview. |
+| `branding.py` | 111 | Header, logo, theme-aware logo selection. |
+| `help_panels.py` | 78 | Manual (EN/EL), info dialog, `st.dialog` helper. |
+| `widgets.py` | 49 | `slider_with_input(...)` reusable pair. |
+| `poincare_map_panel.py` | 177 | Tab 1 Poincaré section panel. |
+| `sweep_controls.py` | 689 | Tab 3 widgets only → `SweepControlsResult`. |
+| `sweep_plot_panel.py` | 387 | Tab 3 plots, axis bounds, config save/upload. |
+
+### `app/ui/tabs/`
+
+| File | Lines | Purpose |
+|---|---|---|
+| `phase_tab.py` | 633 | Tab 1: phase plot + Lyapunov + Poincaré controls. Returns `PhaseTabResult`. |
+| `time_series_tab.py` | 136 | Tab 2: reads `PhaseTabResult` (no resolve), time-window controls, multi-var + per-var plots. |
+| `sweep_tab.py` | 127 | Tab 3 orchestrator: controls → execute → plots. |
+| `export_tab.py` | 354 | Tab 4: configurations, trajectory CSV, sweep CSV, Lyapunov CSV, run-bundle zip. |
+
+#### Tab 3 split (`SweepControlsResult` contract)
+
+Tab 3 lives in three files joined by a frozen dataclass:
+
+```text
+with tab:
+    ctrl = render_sweep_controls(...)              # → SweepControlsResult
+    df_plot = execute_*_sweep(...)                 # 4 service entry points
+    render_sweep_plots(ctrl, df_plot)              # plots + config save/upload
+```
+
+`SweepControlsResult` carries every config object, button state, and column
+handle from controls to plot panel.
+
+### `app/services/`
+
+| File | Lines | Purpose |
+|---|---|---|
+| `system_registry.py` | 205 | `SystemAdapter` + `BUILTIN_SYSTEMS` for lorenz/rossler/henon_heiles. `get_builtin(key)`. |
+| `solver_policy.py` | 41 | `resolve_solver(raw)` → `SolverPolicy`. Normalizes solver kind, picks SciPy method. |
+| `lyapunov_service.py` | 237 | Single-run + shared helpers (`resolve_time_window`, `build_lyapunov_rhs_jac`, `build_numba_lyap_solver`, `run_lyapunov_numba`, `run_lyapunov_scipy`, `compute_single_lyapunov`). |
+| `sweep_run_service.py` | 312 | Four entry points: `execute_new_bif_sweep`, `execute_cont_bif_sweep`, `execute_new_lya_sweep`, `execute_cont_lya_sweep`. |
+| `sweep_state_service.py` | 214 | Sweep state init/reset/clip, continuation compatibility, accumulation, reservoir helpers. |
+| `export_service.py` | 87 | `build_zip_bytes(...)`, `build_run_bundle(...)`. |
+
+### `app/state/`
+
+| File | Lines | Purpose |
+|---|---|---|
+| `defaults.py` | 32 | System labels, solver labels, the few reserved-key constants, UI defaults. |
+| `session_keys.py` | 173 | Typed key classes: `PhaseKeys`, `IntegrationKeys`, `LyapunovTab1Keys`, `SystemParamKeys`, `TolKeys`, `SidebarKeys`, `StaticConfigKeys`, `TimeSeriesKeys`, `SweepControlsKeys`, `BifPlotKeys`, `LyaPlotKeys`, `SweepDataKeys`, `LyapunovDataKeys`, `ExportKeys`, `HelpPanelKeys`. |
+| `apply_config.py` | 217 | `apply_state_values(...)`, `apply_static_config_to_state(...)`, `flush_pending_static_config_apply()`, casting helpers. |
+
+### `app/parsing/`
+
+| File | Lines | Purpose |
+|---|---|---|
+| `params_parser.py` | 18 | `parse_params(text)`. |
+| `vector_parser.py` | 11 | `parse_list_of_floats(text, n, label)`. |
+| `custom_rhs_builder.py` | 52 | `build_custom_rhs(...)`. |
+| `custom_jacobian_builder.py` | 100 | `build_custom_rhs_and_jacobian(...)`, `build_custom_symbolic_jacobian_str(...)`. |
+| `custom_symplectic_builder.py` | 95 | `build_custom_symplectic_functions(...)`. |
+| `numba_rhs_builder.py` | 233 | sympy → Python source for Numba kernels (RHS, Jacobian, symplectic). No JIT here. |
+| `_safe_funcs.py` | 9 | `SAFE_FUNCS` for sympy lambdify. |
+
+### `app/plotting/`
+
+| File | Lines | Purpose |
+|---|---|---|
+| `phase.py` | 49 | `plot_phase_2d`, `plot_phase_3d`. |
+| `time_series.py` | 47 | `plot_time_series` (multi-var overlay), `plot_single_variable`. |
+| `sweep.py` | 44 | `plot_bifurcation`. |
+| `lyapunov.py` | 49 | `plot_lyapunov_sweep`. |
+| `bounds.py` | 35 | `axis_bounds`, `square_xy_bounds`. |
+| `style.py` | 4 | `LINE_COLORS` palette. |
+| `downsampling.py` | 61 | `decimate_indices`, `downsample_trajectory`, `downsample_xy`, `apply_transient_cut`. |
+
+### `app/export/`
+
+| File | Lines | Purpose |
+|---|---|---|
+| `csv_utils.py` | 46 | `build_csv_bytes(...)` streaming CSV builder. |
+
+### `app/logic/`
+
+Controllers near numerics.
+
+| File | Lines | Purpose |
+|---|---|---|
+| `bifurcation_sweep.py` | 97 | Parallel orchestration around `run_sweep_chunk`. |
+| `lyapunov_sweep.py` | 206 | Parametric Lyapunov loop on top of `lyapunov_service`. |
+| `lyapunov_cached.py` | 22 | `@st.cache_data` shim over the service. |
+| `poincare_map.py` | 159 | Typed wrapper over `core.poincare_sweep.poincare_section`. |
+| `reservoir_sampling.py` | 118 | Bounded sweep visualization sampling. |
+| `sweep_utils.py` | 87 | Worker count helper, fingerprint, chunk helpers. |
+
+### `core/`
+
+Pure numerics.
+
+| File | Lines | Purpose |
+|---|---|---|
+| `solver.py` | 189 | `integrate_system(...)` (SciPy `solve_ivp`), `integrate_system_rk4(...)`. |
+| `symplectic_solver.py` | 279 | Verlet, Forest-Ruth integrators. |
+| `poincare_sweep.py` | 566 | `PoincareConfig`, `SweepConfig`, `poincare_section`, `sweep_poincare_events_ivp`, `sweep_poincare`. |
+| `lyapunov.py` | 409 | QR-based `compute_lyapunov_spectrum(...)`. |
+| `jacobians_fixed_systems.py` | 81 | `lorenz_jac`, `rossler_jac`, `thomas_jac`, `henon_heiles_jac`. |
+| `lorenz_system_rhs.py` | 19 | Lorenz RHS. |
+| `rossler_system_rhs.py` | 26 | Rossler RHS. |
+| `henon_heiles_system_rhs.py` | 42 | Henon-Heiles RHS and split Hamiltonian pieces. |
+
+#### `core/numba_backend/`
+
+| File | Lines | Purpose |
+|---|---|---|
+| `__init__.py` | 18 | Public API. |
+| `_common.py` | 16 | Numba availability/guards. |
+| `_linalg.py` | 63 | JIT matrix multiply + QR. |
+| `builtins.py` | 166 | Compiled built-in systems. |
+| `integrators.py` | 175 | JIT RK4 + Forest-Ruth. |
+| `lyapunov.py` | 204 | JIT Lyapunov path. |
+| `sweep.py` | 160 | JIT RK4 Poincaré sweep. |
+
+### `legacy/`
+
+Notebook-era predecessors. Not on the runtime path.
+
+| Item | What it was |
+|---|---|
+| `nds_app.py` | Early single-file Streamlit app |
+| `app_lorenz.py` | Minimal Lorenz-only Streamlit demo |
+| `in_out/` | Early I/O helpers |
+| `plotting/` | Early plotting helpers (superseded by `app/plotting/`) |
+
+---
+
+## 5. Recommended reading paths
+
+### Path A — "Understand the whole app" (~30 min)
+
+1. [README.md](../../README.md)
+2. `app/nlds_app.py`
+3. `app/params.py`
+4. `app/state/defaults.py`, `app/state/session_keys.py`, `app/state/apply_config.py`
+5. `app/cache.py`
+6. `app/services/system_registry.py`, `app/services/solver_policy.py`
+7. `app/ui/tabs/phase_tab.py`
+8. `app/ui/tabs/sweep_tab.py`
+9. `app/services/sweep_run_service.py`
+
+### Path B — "Understand the numerics engine"
 
 1. `core/solver.py`
 2. `core/symplectic_solver.py`
@@ -72,1574 +330,277 @@
 5. `core/jacobians_fixed_systems.py`
 6. `core/numba_backend/*`
 
----
+### Path C — "Understand Tab 3 (sweep)"
 
-## 2. Ποιο είναι το main entrypoint
+1. `app/ui/tabs/sweep_tab.py` (orchestrator)
+2. `app/ui/sweep_controls.py` (widgets + `SweepControlsResult`)
+3. `app/services/sweep_state_service.py` (state init/reset/clip)
+4. `app/services/sweep_run_service.py` (4 execution entry points)
+5. `app/ui/sweep_plot_panel.py` (plots + config save/upload)
+6. `app/sweep.py` (chunk dispatcher + per-path runners)
+7. `app/logic/bifurcation_sweep.py`, `app/logic/lyapunov_sweep.py`
+8. `core/poincare_sweep.py`, `core/lyapunov.py`
 
-### `app/nlds_app.py`
+### Path D — "Understand single-run Lyapunov"
 
-Αυτό είναι το **κύριο Streamlit app**.
+1. `app/ui/tabs/phase_tab.py` (call site)
+2. `app/logic/lyapunov_cached.py` (cache wrapper)
+3. `app/services/lyapunov_service.py` (`compute_single_lyapunov` + helpers)
+4. `app/services/system_registry.py` (RHS/Jacobian dispatch)
+5. `app/services/solver_policy.py`
+6. `core/lyapunov.py`
 
-Τρέχει με:
+### Path E — "Custom systems pipeline"
 
-```bash
-streamlit run app/nlds_app.py
-```
-
-Από εδώ ξεκινούν:
-
-- η επιλογή συστήματος,
-- οι ρυθμίσεις ολοκλήρωσης,
-- το phase portrait,
-- οι χρονοσειρές,
-- ο single-run υπολογισμός Lyapunov,
-- το Tab 3 για bifurcation / continuation / Lyapunov sweeps,
-- τα exports.
-
-Το `app/nlds_app.py` δεν κάνει όλη τη βαριά αριθμητική μόνο του. Κυρίως:
-
-- διαχειρίζεται `session_state`,
-- χτίζει configs,
-- καλεί helpers / controllers,
-- και συνθέτει τα tabs.
+1. `app/ui/sidebar.py` (text input for variables, equations, params)
+2. `app/parsing/params_parser.py`, `vector_parser.py`
+3. `app/parsing/custom_rhs_builder.py`, `custom_jacobian_builder.py`,
+   `custom_symplectic_builder.py`
+4. `app/parsing/numba_rhs_builder.py` (sympy → Python source)
+5. `app/numba_custom.py` (compile + cache)
 
 ---
 
-## 3. Υψηλού επιπέδου χάρτης εξαρτήσεων
-
-```mermaid
-flowchart TD
-  A[app/nlds_app.py] --> B[app/cache.py]
-  A --> C[app/ui/bifurcation_tab.py]
-  A --> D[app/ui/poincare_map_panel.py]
-  A --> E[app/logic/lyapunov_cached.py]
-  A --> F[app/helpers.py]
-  A --> G[app/export_utils.py]
-  A --> H[app/plots.py]
-  A --> I[app/params.py]
-
-  C --> J[app/sweep.py]
-  C --> K[app/logic/bifurcation_sweep.py]
-  C --> L[app/logic/lyapunov_sweep.py]
-  C --> M[app/logic/reservoir_sampling.py]
-  C --> N[app/logic/sweep_utils.py]
-
-  D --> O[app/logic/poincare_map.py]
-
-  B --> P[core/solver.py]
-  B --> Q[core/symplectic_solver.py]
-  B --> R[core/poincare_sweep.py]
-
-  E --> S[core/lyapunov.py]
-  L --> S
-  J --> R
-
-  P --> T[core/*_rhs.py]
-  S --> U[core/jacobians_fixed_systems.py]
-  Q --> P
-
-  A --> V[core/numba_backend/*]
-  B --> V
-  C --> V
-
-  F -.re-exports.-> W[app/parsing/*]
-  F -.re-exports.-> X[app/plotting/downsampling.py]
-  F -.re-exports.-> Y[app/export/csv_utils.py]
-  F -.re-exports.-> Z[app/ui/widgets.py]
-  A --> AA[app/state/defaults.py]
-  B --> AB[app/services/system_registry.py]
-```
-
-Η βασική ιδέα είναι:
-
-- `app/` = orchestration, UI, caching, export
-- `core/` = numerics
-- `core/numba_backend/` = accelerated numerics
-- `scripts/` = standalone παραγωγικά βοηθητικά scripts
-- `tests/` = tests, probes, benchmarks
-
----
-
-## 4. Δομή φακέλων
-
-### `app/`
-
-Το application layer.
-
-- UI (`ui/`)
-- state management (`state/`)
-- services / registries / dispatch (`services/`)
-- cached calls (`cache.py`)
-- export/config builders (`export/`, `export_utils.py`)
-- parsing και symbolic builders (`parsing/`)
-- plotting helpers (`plotting/`, `plots.py`)
-- custom-system helpers (`numba_custom.py`)
-- thin re-export shim (`helpers.py`)
-
-#### Νέα modules μετά το Phase 1 refactor
-
-- `app/parsing/` — params/vector parsers, custom RHS / Jacobian / symplectic builders
-- `app/plotting/downsampling.py` — decimation utilities
-- `app/export/csv_utils.py` — CSV byte serialization
-- `app/state/defaults.py` — system/solver registries και UI defaults
-- `app/ui/widgets.py` — reusable Streamlit widgets (`slider_with_input`)
-
-#### Νέα modules μετά το Phase 2 refactor (in progress)
-
-- `app/services/system_registry.py` — `SystemAdapter` frozen dataclass
-  και `BUILTIN_SYSTEMS` read-only mapping (lorenz, rossler, henon_heiles).
-  Αντικαθιστά σταδιακά τα `if/elif system.key == ...` blocks.
-
-### `core/`
-
-Ο αριθμητικός πυρήνας.
-
-- γενικοί ODE solvers,
-- symplectic solvers,
-- Poincaré sweep logic,
-- Lyapunov QR numerics,
-- built-in RHS/Jacobians.
-
-### `core/numba_backend/`
-
-Ο accelerated backend.
-
-- JIT integrators,
-- JIT Lyapunov kernel,
-- JIT sweep kernel,
-- built-in compiled systems,
-- μικρές linear algebra ρουτίνες.
-
-### `scripts/`
-
-Standalone scripts που δεν ανήκουν στο Streamlit runtime, αλλά παράγουν ειδικά outputs.
-
-### `tests/`
-
-Μείγμα από:
-
-- κανονικά tests,
-- benchmark scripts,
-- validation scripts,
-- notebooks για πειράματα.
-
-### `docs/`
-
-Documentation, thesis material, theory notes, user manuals.
-
-### `in_out/` και `plotting/`
-
-Παλιότερα βοηθητικά modules από notebook-era / prototype-era κώδικα.
-
-### top-level legacy files
-
-- `nds_app.py`
-- `app_lorenz.py`
-- `reference_pyhamsys.py`
-
-Δεν είναι ο βασικός runtime path της τωρινής εφαρμογής.
-
----
-
-## 5. Προτεινόμενη σειρά ανάγνωσης
-
-### Διαδρομή A: “Θέλω να καταλάβω το app ως προϊόν”
-
-1. `README.md`
-2. `app/nlds_app.py`
-3. `app/params.py`
-4. `app/cache.py`
-5. `app/ui/bifurcation_tab.py`
-6. `app/ui/poincare_map_panel.py`
-7. `app/export_utils.py`
-8. `app/helpers.py`
-
-### Διαδρομή B: “Θέλω να καταλάβω το numerics engine”
-
-1. `core/solver.py`
-2. `core/symplectic_solver.py`
-3. `core/poincare_sweep.py`
-4. `core/lyapunov.py`
-5. `core/jacobians_fixed_systems.py`
-6. `core/numba_backend/builtins.py`
-7. `core/numba_backend/integrators.py`
-8. `core/numba_backend/lyapunov.py`
-9. `core/numba_backend/sweep.py`
-
-### Διαδρομή C: “Θέλω να καταλάβω το Tab 3”
-
-1. `app/ui/bifurcation_tab.py`
-2. `app/sweep.py`
-3. `app/logic/bifurcation_sweep.py`
-4. `app/logic/lyapunov_sweep.py`
-5. `app/logic/sweep_utils.py`
-6. `app/logic/reservoir_sampling.py`
-7. `core/poincare_sweep.py`
-8. `core/lyapunov.py`
-
----
-
-## 6. Mapping των βασικών modules
-
-## 6.1 Main application path
-
-### `app/nlds_app.py` — Κεντρικό Streamlit application
-
-**Ρόλος**
-
-Το βασικό entrypoint της εφαρμογής.
-
-**Τι περιέχει**
-
-- default values για built-in systems,
-- synchronization του `session_state`,
-- φόρτωση manuals / info panels,
-- Tab 1: phase portrait + single Lyapunov,
-- Tab 2: time series,
-- Tab 3: parameter sweeps,
-- Tab 4: export layer.
-
-**Τι κάνει**
-
-- αποφασίζει ποιο configuration είναι ενεργό,
-- μετατρέπει UI state σε dataclass configs,
-- καλεί `solve_cached(...)`,
-- καλεί `compute_lyapunov_cached(...)`,
-- καλεί `render_poincare_map_panel(...)`,
-- καλεί `render_bifurcation_tab(...)`.
-
-**Συνδέεται με**
-
-- `app/cache.py`
-- `app/helpers.py`
-- `app/export_utils.py`
-- `app/plots.py`
-- `app/params.py`
-- `app/ui/bifurcation_tab.py`
-- `app/ui/poincare_map_panel.py`
-- `core/numba_backend/*`
-
----
-
-### `app/params.py` — Dataclass contracts του app
-
-**Ρόλος**
-
-Το schema layer της εφαρμογής.
-
-**Τι περιέχει**
-
-- `IntegrationConfig`
-- `InitialConditions`
-- `LorenzParams`
-- `RosslerParams`
-- `HenonHeilesParams`
-- `CustomSystemDefinition`
-- `SystemConfig`
-- `SolverTolerances`
-- `SweepRunConfig`
-- `LyapunovConfig`
-
-**Τι κάνει**
-
-Σταθεροποιεί το interface ανάμεσα σε UI, controllers και numerics.
-
-**Σημαντικό**
-
-Αν αλλάζει το shape των inputs, εδώ είναι το πρώτο σημείο που πρέπει να κοιτάξεις.
-
----
-
-### `app/cache.py` — Cached solves και legacy cached sweep wrapper
-
-**Ρόλος**
-
-Το cache boundary του app.
-
-**Τι περιέχει**
-
-- `solve_cached(...)`
-- `sweep_cached(...)`
-
-**Τι κάνει**
-
-Το `solve_cached(...)`:
-
-- διαλέγει RHS ανά system,
-- διαλέγει solver path,
-- επιχειρεί Numba path όπου γίνεται,
-- αλλιώς γυρνά σε pure Python / SciPy path,
-- επιστρέφει μόνο `(t, y)`.
-
-Το `sweep_cached(...)`:
-
-- είναι παλαιότερο wrapper για sweeps,
-- υποστηρίζει custom/non-custom sweep execution,
-- δεν είναι ο κύριος δρόμος του τωρινού Tab 3.
-
-**Συνδέεται με**
-
-- `core/solver.py`
-- `core/symplectic_solver.py`
-- `core/poincare_sweep.py`
-- `app.helpers`
-- `app.params`
-- `core/numba_backend/*`
-
-**Σημείωση**
-
-Στο τωρινό app, ο κύριος δρόμος για Tab 3 δεν είναι το `sweep_cached`, αλλά το:
-
-- `app/ui/bifurcation_tab.py`
-- `app/sweep.py`
-- `app/logic/bifurcation_sweep.py`
-- `app/logic/lyapunov_sweep.py`
-
----
-
-### `app/helpers.py` — Thin re-export shim (μετά το Phase 1 refactor)
-
-**Ρόλος**
-
-Μετά την Φάση 1 του refactoring, το `helpers.py` δεν περιέχει πλέον λογική.
-Είναι ένα μικρό shim που κάνει re-export από τα νέα modules για να μη σπάσουν
-τα παλιά imports σε όλο το app.
-
-**Τι κάνει**
-
-Re-exports από:
-
-- `app/parsing/*` — parsers, custom RHS / Jacobian / symplectic builders
-- `app/plotting/downsampling.py` — decimation / downsampling
-- `app/export/csv_utils.py` — CSV byte builder
-- `app/ui/widgets.py` — `slider_with_input`
-
-**Σημείωση**
-
-Νέος κώδικας πρέπει να κάνει import απ' ευθείας από το πραγματικό module.
-Το `helpers.py` θα αφαιρεθεί όταν όλα τα call sites μεταφερθούν στα νέα paths.
-
----
-
-### `app/parsing/` — Parsing και symbolic builders
-
-**Ρόλος**
-
-Καθαρό parsing layer για user input και symbolic-based builders.
-
-**Files**
-
-- `params_parser.py` — `parse_params(text)` για `name=value` lines
-- `vector_parser.py` — `parse_list_of_floats(text, n, label)` για y0 / IC vectors
-- `custom_rhs_builder.py` — `build_custom_rhs(...)` από symbolic equations
-- `custom_jacobian_builder.py` — `build_custom_rhs_and_jacobian(...)` και
-  `build_custom_symbolic_jacobian_str(...)` για analytic Jacobian και preview
-- `custom_symplectic_builder.py` — `build_custom_symplectic_functions(...)`
-  μαζί με τα `DQDT` / `DPDT` Protocols
-- `_safe_funcs.py` — internal: `SAFE_FUNCS` dict (sin, cos, exp, sqrt, ...)
-  που χρησιμοποιείται κοινά από τους custom builders
-
-**Συνδέεται με**
-
-- `sympy`
-- consumers: `app/cache.py`, `app/sweep.py`, `app/numba_custom.py`,
-  `app/logic/lyapunov_cached.py`, `app/logic/lyapunov_sweep.py`,
-  `app/export_utils.py`, `app/ui/bifurcation_tab.py`, `app/nlds_app.py`
-
----
-
-### `app/plotting/downsampling.py` — Memory-friendly point reduction
-
-**Ρόλος**
-
-Decimation utilities ώστε plots και exports να μη φορτώνουν εκατομμύρια σημεία
-ανώφελα.
-
-**Τι περιέχει**
-
-- `decimate_indices(n_points, max_points)` — επιστρέφει uniformly spaced indices
-- `downsample_trajectory(t, y, max_points)` — για trajectory δεδομένα
-- `downsample_xy(x, y, max_points)` — για 2D scatter / line points
-
----
-
-### `app/export/csv_utils.py` — CSV byte serialization
-
-**Ρόλος**
-
-Pure CSV serialization helper για trajectories.
-
-**Τι περιέχει**
-
-- `build_csv_bytes(t, y, var_names, *, chunk_rows, start, end, include_header)`
-  γράφει `(t, y)` σε CSV bytes με streaming chunks ώστε να αντέχει μεγάλα runs
-
----
-
-### `app/state/defaults.py` — System / solver constants
-
-**Ρόλος**
-
-Read-only constants για system labels, solver labels και UI defaults.
-
-**Τι περιέχει**
-
-- `SYSTEM_LABEL_BY_KEY`, `SYSTEM_KEY_BY_LABEL` — built-in systems mapping
-- `SOLVER_LABEL_BY_KIND` — solver labels (rk45, dop853, rk4, symplectic_fr)
-- session keys: `PENDING_STATIC_CFG_KEY`, `STATIC_CFG_APPLY_SUCCESS_KEY`, ...
-- numerical UI defaults: `MAX_PLOT_POINTS_DEFAULT`, `EXPORT_CHUNK_ROWS_DEFAULT`,
-  `PHASE_LINEWIDTH_DEFAULT`, ...
-- export source labels: `TRAJ_EXPORT_SOURCE_STORED`, `TRAJ_EXPORT_SOURCE_FULL`
-
-**Σημείωση**
-
-Πριν το Phase 1 αυτά ήταν διασκορπισμένα στην κορυφή του `app/nlds_app.py`.
-Είναι το πρώτο βήμα προς ένα κανονικό state layer.
-
----
-
-### `app/ui/widgets.py` — Reusable Streamlit widgets
-
-**Ρόλος**
-
-Μικρά UI components που επαναχρησιμοποιούνται ανάμεσα σε tabs.
-
-**Τι περιέχει**
-
-- `slider_with_input(label, min_value, max_value, value, step, key, fmt)`
-  — slider + number_input ζευγαρωμένα, με input που δεν clamp-άρει στα όρια
-  του slider
-
----
-
-### `app/services/system_registry.py` — Built-in systems registry
-
-**Ρόλος**
-
-Πρώτο module του services layer (Phase 2). Αντικαθιστά σταδιακά τα
-επαναλαμβανόμενα `if system.key == "lorenz" / elif "rossler" / elif "henon_heiles"`
-blocks που υπάρχουν σε `cache.py`, `sweep.py`, `lyapunov_cached.py`,
-`lyapunov_sweep.py`, `export_utils.py` και `nlds_app.py`.
-
-**Τι περιέχει**
-
-- `SystemAdapter` frozen dataclass:
-  - `key`, `display_name`, `dimension`, `supports_symplectic`
-  - `param_names: tuple[str, ...]`
-  - `rhs_fn: Callable` — η raw built-in RHS function
-  - `extract_params: Callable[[SystemConfig], dict[str, float]]` — βγάζει
-    το params dict από `SystemConfig` με τις σωστές κλειδιά keys
-- `BUILTIN_SYSTEMS: dict[str, SystemAdapter]` με entries για lorenz,
-  rossler, henon_heiles
-- `get_builtin(key)` accessor με ρητό `ValueError` αν το key δεν υπάρχει
-
-**Σημείωση**
-
-Το adapter ξεκινάει εσκεμμένα μικρό. Νέα fields (Numba builders, Jacobian
-builders, symplectic split builders) θα προστεθούν μόνο όταν τα χρειαστεί
-ο επόμενος call site που θα μεταφερθεί. Δεν προστίθενται προληπτικά.
-
-**Συνδέεται με**
-
-- `core/lorenz_system_rhs.py`, `core/rossler_system_rhs.py`,
-  `core/henon_heiles_system_rhs.py` (πηγή των RHS)
-- `app/params.py` (`SystemConfig`)
-- consumers (μετά την σταδιακή μεταφορά): `app/cache.py`, `app/sweep.py`,
-  `app/logic/lyapunov_cached.py`, `app/logic/lyapunov_sweep.py`,
-  `app/export_utils.py`, `app/nlds_app.py`
-
----
-
-### `app/plots.py` — Μικρό plotting layer
-
-**Ρόλος**
-
-Thin Matplotlib wrapper για τα βασικά plots της εφαρμογής.
-
-**Τι περιέχει**
-
-- `plot_phase_2d`
-- `plot_phase_3d`
-- `plot_time_series`
-- `plot_time_seiries_functional`
-
-**Τι κάνει**
-
-Κρατάει το plotting API απλό και ξεχωρισμένο από το main UI.
-
----
-
-### `app/export_utils.py` — Builders για reproducible configs
-
-**Ρόλος**
-
-Μετατρέπει το τρέχον UI state σε structured export payloads.
-
-**Τι περιέχει**
-
-- timestamps / git commit lookup
-- system block builder
-- integration block builder
-- static config builder
-- sweep config builder
-
-**Τι κάνει**
-
-Παράγει JSON-serializable configuration blocks για:
-
-- single-run configuration,
-- sweep configuration,
-- metadata για reproducibility.
-
----
-
-## 6.2 Tab 3: Parameter Sweep subsystem
-
-### `app/ui/bifurcation_tab.py` — UI και orchestration για Tab 3
-
-**Ρόλος**
-
-Το σημαντικότερο UI/controller αρχείο μετά το `app/nlds_app.py`.
-
-**Τι περιέχει**
-
-- όλο το layout και state init του Tab 3,
-- bifurcation controls,
-- continuation controls,
-- Lyapunov sweep controls,
-- plot bounds / clipping / reset / continue logic,
-- export of sweep config.
-
-**Τι κάνει**
-
-Συνδέει τα UI widgets με τις εκτελέσεις:
-
-- `run_sweep_chunk(...)`
-- `_run_bifurcation_parallel(...)`
-- `_run_lyapunov_sweep(...)`
-
-και μετά:
-
-- αποθηκεύει accumulated results,
-- κρατά meta/fingerprints,
-- ανανεώνει τα plots.
-
-**Συνδέεται με**
-
-- `app/sweep.py`
-- `app/logic/bifurcation_sweep.py`
-- `app/logic/lyapunov_sweep.py`
-- `app/logic/reservoir_sampling.py`
-- `app/logic/sweep_utils.py`
-- `app/export_utils.py`
-- `core/poincare_sweep.py`
-- `core/numba_backend/*`
-
----
-
-### `app/sweep.py` — Single chunk sweep executor
-
-**Ρόλος**
-
-Ο βασικός εκτελεστής για ένα chunk παραμετρικού sweep.
-
-**Τι περιέχει**
-
-- observable normalization
-- local extrema extraction
-- row clipping / budget logic
-- συλλογή observable hits
-- `run_sweep_chunk(...)`
-
-**Τι κάνει**
-
-Για ένα εύρος παραμέτρου:
-
-- τρέχει την ολοκλήρωση / section detection,
-- υπολογίζει είτε Poincaré crossings είτε extrema,
-- εφαρμόζει row budget,
-- επιστρέφει rows που είναι έτοιμοι για plotting/DataFrame.
-
-**Σημαντικό**
-
-Αυτό είναι το core glue ανάμεσα στο UI του sweep και στο `core/poincare_sweep.py`.
-
----
-
-### `app/numba_custom.py` — JIT builders για custom συστήματα
-
-**Ρόλος**
-
-Ο compiled companion του `app/helpers.py` για custom systems.
-
-**Τι περιέχει**
-
-- parsing και normalization symbolic expressions,
-- RHS builder για custom systems,
-- RHS + Jacobian builder,
-- symplectic split builders για custom Hamiltonian-like systems,
-- internal caches για να μην ξαναχτίζονται ίδια kernels.
-
-**Τι κάνει**
-
-Παίρνει τις custom εξισώσεις του χρήστη και προσπαθεί να τις μετατρέψει σε
-Numba-compatible numerical kernels, ώστε τα custom μοντέλα να μπορούν να
-χρησιμοποιήσουν accelerated RK4, Lyapunov ή symplectic paths.
-
-**Συνδέεται με**
-
-- `app/cache.py`
-- `core/numba_backend/integrators.py`
-- `core/numba_backend/lyapunov.py`
-
----
-
-### `app/logic/bifurcation_sweep.py` — Parallel bifurcation orchestration
-
-**Ρόλος**
-
-Parallel wrapper γύρω από το `run_sweep_chunk(...)`.
-
-**Τι περιέχει**
-
-- `_run_bifurcation_chunk(...)`
-- `_run_bifurcation_parallel(...)`
-
-**Τι κάνει**
-
-- σπάει το parameter range σε κομμάτια,
-- τρέχει chunks με executors,
-- ενώνει το αποτέλεσμα σε ένα DataFrame.
-
-**Πότε χρησιμοποιείται**
-
-Όταν το Tab 3 είναι σε independent / parallel mode.
-
----
-
-### `app/logic/lyapunov_sweep.py` — Parametric Lyapunov sweep
-
-**Ρόλος**
-
-Το αντίστοιχο engine για sweep του Lyapunov spectrum.
-
-**Τι περιέχει**
-
-- `_run_lyapunov_chunk(...)`
-- `_run_lyapunov_sweep(...)`
-
-**Τι κάνει**
-
-Για κάθε τιμή παραμέτρου:
-
-- χτίζει RHS/Jacobian,
-- καλεί `compute_lyapunov_spectrum(...)`,
-- επιστρέφει `param_vals`, `lambdas`, `errors`.
-
-**Συνδέεται με**
-
-- `app.helpers`
-- `core.lyapunov`
-- built-in Jacobians / RHS
-
----
-
-### `app/logic/sweep_utils.py` — Shared utilities για sweeps
-
-**Ρόλος**
-
-Μικρά κοινά helpers για το sweep subsystem.
-
-**Τι περιέχει**
-
-- cloud detection
-- default worker count
-- param chunking
-- float range builder
-- sweep fingerprinting
-
-**Τι κάνει**
-
-Συγκεντρώνει κοινή λογική ώστε να μη σκορπίζεται σε UI και controller.
-
----
-
-### `app/logic/reservoir_sampling.py` — Bounded visualization memory
-
-**Ρόλος**
-
-Memory-safe sampling για μεγάλα sweeps.
-
-**Τι περιέχει**
-
-- reservoir creation
-- state validation
-- update logic
-- retrieval logic
-
-**Τι κάνει**
-
-Κρατά αντιπροσωπευτικό subset σημείων όταν το πλήρες πλήθος είναι πολύ μεγάλο.
-
-**Γιατί υπάρχει**
-
-Για να μπορεί το Tab 3 να δουλεύει και σε μεγάλα sweeps χωρίς να εκραγεί το UI memory footprint.
-
----
-
-## 6.3 Poincaré map subsystem
-
-### `app/ui/poincare_map_panel.py` — Tab 1 Poincaré panel
-
-**Ρόλος**
-
-UI panel για υπολογισμό / plotting τομών Poincaré πάνω σε ήδη υπολογισμένη τροχιά.
-
-**Τι περιέχει**
-
-- axis naming helpers
-- `render_poincare_map_panel(...)`
-
-**Τι κάνει**
-
-- παίρνει `t, y` από το single-run,
-- ρυθμίζει section index / direction / axis pair,
-- καλεί `compute_poincare_map(...)`,
-- δείχνει scatter plot.
-
----
-
-### `app/logic/poincare_map.py` — Typed wrapper για single-run Poincaré map
-
-**Ρόλος**
-
-Λεπτό abstraction πάνω από το `core.poincare_sweep.poincare_section(...)`.
-
-**Τι περιέχει**
-
-- `PoincareMapConfig`
-- `PoincareMapResult`
-- επιλογή axis pairs
-- `compute_poincare_map(...)`
-
-**Τι κάνει**
-
-Μετατρέπει τα raw hits σε αντικείμενο έτοιμο για UI χρήση.
-
----
-
-## 6.4 Lyapunov subsystem
-
-### `app/logic/lyapunov_cached.py` — Single-run Lyapunov with cache
-
-**Ρόλος**
-
-Ο cached δρόμος για single-run Lyapunov από το Tab 1.
-
-**Τι περιέχει**
-
-- `compute_lyapunov_cached(...)`
-
-**Τι κάνει**
-
-- χτίζει RHS/Jacobian για built-in ή custom systems,
-- επιλέγει analytic ή finite-difference Jacobian,
-- διαλέγει solver mode,
-- καλεί `core.lyapunov.compute_lyapunov_spectrum(...)`.
-
-**Σχόλιο**
-
-Είναι ο single-shot controller· όχι το sweep controller.
-
----
-
-## 6.5 Numerical core
-
-### `core/solver.py` — General ODE integration
-
-**Ρόλος**
-
-Ο βασικός γενικός ODE solver layer.
-
-**Τι περιέχει**
-
-- `OdeSolution`
-- `integrate_system(...)`
-- `integrate_system_rk4(...)`
-- helper logic για steps / stored samples
-
-**Τι κάνει**
-
-- `integrate_system(...)`: wrapper γύρω από `scipy.solve_ivp`
-- `integrate_system_rk4(...)`: fixed-step RK4
-
-**Χρησιμοποιείται από**
-
-- `app/cache.py`
-- `app/sweep.py`
-- legacy/notebook paths
-
----
-
-### `core/symplectic_solver.py` — Symplectic integration
-
-**Ρόλος**
-
-Ο solver layer για Hamiltonian/separable systems.
-
-**Τι περιέχει**
-
-- Verlet integrator
-- Forest-Ruth integrator
-- storage stride logic
-
-**Τι κάνει**
-
-Επιτρέπει μακροχρόνια integrations με καλύτερη γεωμετρική συμπεριφορά σε Hamiltonian systems.
-
-**Χρησιμοποιείται από**
-
-- `app/cache.py`
-- `app/sweep.py`
-- `scripts/henon_heiles_q2_q1_p1_highres.py`
-
----
-
-### `core/poincare_sweep.py` — Poincaré sections και sweep engine
-
-**Ρόλος**
-
-Το σημαντικότερο numerics module για sweeps.
-
-**Τι περιέχει**
-
-- `PoincareConfig`
-- `SweepConfig`
-- `poincare_section(...)`
-- `sweep_poincare_events_ivp(...)`
-- `sweep_poincare(...)`
-- expression-based section support
-- crossing / slab logic
-
-**Τι κάνει**
-
-- εντοπίζει τομές Poincaré,
-- φτιάχνει event-based IVP sweep path,
-- παρέχει fallback sweep path,
-- υλοποιεί το core bifurcation machinery.
-
-**Χρησιμοποιείται από**
-
-- `app/cache.py`
-- `app/sweep.py`
-- `app/logic/poincare_map.py`
-- `app/ui/bifurcation_tab.py`
-
----
-
-### `core/lyapunov.py` — Full QR-based Lyapunov spectrum
-
-**Ρόλος**
-
-Ο πυρήνας του υπολογισμού Lyapunov.
-
-**Τι περιέχει**
-
-- protocols για RHS/Jacobian
-- `LyapunovResult`
-- finite-difference Jacobian
-- augmented-system packing/unpacking
-- QR accumulation
-- chunked RK4 / IVP integration
-- `compute_lyapunov_spectrum(...)`
-
-**Τι κάνει**
-
-Υπολογίζει το πλήρες Lyapunov spectrum με:
-
-- variational equations,
-- periodic QR re-orthonormalization,
-- analytic ή FD Jacobian,
-- RK4 ή IVP chunk integration.
-
-**Χρησιμοποιείται από**
-
-- `app/logic/lyapunov_cached.py`
-- `app/logic/lyapunov_sweep.py`
-- tests / benchmarks
-
----
-
-### `core/jacobians_fixed_systems.py` — Built-in analytic Jacobians
-
-**Ρόλος**
-
-Περιέχει έτοιμους analytic Jacobians για built-in systems.
-
-**Τι περιέχει**
-
-- `lorenz_jac`
-- `rossler_jac`
-- `thomas_jac`
-- `henon_heiles_jac`
-
-**Τι κάνει**
-
-Τροφοδοτεί τον Lyapunov engine με analytic derivatives για καλύτερη ακρίβεια και ταχύτητα.
-
----
-
-### `core/lorenz_system_rhs.py` — Lorenz RHS
-
-**Ρόλος**
-
-Right-hand side του Lorenz system.
-
----
-
-### `core/rossler_system_rhs.py` — Rössler RHS
-
-**Ρόλος**
-
-Right-hand side του Rössler system.
-
----
-
-### `core/henon_heiles_system_rhs.py` — Henon-Heiles RHS + split Hamiltonian pieces
-
-**Ρόλος**
-
-Built-in Hamiltonian system support.
-
-**Τι περιέχει**
-
-- `henon_heiles_rhs`
-- `henon_heiles_dq_dt`
-- `henon_heiles_dp_dt`
-
-**Τι κάνει**
-
-Υποστηρίζει τόσο general RHS solves όσο και symplectic splits.
-
----
-
-## 6.6 Numba backend
-
-### `core/numba_backend/__init__.py` — Public API του accelerated backend
-
-**Ρόλος**
-
-Export σημείο για όλα τα JIT builders.
-
----
-
-### `core/numba_backend/_common.py` — Numba availability / guards
-
-**Ρόλος**
-
-Μικρό helper module για detection και strict requirement του Numba.
-
----
-
-### `core/numba_backend/_linalg.py` — Low-level linear algebra για JIT Lyapunov
-
-**Ρόλος**
-
-Περιέχει JIT-safe linear algebra routines.
-
-**Τι περιέχει**
-
-- matrix multiply
-- QR orthonormalization kernel
-
----
-
-### `core/numba_backend/builtins.py` — Compiled built-in systems
-
-**Ρόλος**
-
-Χτίζει compiled RHS/Jacobian kernels για built-in systems.
-
-**Τι περιέχει**
-
-- `build_builtin_system(...)`
-- `build_builtin_symplectic(...)`
-
-**Τι κάνει**
-
-Δίνει γρήγορα numerical kernels για:
-
-- Lorenz
-- Rossler
-- Henon-Heiles
-
----
-
-### `core/numba_backend/integrators.py` — JIT integrators
-
-**Ρόλος**
-
-Compiled integration kernels.
-
-**Τι περιέχει**
-
-- RK4 integrator builder
-- symplectic Forest-Ruth integrator builder
-
----
-
-### `core/numba_backend/lyapunov.py` — JIT Lyapunov engine
-
-**Ρόλος**
-
-Ο accelerated δρόμος για Lyapunov spectrum.
-
-**Τι κάνει**
-
-- τρέχει tangent dynamics,
-- κάνει FD ή analytic Jacobian path,
-- εφαρμόζει QR accumulation,
-- επιστρέφει γρηγορότερα αποτελέσματα από τον Python fallback.
-
----
-
-### `core/numba_backend/sweep.py` — JIT RK4 Poincaré sweep
-
-**Ρόλος**
-
-Compiled path για fixed-step RK4 sweeps.
-
-**Τι κάνει**
-
-Επιταχύνει παραμετρικά sweeps όταν το μοντέλο και οι ρυθμίσεις το επιτρέπουν.
-
----
-
-## 6.7 Standalone scripts και βοηθητικά εκτός main app
-
-### `scripts/henon_heiles_q2_q1_p1_highres.py` — High-resolution render script
-
-**Ρόλος**
-
-Standalone CLI script για high-resolution 3D render του Hénon-Heiles.
-
-**Τι περιέχει**
-
-- parser για CLI arguments,
-- fixed plot styling,
-- επιλογή integrator,
-- optional animation export.
-
-**Τι κάνει**
-
-Παράγει publication / thesis-ready εικόνα ή animation, ανεξάρτητα από το Streamlit app.
-
-**Συνδέεται με**
-
-- `core.henon_heiles_system_rhs`
-- `core.solver`
-- `core.symplectic_solver`
-
----
-
-### `reference_pyhamsys.py` — External reference / study file
-
-**Ρόλος**
-
-Δεν είναι μέρος του runtime της εφαρμογής.
-
-**Τι κάνει**
-
-Φαίνεται να είναι reference implementation / external library snapshot για Hamiltonian systems και Lyapunov computation.
-
-**Χρήση**
-
-Κυρίως ως σημείο αναφοράς ή θεωρητική/πρακτική σύγκριση, όχι ως dependency του app.
-
----
-
-## 6.8 Tests, validation scripts και benchmarks
-
-Η λογική του φακέλου `tests/` δεν είναι μόνο “unit tests”. Περιέχει τρεις κατηγορίες:
-
-1. πραγματικά tests,
-2. validation scripts,
-3. benchmark/profiling scripts.
-
-### Πραγματικά tests
-
-#### `tests/test_poincare_map_logic.py`
-
-- unit-test style έλεγχος της λογικής του Poincaré map panel.
-
-#### `tests/test_lyapunov.py`
-
-- sanity tests για γνωστά μικρά Lyapunov cases.
-
-#### `tests/test_lyapunov_numba_vs_python.py`
-
-- συγκρίνει Numba και Python Lyapunov paths.
-
-#### `tests/test_lyapunov_solver_switch.py`
-
-- ελέγχει fallback / auto-switch λογική του solver.
-
----
-
-### Validation / convergence scripts
-
-#### `tests/test_lyapunov_vs_final_time.py`
-
-- μελετά πώς αλλάζει το αποτέλεσμα καθώς αυξάνει ο τελικός χρόνος.
-
-#### `tests/test_lyapunov_divergence_window.py`
-
-- μελετά το measurement window για Lyapunov εκτίμηση.
-
-#### `tests/test_lyapunov_transient_fraction_static3.py`
-
-- ελέγχει την επίδραση του transient fraction σε συγκεκριμένο config.
-
-#### `tests/testing_solvers_hamilton.py`
-
-- συγκρίνει solver behavior σε Hamiltonian setting.
-
-#### `tests/test_cpp_bifucartion.py`
-
-- validation path για bifurcation/C++ related flow.
-
----
-
-### Benchmark / performance scripts
-
-#### `tests/benchmark_lyapunov_cpp_vs_python.py`
-
-- benchmark Python vs Numba vs external C++ backend για Lyapunov.
-
-#### `tests/benchmark_lyapunov_analytic_vs_fd.py`
-
-- benchmark analytic Jacobian vs finite-difference Jacobian.
-
-#### `tests/bench_lorenz_sweep_storage_projection.py`
-
-- μετρά κόστος / scaling σε μεγάλα Lorenz sweeps και projection/storage trade-offs.
-
-#### `tests/bench_poincare_steps.py`
-
-- benchmark για το κόστος της Poincaré logic σε σχέση με το step count.
-
----
-
-### Notebooks στον φάκελο `tests/`
-
-Τα notebooks εδώ είναι exploratory / diagnostic εργαλεία και όχι core runtime code.
-
-Κύρια examples:
-
-- `tests/01_Phase_Lya_Time.ipynb`
-- `tests/02_Sweeps_Bif_Cont_Lya.ipynb`
-- `tests/static_param_config_runner.ipynb`
-- `tests/sweep_param_config_runner.ipynb`
-- `tests/testing_adaptive_2.ipynb`
-- `tests/benchmark_lorenz_longruns_ram_vs_steps.ipynb`
-
-Χρησιμεύουν ως:
-
-- manual reproducibility paths,
-- exploratory analysis,
-- benchmark notebooks.
-
----
-
-## 6.9 Legacy / prototype / notebook-era αρχεία
-
-### `nds_app.py` — Παλιό Streamlit prototype
-
-**Ρόλος**
-
-Προγενέστερο app prototype.
-
-**Τι δείχνει**
-
-- παλαιότερη, πιο flat αρχιτεκτονική,
-- ενσωματωμένο parsing,
-- λιγότερο modular UI,
-- παλιότερο system selection logic.
-
-**Σημαντική σημείωση**
-
-Το αρχείο κάνει import `core.memristive_rhs`, αλλά τέτοιο module δεν υπάρχει πλέον στο τωρινό `core/`.
-
-Άρα:
-
-- δεν είναι το συνιστώμενο entrypoint,
-- και πιθανόν δεν τρέχει ως έχει χωρίς recovery παλιού αρχείου.
-
----
-
-### `app_lorenz.py` — Minimal demo app
-
-**Ρόλος**
-
-Μικρό, αυτοτελές Streamlit demo μόνο για Lorenz.
-
-**Χρήση**
-
-Κατάλληλο αν κάποιος θέλει να δει το πιο μικρό δυνατό app path χωρίς το μεγάλο architecture.
-
----
-
-### `in_out/ui.py` — Notebook widget UI
-
-**Ρόλος**
-
-Παλιό ipywidgets UI helper για notebook workflows.
-
-**Χρήση**
-
-Σχετίζεται με notebook-era εμπειρία, όχι με το current Streamlit app.
-
----
-
-### `in_out/io_utils.py` — Απλή CSV export helper
-
-**Ρόλος**
-
-Μικρό notebook-era I/O utility.
-
-**Χρήση**
-
-Δεν είναι ο κύριος export path του τωρινού app.
-
----
-
-### `plotting/plotting.py` — Notebook plotting helpers
-
-**Ρόλος**
-
-Παλιό plotting module.
-
-**Τι περιέχει**
-
-- phase portrait helper
-- animated phase portrait helper
-
-**Χρήση**
-
-Σχετίζεται περισσότερο με notebooks / examples παρά με το current app.
-
----
-
-## 7. Configs, examples και μη-Python artefacts
-
-### `examples/`
-
-Περιέχει:
-
-- `StaticParamsConfig*.json`
-- `dynSystemSim.ipynb`
-
-Χρήση:
-
-- reproducible example inputs,
-- notebook-based exploration.
-
-### `docs/user-guide/`, `docs/theory/`, `docs/greek/`
-
-Δεν είναι code runtime, αλλά βοηθούν να συνδέσεις UI concepts με implementation.
-
-### `docs/thesis/`
-
-Περιέχει thesis material, figures, scripts για παραγωγή thesis plots.
-
----
-
-## 8. Πρακτικό mapping: ποιο αρχείο καλεί ποιο
+## 6. Call mapping
 
 ### Single trajectory
 
-`app/nlds_app.py`
-
-→ `app/cache.solve_cached(...)`
-
-→ built-in/custom RHS selection
-
-→ `core/solver.py` ή `core/symplectic_solver.py`
-
-→ προαιρετικά `core/numba_backend/*`
-
-→ επιστροφή `t, y`
-
-→ `app/plots.py` / `app/ui/poincare_map_panel.py`
-
----
+```
+app/nlds_app.py
+  → app/ui/tabs/phase_tab.render_phase_tab(...)
+    → app/cache.solve_cached(...)
+      → app/services/system_registry.get_builtin(...) or custom RHS
+      → app/services/solver_policy.resolve_solver(...)
+      → core/solver.py or core/symplectic_solver.py
+      → optional core/numba_backend/*
+    → app/plotting/phase.plot_phase_2d/3d
+    → app/ui/poincare_map_panel.render_poincare_map_panel(...)
+```
 
 ### Single Lyapunov
 
-`app/nlds_app.py`
+```
+app/nlds_app.py
+  → app/ui/tabs/phase_tab.render_phase_tab(...)
+    → app/logic/lyapunov_cached.compute_lyapunov_cached(...)
+      → app/services/lyapunov_service.compute_single_lyapunov(...)
+        → system_registry for RHS/Jacobian
+        → solver_policy
+        → core/lyapunov.compute_lyapunov_spectrum(...) (or Numba path)
+```
 
-→ `app/logic/lyapunov_cached.compute_lyapunov_cached(...)`
+### Bifurcation / continuation sweep
 
-→ built-in/custom RHS + Jacobian resolution
-
-→ `core/lyapunov.compute_lyapunov_spectrum(...)`
-
-→ προαιρετικά accelerated path μέσω Numba builders
-
----
-
-### Bifurcation / continuation
-
-`app/nlds_app.py`
-
-→ `app/ui/bifurcation_tab.render_bifurcation_tab(...)`
-
-→ `app/sweep.run_sweep_chunk(...)`
-
-ή
-
-→ `app/logic/bifurcation_sweep._run_bifurcation_parallel(...)`
-
-→ `core/poincare_sweep.*`
-
-→ plot / accumulation / export
-
----
+```
+app/nlds_app.py
+  → app/ui/tabs/sweep_tab.render_sweep_tab(...)
+    ├─ app/ui/sweep_controls.render_sweep_controls(...) → SweepControlsResult
+    ├─ app/services/sweep_run_service.execute_{new,cont}_bif_sweep(...)
+    │    → app/logic/bifurcation_sweep._run_bifurcation_parallel(...)
+    │    → app/sweep.run_sweep_chunk(...) → per-path runner
+    │      → core/poincare_sweep.*  (or numba_backend.sweep)
+    └─ app/ui/sweep_plot_panel.render_sweep_plots(ctrl, df_plot)
+        → app/plotting/sweep.plot_bifurcation(...)
+```
 
 ### Lyapunov sweep
 
-`app/nlds_app.py`
+```
+app/nlds_app.py
+  → app/ui/tabs/sweep_tab.render_sweep_tab(...)
+    ├─ app/ui/sweep_controls.render_sweep_controls(...)
+    ├─ app/services/sweep_run_service.execute_{new,cont}_lya_sweep(...)
+    │    → app/logic/lyapunov_sweep._run_lyapunov_sweep(...)
+    │    → app/services/lyapunov_service.run_lyapunov_{numba,scipy}(...)
+    │    → core/lyapunov.compute_lyapunov_spectrum(...) (or Numba path)
+    └─ app/ui/sweep_plot_panel.render_sweep_plots(ctrl, df_plot)
+        → app/plotting/lyapunov.plot_lyapunov_sweep(...)
+```
 
-→ `app/ui/bifurcation_tab.render_bifurcation_tab(...)`
+### Time series (Tab 2)
 
-→ `app/logic/lyapunov_sweep._run_lyapunov_sweep(...)`
+```
+app/nlds_app.py
+  → app/ui/tabs/time_series_tab.render_time_series_tab(tabs[1], phase_result=...)
+      reads PhaseTabResult.t_plot / y_plot — no re-solve
+    → app/plotting/time_series.plot_time_series(...) and plot_single_variable(...)
+```
 
-→ `core/lyapunov.compute_lyapunov_spectrum(...)`
+### Export bundle (Tab 4)
 
-→ accumulation / plot / export
-
----
-
-## 9. Τι είναι “main path” και τι όχι
-
-### Main path
-
-- `app/nlds_app.py`
-- `app/cache.py`
-- `app/helpers.py`
-- `app/export_utils.py`
-- `app/params.py`
-- `app/plots.py`
-- `app/sweep.py`
-- `app/ui/*`
-- `app/logic/*`
-- `core/*`
-- `core/numba_backend/*`
-
-### Secondary but useful
-
-- `scripts/henon_heiles_q2_q1_p1_highres.py`
-- `examples/*`
-- `tests/*`
-
-### Legacy / prototype / reference
-
-- `nds_app.py`
-- `app_lorenz.py`
-- `in_out/*`
-- `plotting/*`
-- `reference_pyhamsys.py`
+```
+app/nlds_app.py
+  → app/ui/tabs/export_tab.render_export_tab(tabs[3], phase_result=...)
+    → app/export_utils.build_static_config(...) (config dict)
+    → app/services/export_service.build_run_bundle(...) (zip bytes)
+        → app/export/csv_utils.build_csv_bytes(...)
+        → app/services/export_service.build_zip_bytes(...)
+```
 
 ---
 
-## 10. Σημεία προσοχής για νέο αναγνώστη
+## 7. Notes for new readers
 
-### 1. Υπάρχουν δύο “εποχές” κώδικα
+### 7.1 Tab 3 is three files joined by a contract
 
-Η τωρινή εφαρμογή είναι το `app/nlds_app.py` + `app/` + `core/`.
+The old monolithic `bifurcation_tab.py` is gone. In its place:
 
-Υπάρχει και παλιότερος prototype / notebook-era κώδικας:
+- `app/ui/tabs/sweep_tab.py` — composition + execution glue
+- `app/ui/sweep_controls.py` — widgets + `SweepControlsResult`
+- `app/ui/sweep_plot_panel.py` — plots + config save/upload
 
-- `nds_app.py`
-- `app_lorenz.py`
-- `in_out/*`
-- `plotting/*`
+`SweepControlsResult` (frozen dataclass) is the contract.
 
-Μην ξεκινήσεις από αυτά αν θες να καταλάβεις το current architecture.
+### 7.2 Tabs 2 and 4 reuse Tab 1's solve
 
-### 2. Το Tab 3 έχει δικό του mini-architecture
+`PhaseTabResult` carries `t`, `y`, `t_plot`, `y_plot`, `var_names`, axis
+indices, and all configs. Tab 2 reads it for time-series plots; Tab 4 reads
+it for trajectory export. The solver runs once per parameter set.
 
-Το parameter sweep subsystem είναι σχεδόν “application μέσα στην application”.
+### 7.3 System dispatch goes through a registry
 
-Τα πιο κρίσιμα αρχεία του είναι:
+`app/services/system_registry.py` provides:
 
-- `app/ui/bifurcation_tab.py`
-- `app/sweep.py`
-- `app/logic/bifurcation_sweep.py`
-- `app/logic/lyapunov_sweep.py`
-- `core/poincare_sweep.py`
-- `core/lyapunov.py`
+- `BUILTIN_SYSTEMS: dict[str, SystemAdapter]`
+- `get_builtin(key) → SystemAdapter` with `rhs_fn`, `rhs_builder`,
+  `jac_builder`, `extract_params`, `rhs_from_dict`, `jac_from_dict`,
+  `dimension`, `param_names`, `dq_dp_builder`
 
-### 3. Το Numba path είναι builder-based
+Used in `cache.py`, `sweep.py`, `lyapunov_service.py`, sidebar.
 
-Δεν υπάρχουν έτοιμα στατικά JIT kernels για όλα.
+### 7.4 Solver dispatch goes through a policy
 
-Συχνά η ροή είναι:
+`app/services/solver_policy.resolve_solver(raw_kind)` returns a
+`SolverPolicy` with:
 
-- χτίσε RHS/Jacobian,
-- πέρασέ το σε builder,
-- πάρε compiled integrator/sweep/Lyapunov function.
+- `kind` (normalized: `rk4`, `rk45`, `dop853`, `symplectic_fr`, `ivp`)
+- `scipy_method` (for SciPy paths)
+- `auto_switch_rk4`, `sweep_kind`
 
-### 4. Custom systems περνούν από symbolic parsing
+### 7.5 Session-state keys are typed
 
-Για custom systems, το `app/helpers.py` και το `app/numba_custom.py` είναι πολύ πιο σημαντικά απ’ ό,τι φαίνονται αρχικά.
+Session-state keys are no longer bare strings. Use
+`app/state/session_keys.py`:
 
-### 5. Το export layer είναι μέρος της αρχιτεκτονικής
+```python
+from app.state import PhaseKeys, SweepDataKeys, IntegrationKeys
 
-Τα exports δεν είναι απλό “write CSV”.
+st.session_state[PhaseKeys.X_IDX]            # was "phase_x_idx_tab1"
+st.session_state[SweepDataKeys.ACC_DF]       # was "sweep_acc_df"
+st.number_input("t0", key=IntegrationKeys.T0)
+```
 
-Υπάρχει ολόκληρη λογική για:
+JSON config-dict keys (e.g. `solve_opts.get("rtol")`) stay as literals —
+they reflect the exported JSON schema.
 
-- reproducible configs,
-- manifests,
-- zipped run bundles,
-- chunked exports για μεγάλα runs.
+### 7.6 `app/helpers.py` is a 13-line re-export shim
 
----
+Don't import from it in new code. Use the real modules:
 
-## 11. Αν θέλεις να επεκτείνεις το project, πού να μπεις
+```python
+from app.parsing import parse_params
+from app.plotting import downsample_xy, axis_bounds, plot_phase_2d
+from app.export import build_csv_bytes
+from app.ui.widgets import slider_with_input
+```
 
-### Νέο built-in σύστημα
+### 7.7 Plotting is centralized
 
-Θα χρειαστείς συνήθως:
+Every plot lives in `app/plotting/<kind>.py`. Plot functions are pure: data
++ view bounds in, `Figure` out. UI files don't call `plt.subplots` directly
+anymore.
 
-- νέο RHS στο `core/`
-- νέο analytic Jacobian στο `core/jacobians_fixed_systems.py` αν θέλεις Lyapunov ποιότητας
-- update στο `app/nlds_app.py`
-- update στο `app/cache.py`
-- update στο `app/logic/lyapunov_cached.py`
-- update στο `app/logic/lyapunov_sweep.py`
-- update στο `core/numba_backend/builtins.py` αν θέλεις acceleration
+### 7.8 The Numba backend is builder-based
 
-### Νέος solver
+There are no fixed JIT kernels. The flow is:
 
-Θα κοιτάξεις πρώτα:
+1. Build RHS/Jacobian (built-in via `numba_backend.build_builtin_system`,
+   or custom via `numba_custom.build_custom_numba_*`).
+2. Pass the compiled RHS/Jacobian to a builder
+   (`build_rk4_integrator`, `build_symplectic_fr_integrator`,
+   `build_lyapunov_solver`, `build_poincare_sweep_rk4`).
+3. Call the resulting JIT function.
 
-- `core/solver.py`
-- ή `core/symplectic_solver.py`
-- μετά `app/cache.py`
-- και τέλος το UI exposure στο `app/nlds_app.py`
+Compilation happens on first call. Custom-system kernels are cached per
+`(var_names, eq_lines, param_names)`.
 
-### Νέο sweep observable
+### 7.9 Custom systems flow through symbolic parsing
 
-Θα κοιτάξεις πρώτα:
+For custom systems:
 
-- `app/sweep.py`
-- `core/poincare_sweep.py`
-- `app/ui/bifurcation_tab.py`
-
-### Νέο export format
-
-Θα κοιτάξεις:
-
-- `app/export_utils.py`
-- export κομμάτι του `app/nlds_app.py`
-
----
-
-## 12. Συνοπτικό file index
-
-### Core current runtime
-
-- `app/nlds_app.py`: main Streamlit app
-- `app/cache.py`: cached single-run numerics
-- `app/helpers.py`: thin re-export shim (post Phase 1 refactor)
-- `app/export_utils.py`: config/export builders
-- `app/params.py`: dataclass contracts
-- `app/plots.py`: small plotting wrappers
-- `app/sweep.py`: sweep chunk executor
-- `app/numba_custom.py`: custom-system Numba builders
-- `app/parsing/params_parser.py`: `parse_params`
-- `app/parsing/vector_parser.py`: `parse_list_of_floats`
-- `app/parsing/custom_rhs_builder.py`: `build_custom_rhs`
-- `app/parsing/custom_jacobian_builder.py`: `build_custom_rhs_and_jacobian`, `build_custom_symbolic_jacobian_str`
-- `app/parsing/custom_symplectic_builder.py`: `build_custom_symplectic_functions`, `DQDT`, `DPDT`
-- `app/parsing/_safe_funcs.py`: shared `SAFE_FUNCS` dict
-- `app/plotting/downsampling.py`: `decimate_indices`, `downsample_trajectory`, `downsample_xy`
-- `app/export/csv_utils.py`: `build_csv_bytes`
-- `app/state/defaults.py`: system/solver registries και UI default constants
-- `app/ui/widgets.py`: `slider_with_input`
-- `app/services/system_registry.py`: `SystemAdapter` + `BUILTIN_SYSTEMS` registry για built-in systems
-- `app/ui/bifurcation_tab.py`: Tab 3 UI/controller
-- `app/ui/poincare_map_panel.py`: Tab 1 Poincaré panel
-- `app/logic/bifurcation_sweep.py`: parallel bifurcation orchestration
-- `app/logic/lyapunov_cached.py`: single-run Lyapunov cache/controller
-- `app/logic/lyapunov_sweep.py`: sweep Lyapunov controller
-- `app/logic/poincare_map.py`: typed Poincaré map wrapper
-- `app/logic/reservoir_sampling.py`: bounded sweep visualization sampling
-- `app/logic/sweep_utils.py`: sweep helper utilities
-- `core/solver.py`: IVP + RK4 integration
-- `core/symplectic_solver.py`: Verlet + Forest-Ruth
-- `core/poincare_sweep.py`: Poincaré section + sweep engine
-- `core/lyapunov.py`: QR-based Lyapunov spectrum
-- `core/lorenz_system_rhs.py`: Lorenz RHS
-- `core/rossler_system_rhs.py`: Rössler RHS
-- `core/henon_heiles_system_rhs.py`: Henon-Heiles RHS and split functions
-- `core/jacobians_fixed_systems.py`: analytic built-in Jacobians
-- `core/numba_backend/__init__.py`: accelerated public API
-- `core/numba_backend/_common.py`: Numba guards
-- `core/numba_backend/_linalg.py`: low-level JIT linear algebra
-- `core/numba_backend/builtins.py`: compiled built-in systems
-- `core/numba_backend/integrators.py`: compiled integrators
-- `core/numba_backend/lyapunov.py`: compiled Lyapunov path
-- `core/numba_backend/sweep.py`: compiled sweep path
-
-### Standalone / supporting
-
-- `scripts/henon_heiles_q2_q1_p1_highres.py`: standalone render/export script
-- `reference_pyhamsys.py`: external/reference Hamiltonian code
-
-### Legacy / prototype / notebook-era
-
-- `nds_app.py`: old Streamlit prototype
-- `app_lorenz.py`: minimal Lorenz demo
-- `in_out/ui.py`: ipywidgets notebook UI helpers
-- `in_out/io_utils.py`: simple CSV helper
-- `plotting/plotting.py`: old plotting helpers
-
-### Tests / validation / benchmarks
-
-- `tests/test_poincare_map_logic.py`
-- `tests/test_lyapunov.py`
-- `tests/test_lyapunov_numba_vs_python.py`
-- `tests/test_lyapunov_solver_switch.py`
-- `tests/test_lyapunov_vs_final_time.py`
-- `tests/test_lyapunov_divergence_window.py`
-- `tests/test_lyapunov_transient_fraction_static3.py`
-- `tests/test_cpp_bifucartion.py`
-- `tests/testing_solvers_hamilton.py`
-- `tests/benchmark_lyapunov_cpp_vs_python.py`
-- `tests/benchmark_lyapunov_analytic_vs_fd.py`
-- `tests/bench_lorenz_sweep_storage_projection.py`
-- `tests/bench_poincare_steps.py`
+- `app/parsing/params_parser.py` → param values
+- `app/parsing/custom_rhs_builder.py` → scalar RHS callable
+- `app/parsing/custom_jacobian_builder.py` → analytic Jacobian (if `auto_jac` set)
+- `app/parsing/custom_symplectic_builder.py` → split functions for symplectic
+- `app/parsing/numba_rhs_builder.py` → Python source for Numba kernels
+- `app/numba_custom.py` → JIT compile + cache
 
 ---
 
-## 13. Τελικό συμπέρασμα
+## 8. Where to add what
 
-Αν διαβάζεις το repo πρώτη φορά, το σωστό mental model είναι αυτό:
+### A new built-in system
 
-- `app/nlds_app.py` είναι το “front door”
-- `app/ui/*` και `app/logic/*` είναι οι controllers
-- `app/cache.py` είναι το glue προς τα numerics
-- `app/parsing/*`, `app/plotting/*`, `app/export/*`, `app/state/*` είναι
-  τα νέα μικρά focused modules μετά το Phase 1 refactor
-- `app/services/*` είναι το νέο dispatch / registry layer (Phase 2,
-  in progress) που ενοποιεί τα `if system.key == ...` patterns
-- `app/helpers.py` είναι πλέον thin shim που κάνει re-export από αυτά
-- `core/*` είναι το πραγματικό numerics engine
-- `core/numba_backend/*` είναι ο accelerated mirror του numerics engine
-- `scripts/*` και `tests/*` είναι το supporting ecosystem
-- `nds_app.py`, `app_lorenz.py`, `in_out/*`, `plotting/*` είναι κυρίως ιστορικά/βοηθητικά μονοπάτια
+1. RHS in `core/<name>_system_rhs.py`
+2. Optional analytic Jacobian in `core/jacobians_fixed_systems.py`
+3. New `SystemAdapter` and entry in `BUILTIN_SYSTEMS`
+   (`app/services/system_registry.py`)
+4. System label in `app/state/defaults.py` and UI controls in
+   `app/ui/sidebar.py`
+5. Optional Numba kernel in `core/numba_backend/builtins.py`
 
-Αν κάποιος κρατήσει μόνο αυτό, μπορεί ήδη να κινηθεί σωστά μέσα στον κώδικα.
+### A new solver
+
+1. Logic in `core/solver.py` or `core/symplectic_solver.py`
+2. Update `app/services/solver_policy.resolve_solver(...)` for
+   normalization + scipy method
+3. UI exposure in `app/ui/sidebar.py`
+4. If JIT-able, add a builder to `core/numba_backend/integrators.py` and
+   a `_try_numba_*` helper in `app/cache.py`
+
+### A new sweep observable
+
+1. `app/sweep.py` (`run_sweep_chunk` recognizes the observable; consider
+   a new `_run_*_chunk` helper if it doesn't fit existing paths)
+2. `app/ui/sweep_controls.py` (UI dropdown)
+3. Possibly `core/poincare_sweep.py` if a new mechanism is needed
+
+### A new export format
+
+1. `app/export/<format>.py` (or extend `csv_utils.py`)
+2. Update `app/services/export_service.build_run_bundle(...)`
+3. UI hook in `app/ui/tabs/export_tab.py`
+
+### A new tab
+
+1. New `app/ui/tabs/<name>_tab.py` with `render_<name>_tab(tab, *, ...)`
+2. Hook in `app/nlds_app.py` (`render_<name>_tab(tabs[N], ...)`)
+3. If it needs trajectory data, accept `phase_result: PhaseTabResult`
+4. If it has session state, add a key class in
+   `app/state/session_keys.py`
+
+### A new session-state key
+
+1. Add a member to the right class in `app/state/session_keys.py`
+2. Use the constant — never the literal string
+
+---
+
+## 9. Mental model
+
+After the refactor, the right mental model is:
+
+- `app/nlds_app.py` = front door (composition root only)
+- `app/ui/tabs/*` = one thin orchestrator per tab
+- `app/ui/*.py` = small focused renderers (sidebar, branding, help, sweep
+  controls, sweep plots, poincare panel, widgets)
+- `app/services/*` = registries + dispatch + business logic
+- `app/state/*` = defaults + typed keys + apply layer
+- `app/parsing/*`, `app/plotting/*`, `app/export/*` = small utilities,
+  one clear job each
+- `app/logic/*` = sweep / Lyapunov controllers near numerics
+- `app/cache.py`, `app/sweep.py` = glue between UI/services and `core/`
+- `core/*` = pure numerics
+- `core/numba_backend/*` = JIT-accelerated mirror
+- `legacy/*` = notebook-era predecessors, not on the runtime path
+- `scripts/*`, `tests/*` = supporting ecosystem
