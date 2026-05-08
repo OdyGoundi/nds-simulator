@@ -7,10 +7,11 @@
 ## Διακλάδωση (αριστερή στήλη)
 
 1) Επίλεξε παράμετρο σάρωσης, αρχή/τέλος/βήμα.  
-2) Διάλεξε τομή Poincare (μεταβλητή/τιμή) και κατεύθυνση crossing.  
-3) Διάλεξε sweep mode: **Bifurcation (reset ICs)** ή **Continuation (warm start)**.  
-4) Προαιρετικά: **Parallel sweep (local only)** και **Workers**.  
-5) Πάτησε **Generate Bifurcation Diagram** ή **Continue Bifurcation**.
+2) Διάλεξε παρατηρήσιμο: **τομές Poincaré** ή **τοπικά extrema** μιας μεταβλητής (max / min / both).  
+3) Για τομές Poincaré: ρύθμισε τη μεταβλητή/τιμή τομής και την κατεύθυνση crossing.  
+4) Διάλεξε sweep mode: **Bifurcation (reset ICs)** ή **Continuation (warm start)**.  
+5) Προαιρετικά: **Parallel sweep (local only)** και **Workers**.  
+6) Πάτησε **Generate Bifurcation Diagram** ή **Continue Bifurcation**.
 
 ## Lyapunov (δεξιά στήλη)
 

@@ -34,9 +34,11 @@ Key UI capabilities reflected in current app versions:
 ## Developer notes
 
 - Developer README (execution map): `docs/developer/README.md`
-- Architecture: `docs/developer/architecture.md`
-- Sweep engine: `docs/developer/sweep-engine.md`
-- Session state: `docs/developer/session-state.md`
+- Code reader guide (file-by-file map): `docs/developer/code-reader-guide.md`
+- Architecture (layers + contracts): `docs/developer/architecture.md`
+- Refactoring notes (what changed and why): `docs/developer/refactoring.md`
+- Sweep engine (Tab 3): `docs/developer/sweep-engine.md`
+- Session state (typed keys): `docs/developer/session-state.md`
 - Performance: `docs/developer/performance.md`
 
 ## Deployment notes (Streamlit Cloud)

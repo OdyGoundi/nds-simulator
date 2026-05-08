@@ -48,7 +48,7 @@
       border-radius:16px;
       padding:26px;
       box-shadow:0 16px 60px rgba(0,0,0,.35);
-      margin-bottom:22px;
+      margin-bottom:14px;
     }
 
     .hero h1{
@@ -81,6 +81,57 @@
       border:1px solid #2a3548;
     }
 
+    .toolbar{
+      position:sticky;
+      top:0;
+      z-index:5;
+      background:linear-gradient(var(--bg) 85%, transparent);
+      padding:10px 0 12px;
+      margin:0 0 14px;
+    }
+
+    .search{
+      width:100%;
+      padding:9px 12px;
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:10px;
+      color:var(--text);
+      font-family:inherit;
+      font-size:13px;
+      outline:none;
+    }
+    .search:focus{ border-color:var(--accent); }
+    .search::placeholder{ color:var(--muted); }
+
+    .toc{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      margin-top:8px;
+    }
+    .toc a{
+      font-size:12px;
+      padding:4px 10px;
+      border-radius:999px;
+      background:#1f2a3b;
+      color:var(--accent);
+      border:1px solid #2a3548;
+    }
+    .toc a:hover{
+      background:#28344a;
+      text-decoration:none;
+    }
+
+    .empty-msg{
+      display:none;
+      color:var(--muted);
+      font-size:13px;
+      padding:14px 0;
+      text-align:center;
+    }
+    .empty-msg.show{ display:block; }
+
     .card{
       background:var(--panel);
       border:1px solid var(--line);
@@ -105,6 +156,36 @@
       margin:8px 0;
       color:var(--muted);
     }
+
+    /* Collapsible cards */
+    details.card{
+      padding:0;
+    }
+    details.card > summary{
+      list-style:none;
+      cursor:pointer;
+      padding:18px 20px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      user-select:none;
+    }
+    details.card > summary::-webkit-details-marker{ display:none; }
+    details.card > summary > h2{
+      margin:0;
+      flex:1;
+    }
+    details.card > summary::after{
+      content:"\25BE";
+      color:var(--muted);
+      font-size:14px;
+      transition:transform 0.18s ease;
+    }
+    details.card[open] > summary::after{ transform:rotate(180deg); }
+    details.card[open] > summary{ border-bottom:1px solid var(--line); }
+    details.card > .body{ padding:14px 20px 20px; }
+
+    .card.is-hidden, details.card.is-hidden{ display:none; }
 
     .note{
       border-left:3px solid var(--accent);
@@ -212,16 +293,33 @@
     <div class="hero">
       <h1>Εγχειρίδιο dynaSim</h1>
       <p>
-       Γρήγορος οδηγός για ορισμό δυναμικών συστημάτων, επιλογή της μεθόδου αριθμητικής ολοκλήρωσης, 
-       των πορτραίτων φάσης, των χρονοσειρών, των εκθετών Lyapunov και των παραμετρικών σαρώσεων με τομές Poincaré. 
+       Γρήγορος οδηγός για ορισμό δυναμικών συστημάτων, επιλογή της μεθόδου αριθμητικής ολοκλήρωσης,
+       των πορτραίτων φάσης, των χρονοσειρών, των εκθετών Lyapunov και των παραμετρικών σαρώσεων με τομές Poincaré.
       </p>
       <div class="meta">
-        <span class="badge">Έκδοση: 3.2.1</span>
-        <span class="badge">Τελευταία ενημέρωση: Φεβρουάριος 2026</span>
+        <span class="badge">Έκδοση: 1.0</span>
+        <span class="badge">Τελευταία ενημέρωση: Μάιος 2026</span>
       </div>
     </div>
 
-    <section class="card">
+    <div class="toolbar">
+      <input class="search" id="manual-search" type="search"
+             placeholder="Αναζήτηση στο εγχειρίδιο…" aria-label="Αναζήτηση στο εγχειρίδιο" />
+      <nav class="toc" aria-label="Πίνακας περιεχομένων">
+        <a href="#quick-start">Γρήγορη Έναρξη</a>
+        <a href="#ways">Τρόποι χρήσης</a>
+        <a href="#custom">Προσαρμοσμένο σύστημα</a>
+        <a href="#numerical">Αριθμητική Ολοκλήρωση</a>
+        <a href="#tab1">Tab 1 · Φάση &amp; Lyapunov</a>
+        <a href="#tab2">Tab 2 · Χρονοσειρές</a>
+        <a href="#tab3">Tab 3 · Poincaré &amp; Σαρώσεις</a>
+        <a href="#tab4">Tab 4 · Εξαγωγή</a>
+      </nav>
+    </div>
+
+    <div class="empty-msg" id="empty-msg">Καμία αντιστοίχιση για αυτή την αναζήτηση.</div>
+
+    <section class="card" id="quick-start">
       <h2>Γρήγορη Έναρξη</h2>
       <ol class="steps">
         <li><span class="step-num">1</span><div><strong>Επιλέξτε σύστημα</strong> από το sidebar (ενσωματωμένο ή <strong>Custom nD</strong>).</div></li>
@@ -239,225 +337,263 @@
       </div>
     </section>
 
-    <section class="card">
-      <h2>Τρόποι χρήσης της εφαρμογής (4 πτυχές)</h2>
+    <details class="card" id="ways" open>
+      <summary><h2>Τρόποι χρήσης της εφαρμογής</h2></summary>
+      <div class="body">
+        <h3>1) Cloud (online)</h3>
+        <p>
+          <strong>dynasim.streamlit.app</strong><br/>
+          Προτείνεται για επισκόπηση, εκπαιδευτική χρήση και γρήγορα πειράματα χωρίς εγκατάσταση.
+          Μπορεί να υπάρχουν περιορισμοί χρόνου/πόρων (running time limits).
+        </p>
 
-      <h3>1) Cloud (online)</h3>
-      <p>
-        <strong>dynasim.streamlit.app</strong><br/>
-        Προτείνεται για επισκόπηση, εκπαιδευτική χρήση και γρήγορα πειράματα χωρίς εγκατάσταση.
-        Μπορεί να υπάρχουν περιορισμοί χρόνου/πόρων (running time limits).
-      </p>
+        <h3>2) Local Streamlit</h3>
+        <p>
+          Προτείνεται για να μην εξαρτώμαστε από περιορισμούς runtime του cloud και για βαριά runs.
+          Αφού προεγκατασταθούν τα requirements (σε venv/conda), τρέξτε:
+        </p>
+        <pre>streamlit run app/nlds_app.py</pre>
 
-      <h3>2) Local Streamlit</h3>
-      <p>
-        Προτείνεται για να μην εξαρτώμαστε από περιορισμούς runtime του cloud και για βαριά runs.
-        Αφού προεγκατασταθούν τα requirements (σε venv/conda), τρέξτε:
-      </p>
-      <pre>streamlit run app/nlds_app.py</pre>
-
-      <h3>3) Jupyter Notebook A — Phase portrait / Lyapunov / Time series</h3>
-      <p>
-        Notebook για παραγωγή τροχιών, πορτραίτων φάσης, χρονοσειρών και υπολογισμό εκθετών Lyapunov.<br/>
-        <strong>Link (pending):</strong> <a href="NOTEBOOK_A_LINK_PENDING">NOTEBOOK_A_LINK_PENDING</a>
-      </p>
-      <ul class="list">
-        <li><strong>Οδηγία:</strong> Αποθηκεύστε/εξάγετε τις ρυθμίσεις από το <strong>Tab 4 (Export)</strong> και φορτώστε τα configs στο notebook.</li>
-        <li>Κατάλληλο για επιπλέον post-processing και προσαρμοσμένη ανάλυση.</li>
-      </ul>
-
-      <h3>4) Jupyter Notebook B — Parametric sweeps / Bifurcation / Lyapunov vs parameter</h3>
-      <p>
-        Notebook για παραμετρικές σαρώσεις, διαγράμματα διακλάδωσης (Poincaré hits) και
-        Lyapunov ως προς παράμετρο.<br/>
-        <strong>Link (pending):</strong> <a href="NOTEBOOK_B_LINK_PENDING">NOTEBOOK_B_LINK_PENDING</a>
-      </p>
-      <ul class="list">
-        <li><strong>Οδηγία:</strong> Αποθηκεύστε/εξάγετε τις sweep ρυθμίσεις από το <strong>Tab 4 (Export)</strong> και περάστε τα configs στο notebook.</li>
-        <li>Προτείνεται για πλήρη παραμετροποίηση, batch runs και extra υπολογιστικές διαδικασίες.</li>
-      </ul>
-
-      <div class="note">
-        <strong>Σύσταση χρήσης:</strong> Online για overview & εκπαιδευτικούς λόγους · Local για runs χωρίς cloud περιορισμούς ·
-        Notebooks για πλήρη παραμετροποίηση και “research-grade” pipelines.
+        <div class="note">
+          <strong>Σύσταση χρήσης:</strong> Online για overview &amp; εκπαιδευτικούς λόγους ·
+          Local για πλήρη παραμετροποίηση και βαριά υπολογιστικά workflows.
+        </div>
       </div>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2>Προσαρμοσμένο Σύστημα (Custom nD)</h2>
-      <div class="note">
-        Ορίστε μεταβλητές, εξισώσεις και παραμέτρους από το sidebar. Οι εκφράσεις γράφονται σε σύνταξη Python/SymPy.
-        Για μη-αυτόνομα συστήματα μπορείτε να χρησιμοποιήσετε τη μεταβλητή χρόνου <span class="kbd">t</span>.
-      </div>
+    <details class="card" id="custom">
+      <summary><h2>Προσαρμοσμένο Σύστημα (Custom nD)</h2></summary>
+      <div class="body">
+        <div class="note">
+          Ορίστε μεταβλητές, εξισώσεις και παραμέτρους από το sidebar. Οι εκφράσεις γράφονται σε σύνταξη Python/SymPy.
+          Για μη-αυτόνομα συστήματα μπορείτε να χρησιμοποιήσετε τη μεταβλητή χρόνου <span class="kbd">t</span>.
+        </div>
 
-      <h3>Μεταβλητές</h3>
-      <pre>y1
+        <h3>Μεταβλητές</h3>
+        <pre>y1
 y2
 y3</pre>
 
-      <h3>Εξισώσεις (παράδειγμα Lorenz)</h3>
-      <pre>sigma * (y2 - y1)
+        <h3>Εξισώσεις (παράδειγμα Lorenz)</h3>
+        <pre>sigma * (y2 - y1)
 y1 * (rho - y3) - y2
 y1 * y2 - beta * y3</pre>
 
-      <h3>Παράμετροι</h3>
-      <pre>sigma=10
+        <h3>Παράμετροι</h3>
+        <pre>sigma=10
 rho=28
 beta=2.6666667</pre>
 
-      <h3>Ιακωβιανός για Lyapunov</h3>
-      <ul class="list">
-        <li>Ενεργοποιήστε <strong>Auto-compute Jacobian (symbolic)</strong> όπου είναι διαθέσιμο.</li>
-        <li>Ενεργοποιήστε <strong>Use analytic Jacobian</strong> για να επιταχύνετε τον υπολογισμό των εκθετών Lyapunov.</li>
-      </ul>
+        <h3>Ιακωβιανός για Lyapunov</h3>
+        <ul class="list">
+          <li>Ενεργοποιήστε <strong>Auto-compute Jacobian (symbolic)</strong> όπου είναι διαθέσιμο.</li>
+          <li>Ενεργοποιήστε <strong>Use analytic Jacobian</strong> για να επιταχύνετε τον υπολογισμό των εκθετών Lyapunov.</li>
+        </ul>
 
-      <h3>Σύνταξη εξισώσεων και υποστηριζόμενη γραφή</h3>
-      <table class="table">
-        <thead>
-          <tr><th>Περιγραφή</th><th>Σύνταξη</th><th>Παράδειγμα</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Πρόσθεση / αφαίρεση</td><td><span class="kbd">+</span>, <span class="kbd">-</span></td><td><span class="kbd">y - x</span></td></tr>
-          <tr><td>Γινόμενο</td><td><span class="kbd">*</span></td><td><span class="kbd">-x*z + u</span></td></tr>
-          <tr><td>Διαίρεση</td><td><span class="kbd">/</span></td><td><span class="kbd">(x + y)/2</span></td></tr>
-          <tr><td>Ύψωση σε δύναμη</td><td><span class="kbd">**</span></td><td><span class="kbd">x**2 + y**2</span></td></tr>
-          <tr><td>Παρένθεση προτεραιότητας</td><td><span class="kbd">(...)</span></td><td><span class="kbd">(x + y)*(z - u)</span></td></tr>
-          <tr><td>Απόλυτη τιμή</td><td><span class="kbd">abs(...)</span></td><td><span class="kbd">abs(x - y)</span></td></tr>
-        </tbody>
-      </table>
+        <h3>Σύνταξη εξισώσεων και υποστηριζόμενη γραφή</h3>
+        <table class="table">
+          <thead>
+            <tr><th>Περιγραφή</th><th>Σύνταξη</th><th>Παράδειγμα</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Πρόσθεση / αφαίρεση</td><td><span class="kbd">+</span>, <span class="kbd">-</span></td><td><span class="kbd">y - x</span></td></tr>
+            <tr><td>Γινόμενο</td><td><span class="kbd">*</span></td><td><span class="kbd">-x*z + u</span></td></tr>
+            <tr><td>Διαίρεση</td><td><span class="kbd">/</span></td><td><span class="kbd">(x + y)/2</span></td></tr>
+            <tr><td>Ύψωση σε δύναμη</td><td><span class="kbd">**</span></td><td><span class="kbd">x**2 + y**2</span></td></tr>
+            <tr><td>Παρένθεση προτεραιότητας</td><td><span class="kbd">(...)</span></td><td><span class="kbd">(x + y)*(z - u)</span></td></tr>
+            <tr><td>Απόλυτη τιμή</td><td><span class="kbd">abs(...)</span></td><td><span class="kbd">abs(x - y)</span></td></tr>
+          </tbody>
+        </table>
 
-      <table class="table">
-        <thead>
-          <tr><th>Κατηγορία</th><th>Συνάρτηση</th><th>Παράδειγμα</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Τριγωνομετρικές</td><td><span class="kbd">sin, cos, tan</span></td><td><span class="kbd">sin(x) + cos(y)</span></td></tr>
-          <tr><td>Υπερβολικές</td><td><span class="kbd">sinh, cosh, tanh</span></td><td><span class="kbd">tanh(z)</span></td></tr>
-          <tr><td>Εκθετική / λογάριθμος</td><td><span class="kbd">exp, log</span></td><td><span class="kbd">exp(-x) + log(1+x**2)</span></td></tr>
-          <tr><td>Ρίζα / απόλυτη τιμή</td><td><span class="kbd">sqrt, abs</span></td><td><span class="kbd">sqrt(x**2 + y**2)</span></td></tr>
-        </tbody>
-      </table>
-    </section>
-
-    <section class="card">
-      <h2>Οδηγός Αριθμητικής Ολοκλήρωσης</h2>
-
-      <table class="table">
-        <thead>
-          <tr><th>Solver</th><th>Κατάλληλο για</th><th>Σημειώσεις</th></tr>
-        </thead>
-        <tbody>
-          <tr><td><strong>RK45</strong></td><td>Γενική χρήση</td><td>Προσαρμοστικό βήμα, αξιόπιστη προεπιλογή για baseline runs.</td></tr>
-          <tr><td><strong>DOP853</strong></td><td>non-stiff, ομαλά συστήματα</td><td>Υψηλής τάξης, συνήθως καλύτερη ακρίβεια για απαιτητικές τροχιές.</td></tr>
-          <tr><td><strong>RK4 (fixed-step)</strong></td><td>Ταχύτητα / σαρώσεις</td><td>Σταθερό dt, προβλέψιμο κόστος· ενδείκνυται όταν θέλουμε πολλά runs.</td></tr>
-          <tr><td><strong>Symplectic (Forest–Ruth / Verlet)</strong></td><td>Χαμιλτονιανά συστήματα</td><td>Κατάσταση [q..., p...], άρτια διάσταση· καλύτερη μακροχρόνια συμπεριφορά ενέργειας.</td></tr>
-        </tbody>
-      </table>
-
-      <h3>Πώς επιλέγω dt / tolerances;</h3>
-      <ul class="list">
-        <li><strong>Fixed-step (RK4):</strong> μειώστε το <span class="kbd">time step</span> μέχρι να σταθεροποιούνται τα βασικά χαρακτηριστικά (γεωμετρία ελκυστή, Poincaré points).</li>
-        <li><strong>Adaptive (RK45/DOP853):</strong> ξεκινήστε με “μεσαίες” τιμές <span class="kbd">rtol/atol</span> και μειώστε τα επίπεδα ανοχής μόνο αν χρειάζεται (drift/artefacts).</li>
-        <li><strong>Chaos note:</strong> σε χαοτικά συστήματα οι τροχιές αποκλίνουν pointwise· κρίνουμε με γεωμετρία/στατιστικά/παρατηρήσιμα.</li>
-      </ul>
-
-      <div class="note">
-        <strong>Lyapunov (performance rule):</strong> Για υπολογισμό εκθετών Lyapunov προτείνεται να επιλέγεται
-        <strong>fixed-step solver αυστηρά</strong> (π.χ. RK4), για λόγους αποδοτικότητας (Numba).
+        <table class="table">
+          <thead>
+            <tr><th>Κατηγορία</th><th>Συνάρτηση</th><th>Παράδειγμα</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Τριγωνομετρικές</td><td><span class="kbd">sin, cos, tan</span></td><td><span class="kbd">sin(x) + cos(y)</span></td></tr>
+            <tr><td>Υπερβολικές</td><td><span class="kbd">sinh, cosh, tanh</span></td><td><span class="kbd">tanh(z)</span></td></tr>
+            <tr><td>Εκθετική / λογάριθμος</td><td><span class="kbd">exp, log</span></td><td><span class="kbd">exp(-x) + log(1+x**2)</span></td></tr>
+            <tr><td>Ρίζα / απόλυτη τιμή</td><td><span class="kbd">sqrt, abs</span></td><td><span class="kbd">sqrt(x**2 + y**2)</span></td></tr>
+          </tbody>
+        </table>
       </div>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2>Tab 1 — Πορτρέτο Φάσης & Εκθέτες Lyapunov</h2>
-      <ul class="list">
-        <li>Ορίστε <span class="kbd">initial time</span>, <span class="kbd">final time</span>, <span class="kbd">time step</span>, παραμέτρους και <span class="kbd">initial values</span>.</li>
-        <li>Επιλέξτε άξονες 2D ή 3D (για nD συστήματα βλέπετε προβολές).</li>
-        <li>Χρησιμοποιήστε <strong>Transient cut (time to skip)</strong> για να αφαιρέσετε μεταβατικά· εμφανίζονται αυτόματα τα αντίστοιχα steps.</li>
-        <li>Χρησιμοποιήστε τα <strong>Axis limits (view window)</strong> κάτω από το plot για αλλαγή περιοχής χωρίς νέο run.</li>
-        <li>Στο <strong>Configuration</strong> μπορείτε να κάνετε upload/apply το <span class="kbd">StaticParamsConfig.json</span>.</li>
-      </ul>
+    <details class="card" id="numerical">
+      <summary><h2>Οδηγός Αριθμητικής Ολοκλήρωσης</h2></summary>
+      <div class="body">
+        <table class="table">
+          <thead>
+            <tr><th>Solver</th><th>Κατάλληλο για</th><th>Σημειώσεις</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>RK45</strong></td><td>Γενική χρήση</td><td>Προσαρμοστικό βήμα, αξιόπιστη προεπιλογή για baseline runs.</td></tr>
+            <tr><td><strong>DOP853</strong></td><td>non-stiff, ομαλά συστήματα</td><td>Υψηλής τάξης, συνήθως καλύτερη ακρίβεια για απαιτητικές τροχιές.</td></tr>
+            <tr><td><strong>RK4 (fixed-step)</strong></td><td>Ταχύτητα / σαρώσεις</td><td>Σταθερό dt, προβλέψιμο κόστος· ενδείκνυται όταν θέλουμε πολλά runs.</td></tr>
+            <tr><td><strong>Symplectic (Forest–Ruth / Verlet)</strong></td><td>Χαμιλτονιανά συστήματα</td><td>Κατάσταση [q..., p...], άρτια διάσταση· καλύτερη μακροχρόνια συμπεριφορά ενέργειας.</td></tr>
+          </tbody>
+        </table>
 
-      <h3>Lyapunov (Tab 1 / αντίστοιχο panel)</h3>
-      <ul class="list">
-        <li>Ορίστε <strong>Lyapunov transient fraction</strong> και <strong>QR interval</strong>.</li>
-        <li>Πατήστε <strong>Compute Lyapunov exponents</strong>.</li>
-      </ul>
+        <h3>Πώς επιλέγω dt / tolerances;</h3>
+        <ul class="list">
+          <li><strong>Fixed-step (RK4):</strong> μειώστε το <span class="kbd">time step</span> μέχρι να σταθεροποιούνται τα βασικά χαρακτηριστικά (γεωμετρία ελκυστή, Poincaré points).</li>
+          <li><strong>Adaptive (RK45/DOP853):</strong> ξεκινήστε με “μεσαίες” τιμές <span class="kbd">rtol/atol</span> και μειώστε τα επίπεδα ανοχής μόνο αν χρειάζεται (drift/artefacts).</li>
+          <li><strong>Chaos note:</strong> σε χαοτικά συστήματα οι τροχιές αποκλίνουν pointwise· κρίνουμε με γεωμετρία/στατιστικά/παρατηρήσιμα.</li>
+        </ul>
 
-      <div class="note">
-        <strong>Πρακτικό:</strong> Μικρότερο QR interval (πιο συχνή επανορθοκανονικοποίηση) συνήθως βοηθά σταθερότητα.
-        Για σταθερά estimates απαιτείται αρκετά μεγάλο <span class="kbd">final time</span> μετά το transient.
+        <div class="note">
+          <strong>Lyapunov (performance rule):</strong> Για υπολογισμό εκθετών Lyapunov προτείνεται να επιλέγεται
+          <strong>fixed-step solver αυστηρά</strong> (π.χ. RK4), για λόγους αποδοτικότητας (Numba).
+        </div>
       </div>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2>Tab 2 — Χρονοσειρές</h2>
-      <ul class="list">
-        <li>Σχεδιάστε οποιαδήποτε μεταβλητή ως προς τον χρόνο.</li>
-        <li>Χρήσιμο για έλεγχο σταθερότητας, κλιμάκων, μεταβατικών και επιλογή κατάλληλου <span class="kbd">final time</span>.</li>
-      </ul>
-    </section>
+    <details class="card" id="tab1">
+      <summary><h2>Tab 1 — Πορτρέτο Φάσης &amp; Εκθέτες Lyapunov</h2></summary>
+      <div class="body">
+        <ul class="list">
+          <li>Ορίστε <span class="kbd">initial time</span>, <span class="kbd">final time</span>, <span class="kbd">time step</span>, παραμέτρους και <span class="kbd">initial values</span>.</li>
+          <li>Επιλέξτε άξονες 2D ή 3D (για nD συστήματα βλέπετε προβολές).</li>
+          <li>Χρησιμοποιήστε <strong>Transient cut (time to skip)</strong> για να αφαιρέσετε μεταβατικά· εμφανίζονται αυτόματα τα αντίστοιχα steps.</li>
+          <li>Χρησιμοποιήστε τα <strong>Axis limits (view window)</strong> κάτω από το plot για αλλαγή περιοχής χωρίς νέο run.</li>
+          <li>Στο <strong>Configuration</strong> μπορείτε να κάνετε upload/apply το <span class="kbd">StaticParamsConfig.json</span>.</li>
+        </ul>
 
-    <section class="card">
-      <h2>Tab 3 — Τομή Poincaré & Παραμετρικές Σαρώσεις</h2>
+        <h3>Lyapunov (Tab 1 / αντίστοιχο panel)</h3>
+        <ul class="list">
+          <li>Ορίστε <strong>Lyapunov transient fraction</strong> και <strong>QR interval</strong>.</li>
+          <li>Πατήστε <strong>Compute Lyapunov exponents</strong>.</li>
+        </ul>
 
-      <h3>Τομή Poincaré</h3>
-      <ul class="list">
-        <li><strong>Τομή επιπέδου:</strong> επιλέξτε μεταβλητή τομής και τιμή.</li>
-        <li><strong>Εξίσωση τομής:</strong> εισαγάγετε έκφραση (σε περίπτωση εισαγωγής εξίωσης, η μεταβλητή τομής και η τιμή της που επιλέξατε παραπάνω παρακάμπτονται).</li>
-        <li><strong>Μέθοδος:</strong> <strong>crossing</strong> (διέλευση) ή <strong>slab</strong> (ζώνη ανοχής).</li>
-      </ul>
-
-      <h3>Σαρώσεις παραμέτρων</h3>
-      <ul class="list">
-        <li>Επιλέξτε παράμετρο σάρωσης, εύρος και βήμα.</li>
-        <li><strong>Mode:</strong> bifurcation (reset ICs) ή continuation (warm start).</li>
-        <li>Για ταχύτερα bifurcation diagrams χρησιμοποιήστε RK4 και κατάλληλο αριθμό Poincaré hits / early stop όπου υπάρχει.</li>
-      </ul>
-
-      <h3>Οδηγίες μελέτης (χαοτική + παραμετρική συμπεριφορά)</h3>
-      <ul class="list">
-        <li>Μετά το setup των εξισώσεων, επιλέξτε ρυθμίσεις ολοκλήρωσης που να επιτρέπουν επαρκή εξέλιξη του συστήματος.</li>
-        <li>Για υπολογισμό εκθετών Lyapunov σε συγκεκριμένες τιμές παραμέτρων, χρησιμοποιήστε σχετικά μεγάλο χρονικό ορίζοντα. Ενδεικτικά, με time step 0.01, time final 10000 είναι συνήθως αρκετά ασφαλές.</li>
-        <li>Για παραμετρική μελέτη (διαγράμματα διακλάδωσης και Lyapunov ανά τιμή παραμέτρου), ξεκινήστε με λίγες τιμές και αυξήστε σταδιακά την ανάλυση.</li>
-        <li>Με βάση τις χρονοσειρές των μεταβλητών, επιλέξτε κατάλληλη εξίσωση επιπέδου για την τομή Poincaré, ώστε να πάρετε έγκυρες crossing τιμές. Με τον ίδιο τρόπο μπορείτε να παραγάγετε και το διάγραμμα Lyapunov.</li>
-        <li>Χρησιμοποιήστε τα <strong>Axis limits (view window)</strong> κάτω από το Lyapunov plot για να δείτε διαφορετική περιοχή χωρίς recomputation.</li>
-        <li>Στο κάτω, κεντραρισμένο <strong>Configuration</strong> section, χρησιμοποιήστε <strong>Save configuration</strong> ή upload/apply το <span class="kbd">SweepParamConfig.json</span>.</li>
-        <li>Ισορροπήστε ποιότητα και χρόνο εκτέλεσης μειώνοντας/αυξάνοντας το time final μέχρι να έχετε ικανοποιητική αποτύπωση της συμπεριφοράς χωρίς υπερβολικό κόστος.</li>
-        <li>Αν δεν χρησιμοποιείτε warm start (όπου οι αρχικές συνθήκες κάθε run είναι οι τελικές του προηγούμενου), παραλληλοποιήστε με το workers slider και εφαρμόστε reset ICs για κάθε παράμετρο ώστε να μειώσετε τον συνολικό χρόνο.</li>
-      </ul>
-
-      <div class="note">
-        <strong>Tip:</strong> Αν δεν βρίσκονται τομές, αλλάξτε section value ή direction, αυξήστε tf(sweep),
-        ή δοκιμάστε slab με λίγο μεγαλύτερο tolerance.
+        <div class="note">
+          <strong>Πρακτικό:</strong> Μικρότερο QR interval (πιο συχνή επανορθοκανονικοποίηση) συνήθως βοηθά σταθερότητα.
+          Για σταθερά estimates απαιτείται αρκετά μεγάλο <span class="kbd">final time</span> μετά το transient.
+        </div>
       </div>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2>Tab 4 — Εξαγωγή (Export) & Reproducibility</h2>
-      <ul class="list">
-        <li>Κατεβάστε τροχιές (CSV).</li>
-        <li>Κατεβάστε sweep results (CSV).</li>
-        <li>Εξαγωγή αποτελεσμάτων Lyapunov και πλήρων ρυθμίσεων/configs.</li>
-      </ul>
+    <details class="card" id="tab2">
+      <summary><h2>Tab 2 — Χρονοσειρές</h2></summary>
+      <div class="body">
+        <ul class="list">
+          <li>Σχεδιάστε οποιαδήποτε μεταβλητή ως προς τον χρόνο.</li>
+          <li>Χρήσιμο για έλεγχο σταθερότητας, κλιμάκων, μεταβατικών και επιλογή κατάλληλου <span class="kbd">final time</span>.</li>
+        </ul>
+      </div>
+    </details>
 
-      <h3>Για χρήση στα Notebooks</h3>
-      <ul class="list">
-        <li>Κάντε <strong>Save/Export</strong> από το Export tab.</li>
-        <li>Φορτώστε τα configs στο αντίστοιχο notebook (A ή B), ανάλογα με το workflow.</li>
-      </ul>
+    <details class="card" id="tab3">
+      <summary><h2>Tab 3 — Τομή Poincaré &amp; Παραμετρικές Σαρώσεις</h2></summary>
+      <div class="body">
+        <h3>Τομή Poincaré</h3>
+        <ul class="list">
+          <li><strong>Τομή επιπέδου:</strong> επιλέξτε μεταβλητή τομής και τιμή.</li>
+          <li><strong>Εξίσωση τομής:</strong> εισαγάγετε έκφραση (σε περίπτωση εισαγωγής εξίωσης, η μεταβλητή τομής και η τιμή της που επιλέξατε παραπάνω παρακάμπτονται).</li>
+          <li><strong>Μέθοδος:</strong> <strong>crossing</strong> (διέλευση) ή <strong>slab</strong> (ζώνη ανοχής).</li>
+        </ul>
 
-      <h3>Αντιμετώπιση προβλημάτων</h3>
-      <ul class="list">
-        <li><span class="badge">Αργό</span> Μειώστε το <span class="kbd">final time</span>, αυξήστε προσεκτικά το <span class="kbd">time step</span> (δηλαδή μειώστε τον αριθμό των βημάτων), ή μειώστε το <span class="kbd">max hits</span>.</li>
-        <li><span class="badge">Καμία τομή</span> Αλλάξτε τιμή/κατεύθυνση τομής ή δοκιμάστε slab.</li>
-        <li><span class="badge">Θορυβώδες</span> Αυξήστε <span class="kbd">final time</span>, μειώστε <span class="kbd">time step</span>, ή χρησιμοποιήστε analytic Jacobian.</li>
-      </ul>
-    </section>
+        <h3>Σαρώσεις παραμέτρων</h3>
+        <ul class="list">
+          <li>Επιλέξτε παράμετρο σάρωσης, εύρος και βήμα.</li>
+          <li><strong>Mode:</strong> bifurcation (reset ICs) ή continuation (warm start).</li>
+          <li>Για ταχύτερα bifurcation diagrams χρησιμοποιήστε RK4 και κατάλληλο αριθμό Poincaré hits / early stop όπου υπάρχει.</li>
+        </ul>
+
+        <h3>Οδηγίες μελέτης (χαοτική + παραμετρική συμπεριφορά)</h3>
+        <ul class="list">
+          <li>Μετά το setup των εξισώσεων, επιλέξτε ρυθμίσεις ολοκλήρωσης που να επιτρέπουν επαρκή εξέλιξη του συστήματος.</li>
+          <li>Για υπολογισμό εκθετών Lyapunov σε συγκεκριμένες τιμές παραμέτρων, χρησιμοποιήστε σχετικά μεγάλο χρονικό ορίζοντα. Ενδεικτικά, με time step 0.01, time final 10000 είναι συνήθως αρκετά ασφαλές.</li>
+          <li>Για παραμετρική μελέτη (διαγράμματα διακλάδωσης και Lyapunov ανά τιμή παραμέτρου), ξεκινήστε με λίγες τιμές και αυξήστε σταδιακά την ανάλυση.</li>
+          <li>Με βάση τις χρονοσειρές των μεταβλητών, επιλέξτε κατάλληλη εξίσωση επιπέδου για την τομή Poincaré, ώστε να πάρετε έγκυρες crossing τιμές. Με τον ίδιο τρόπο μπορείτε να παραγάγετε και το διάγραμμα Lyapunov.</li>
+          <li>Χρησιμοποιήστε τα <strong>Axis limits (view window)</strong> κάτω από το Lyapunov plot για να δείτε διαφορετική περιοχή χωρίς recomputation.</li>
+          <li>Στο κάτω, κεντραρισμένο <strong>Configuration</strong> section, χρησιμοποιήστε <strong>Save configuration</strong> ή upload/apply το <span class="kbd">SweepParamConfig.json</span>.</li>
+          <li>Ισορροπήστε ποιότητα και χρόνο εκτέλεσης μειώνοντας/αυξάνοντας το time final μέχρι να έχετε ικανοποιητική αποτύπωση της συμπεριφοράς χωρίς υπερβολικό κόστος.</li>
+          <li>Αν δεν χρησιμοποιείτε warm start (όπου οι αρχικές συνθήκες κάθε run είναι οι τελικές του προηγούμενου), παραλληλοποιήστε με το workers slider και εφαρμόστε reset ICs για κάθε παράμετρο ώστε να μειώσετε τον συνολικό χρόνο.</li>
+        </ul>
+
+        <div class="note">
+          <strong>Tip:</strong> Αν δεν βρίσκονται τομές, αλλάξτε section value ή direction, αυξήστε tf(sweep),
+          ή δοκιμάστε slab με λίγο μεγαλύτερο tolerance.
+        </div>
+      </div>
+    </details>
+
+    <details class="card" id="tab4">
+      <summary><h2>Tab 4 — Εξαγωγή (Export) &amp; Reproducibility</h2></summary>
+      <div class="body">
+        <ul class="list">
+          <li>Κατεβάστε τροχιές (CSV).</li>
+          <li>Κατεβάστε sweep results (CSV).</li>
+          <li>Εξαγωγή αποτελεσμάτων Lyapunov και πλήρων ρυθμίσεων/configs.</li>
+        </ul>
+
+        <h3>Αντιμετώπιση προβλημάτων</h3>
+        <ul class="list">
+          <li><span class="badge">Αργό</span> Μειώστε το <span class="kbd">final time</span>, αυξήστε προσεκτικά το <span class="kbd">time step</span> (δηλαδή μειώστε τον αριθμό των βημάτων), ή μειώστε το <span class="kbd">max hits</span>.</li>
+          <li><span class="badge">Καμία τομή</span> Αλλάξτε τιμή/κατεύθυνση τομής ή δοκιμάστε slab.</li>
+          <li><span class="badge">Θορυβώδες</span> Αυξήστε <span class="kbd">final time</span>, μειώστε <span class="kbd">time step</span>, ή χρησιμοποιήστε analytic Jacobian.</li>
+        </ul>
+      </div>
+    </details>
 
     <div class="footer">
       Εγχειρίδιο dynaSim · Non-linear Dynamical System Simulator · επεξεργασία αυτού του αρχείου στο
       <span class="kbd">docs/user-guide/manual-el.html</span>
     </div>
   </div>
+
+  <script>
+    (function(){
+      var search = document.getElementById("manual-search");
+      var emptyMsg = document.getElementById("empty-msg");
+      var cards = Array.prototype.slice.call(
+        document.querySelectorAll(".card[id], details.card[id]")
+      );
+
+      // Snapshot the open/closed state at load so we can restore it when the
+      // search box is cleared.
+      var initialOpen = new Map();
+      cards.forEach(function(c){
+        if (c.tagName === "DETAILS") initialOpen.set(c, c.open);
+      });
+
+      function applyFilter(query){
+        var q = (query || "").trim().toLowerCase();
+        var anyVisible = false;
+
+        cards.forEach(function(c){
+          if (!q){
+            c.classList.remove("is-hidden");
+            if (c.tagName === "DETAILS") c.open = initialOpen.get(c) || false;
+            anyVisible = true;
+            return;
+          }
+          var hit = c.textContent.toLowerCase().indexOf(q) !== -1;
+          if (hit){
+            c.classList.remove("is-hidden");
+            if (c.tagName === "DETAILS") c.open = true;
+            anyVisible = true;
+          } else {
+            c.classList.add("is-hidden");
+          }
+        });
+
+        emptyMsg.classList.toggle("show", !!q && !anyVisible);
+      }
+
+      if (search){
+        search.addEventListener("input", function(e){ applyFilter(e.target.value); });
+      }
+
+      // Clicking a TOC link should expand the target if it is collapsed.
+      document.querySelectorAll(".toc a").forEach(function(a){
+        a.addEventListener("click", function(){
+          var id = a.getAttribute("href").slice(1);
+          var target = document.getElementById(id);
+          if (target && target.tagName === "DETAILS") target.open = true;
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

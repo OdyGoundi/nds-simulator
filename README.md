@@ -63,13 +63,17 @@ streamlit run app/nlds_app.py
 
 ```mermaid
 flowchart LR
-  UI[Streamlit UI\napp/nlds_app.py + app/ui/*] --> CTRL[Controllers\napp/cache.py, app/sweep.py, app/logic/*]
-  CTRL --> CORE[Core numerics\ncore/*]
+  UI[Streamlit UI\napp/nlds_app.py + app/ui/*] --> SERV[Services + State\napp/services/* + app/state/*]
+  SERV --> GLUE[Controllers + Glue\napp/cache.py + app/sweep.py + app/logic/*]
+  GLUE --> CORE[Core numerics\ncore/* + core/numba_backend/*]
   CORE --> SOLVERS[Solvers\nRK45/DOP853/RK4/Symplectic]
   CORE --> LYA[Lyapunov + QR\ncore/lyapunov.py]
-  CORE --> POIN[ Poincare sweeps\ncore/poincare_sweep.py]
-  CTRL --> PLOTS[Plots + Export\napp/plots.py, app/export_utils.py]
+  CORE --> POIN[Poincare sweeps\ncore/poincare_sweep.py]
+  GLUE --> PLOTS[Plotting + Export\napp/plotting/* + app/export/*]
 ```
+
+For the layer rules and contracts, see [docs/developer/architecture.md](docs/developer/architecture.md).
+For a file-by-file map, see [docs/developer/code-reader-guide.md](docs/developer/code-reader-guide.md).
 
 ## Ways To Use dynaSim
 
@@ -117,6 +121,11 @@ When running very large `tf/dt` combinations:
   - Greek: `docs/user-guide/manual-el.html`
 - Theory notes: `docs/theory/`
 - Developer docs: `docs/developer/`
+  - Code reader guide (file-by-file map): `docs/developer/code-reader-guide.md`
+  - Architecture (layers + contracts): `docs/developer/architecture.md`
+  - Refactoring notes (what changed and why): `docs/developer/refactoring.md`
+  - Sweep engine (Tab 3): `docs/developer/sweep-engine.md`
+  - Session state (typed keys): `docs/developer/session-state.md`
 - Greek quick guides: `docs/greek/`
 - Docs index: `docs/README.md`
 

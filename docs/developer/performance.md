@@ -231,6 +231,12 @@ use the Numba backend for the fixed-step integrators.
 ### Notes
 - The first run pays a compilation cost; later runs are fast.
 - Event-based IVP acceleration still applies only to RK45/DOP853 + crossing.
+- The Numba-vs-Python decision is centralised in `app/cache.py` (single
+  trajectories) and `app/sweep.py` (sweeps); system and solver dispatch
+  go through `app/services/system_registry.py` and
+  `app/services/solver_policy.py`. See
+  [`code-reader-guide.md`](./code-reader-guide.md) §7.8 for the
+  builder-based Numba flow.
 
 
 ## 11. Practical tuning guidelines
@@ -248,7 +254,7 @@ Smaller `dt_sweep` means larger `N_steps` (slower) but more accurate crossings.
 | Very large sweeps   | Enable warm start + early stop; for independent mode, enable parallel workers  |
 | Chaotic regimes     | Smaller `chunk_time`; increase `N_steps` if crossings are sparse or missing    |
 
-## 10. Why this design fits Streamlit
+## 12. Why this design fits Streamlit
 
 - No long blocking calls
 
@@ -258,7 +264,7 @@ Smaller `dt_sweep` means larger `N_steps` (slower) but more accurate crossings.
 
 - Safe for cloud deployment limits
 
-## 11. Summary
+## 13. Summary
 
 
 ### Core performance principle

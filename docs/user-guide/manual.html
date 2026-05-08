@@ -48,7 +48,7 @@
       border-radius:16px;
       padding:26px;
       box-shadow:0 16px 60px rgba(0,0,0,.35);
-      margin-bottom:22px;
+      margin-bottom:14px;
     }
 
     .hero h1{
@@ -81,6 +81,57 @@
       border:1px solid #2a3548;
     }
 
+    .toolbar{
+      position:sticky;
+      top:0;
+      z-index:5;
+      background:linear-gradient(var(--bg) 85%, transparent);
+      padding:10px 0 12px;
+      margin:0 0 14px;
+    }
+
+    .search{
+      width:100%;
+      padding:9px 12px;
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:10px;
+      color:var(--text);
+      font-family:inherit;
+      font-size:13px;
+      outline:none;
+    }
+    .search:focus{ border-color:var(--accent); }
+    .search::placeholder{ color:var(--muted); }
+
+    .toc{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      margin-top:8px;
+    }
+    .toc a{
+      font-size:12px;
+      padding:4px 10px;
+      border-radius:999px;
+      background:#1f2a3b;
+      color:var(--accent);
+      border:1px solid #2a3548;
+    }
+    .toc a:hover{
+      background:#28344a;
+      text-decoration:none;
+    }
+
+    .empty-msg{
+      display:none;
+      color:var(--muted);
+      font-size:13px;
+      padding:14px 0;
+      text-align:center;
+    }
+    .empty-msg.show{ display:block; }
+
     .card{
       background:var(--panel);
       border:1px solid var(--line);
@@ -105,6 +156,36 @@
       margin:8px 0;
       color:var(--muted);
     }
+
+    /* Collapsible cards */
+    details.card{
+      padding:0;
+    }
+    details.card > summary{
+      list-style:none;
+      cursor:pointer;
+      padding:18px 20px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      user-select:none;
+    }
+    details.card > summary::-webkit-details-marker{ display:none; }
+    details.card > summary > h2{
+      margin:0;
+      flex:1;
+    }
+    details.card > summary::after{
+      content:"\25BE";
+      color:var(--muted);
+      font-size:14px;
+      transition:transform 0.18s ease;
+    }
+    details.card[open] > summary::after{ transform:rotate(180deg); }
+    details.card[open] > summary{ border-bottom:1px solid var(--line); }
+    details.card > .body{ padding:14px 20px 20px; }
+
+    .card.is-hidden, details.card.is-hidden{ display:none; }
 
     .note{
       border-left:3px solid var(--accent);
@@ -216,12 +297,29 @@
           phase portraits, time series, Lyapunov exponents, and parametric sweeps with Poincare sections.
         </p>
         <div class="meta">
-          <span class="badge">Version: 3.2.1</span>
-          <span class="badge">Last updated: February 2026</span>
+          <span class="badge">Version: 1.0 </span>
+          <span class="badge">Last updated: May of 2026</span>
         </div>
       </div>
 
-      <section class="card">
+      <div class="toolbar">
+        <input class="search" id="manual-search" type="search"
+               placeholder="Search the manual…" aria-label="Search the manual" />
+        <nav class="toc" aria-label="Table of contents">
+          <a href="#quick-start">Quick Start</a>
+          <a href="#ways">Ways to use</a>
+          <a href="#custom">Custom System</a>
+          <a href="#numerical">Numerical Integration</a>
+          <a href="#tab1">Tab 1 · Phase &amp; Lyapunov</a>
+          <a href="#tab2">Tab 2 · Time Series</a>
+          <a href="#tab3">Tab 3 · Poincare &amp; Sweeps</a>
+          <a href="#tab4">Tab 4 · Export</a>
+        </nav>
+      </div>
+
+      <div class="empty-msg" id="empty-msg">No matches in the manual for that query.</div>
+
+      <section class="card" id="quick-start">
         <h2>Quick Start</h2>
         <ol class="steps">
           <li><span class="step-num">1</span><div><strong>Choose a system</strong> from the sidebar (built-in or <strong>Custom nD</strong>).</div></li>
@@ -239,225 +337,263 @@
         </div>
       </section>
 
-      <section class="card">
-        <h2>Ways to use the app (4 modes)</h2>
+      <details class="card" id="ways" open>
+        <summary><h2>Ways to use the app</h2></summary>
+        <div class="body">
+          <h3>1) Cloud (online)</h3>
+          <p>
+            <strong>dynasim.streamlit.app</strong><br/>
+            Recommended for overview, educational use and quick experiments without installation.
+            There may be runtime/resource limits (running time limits).
+          </p>
 
-        <h3>1) Cloud (online)</h3>
-        <p>
-          <strong>dynasim.streamlit.app</strong><br/>
-          Recommended for overview, educational use and quick experiments without installation.
-          There may be runtime/resource limits (running time limits).
-        </p>
+          <h3>2) Local Streamlit</h3>
+          <p>
+            Recommended to avoid cloud runtime limitations and for heavy runs.
+            After installing requirements (venv/conda), run:
+          </p>
+          <pre>streamlit run app/nlds_app.py</pre>
 
-        <h3>2) Local Streamlit</h3>
-        <p>
-          Recommended to avoid cloud runtime limitations and for heavy runs.
-          After installing requirements (venv/conda), run:
-        </p>
-        <pre>streamlit run app/nlds_app.py</pre>
-
-        <h3>3) Jupyter Notebook A — Phase portrait / Lyapunov / Time series</h3>
-        <p>
-          Notebook for generating trajectories, phase portraits, time series and computing Lyapunov exponents.<br/>
-          <strong>Link (pending):</strong> <a href="NOTEBOOK_A_LINK_PENDING">NOTEBOOK_A_LINK_PENDING</a>
-        </p>
-        <ul class="list">
-          <li><strong>Instruction:</strong> Save/export settings from <strong>Tab 4 (Export)</strong> and load the configs in the notebook.</li>
-          <li>Suitable for additional post-processing and custom analysis.</li>
-        </ul>
-
-        <h3>4) Jupyter Notebook B — Parametric sweeps / Bifurcation / Lyapunov vs parameter</h3>
-        <p>
-          Notebook for parametric sweeps, bifurcation diagrams (Poincare hits) and
-          Lyapunov vs parameter.<br/>
-          <strong>Link (pending):</strong> <a href="NOTEBOOK_B_LINK_PENDING">NOTEBOOK_B_LINK_PENDING</a>
-        </p>
-        <ul class="list">
-          <li><strong>Instruction:</strong> Save/export sweep settings from <strong>Tab 4 (Export)</strong> and pass the configs to the notebook.</li>
-          <li>Recommended for full parameterization, batch runs and extra computational workflows.</li>
-        </ul>
-
-        <div class="note">
-          <strong>Recommended use:</strong> Online for overview & educational purposes · Local for runs without cloud limits ·
-          Notebooks for full parameterization and “research-grade” pipelines.
+          <div class="note">
+            <strong>Recommended use:</strong> Online for overview &amp; educational purposes ·
+            Local for full parameterization and heavy computational workflows.
+          </div>
         </div>
-      </section>
+      </details>
 
-      <section class="card">
-        <h2>Custom System (Custom nD)</h2>
-        <div class="note">
-          Define variables, equations and parameters from the sidebar. Expressions use Python/SymPy syntax.
-          For non-autonomous systems you can use the time variable <span class="kbd">t</span>.
-        </div>
+      <details class="card" id="custom">
+        <summary><h2>Custom System (Custom nD)</h2></summary>
+        <div class="body">
+          <div class="note">
+            Define variables, equations and parameters from the sidebar. Expressions use Python/SymPy syntax.
+            For non-autonomous systems you can use the time variable <span class="kbd">t</span>.
+          </div>
 
-        <h3>Variables</h3>
-        <pre>y1
+          <h3>Variables</h3>
+          <pre>y1
 y2
 y3</pre>
 
-        <h3>Equations (Lorenz example)</h3>
-        <pre>sigma * (y2 - y1)
+          <h3>Equations (Lorenz example)</h3>
+          <pre>sigma * (y2 - y1)
 y1 * (rho - y3) - y2
 y1 * y2 - beta * y3</pre>
 
-        <h3>Parameters</h3>
-        <pre>sigma=10
+          <h3>Parameters</h3>
+          <pre>sigma=10
 rho=28
 beta=2.6666667</pre>
 
-        <h3>Jacobian for Lyapunov</h3>
-        <ul class="list">
-          <li>Enable <strong>Auto-compute Jacobian (symbolic)</strong> where available.</li>
-          <li>Enable <strong>Use analytic Jacobian</strong> to speed up Lyapunov exponent computation.</li>
-        </ul>
+          <h3>Jacobian for Lyapunov</h3>
+          <ul class="list">
+            <li>Enable <strong>Auto-compute Jacobian (symbolic)</strong> where available.</li>
+            <li>Enable <strong>Use analytic Jacobian</strong> to speed up Lyapunov exponent computation.</li>
+          </ul>
 
-        <h3>Equation Syntax & Supported Notation</h3>
-        <table class="table">
-          <thead>
-            <tr><th>Description</th><th>Syntax</th><th>Example</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Addition / subtraction</td><td><span class="kbd">+</span>, <span class="kbd">-</span></td><td><span class="kbd">y - x</span></td></tr>
-            <tr><td>Multiplication</td><td><span class="kbd">*</span></td><td><span class="kbd">-x*z + u</span></td></tr>
-            <tr><td>Division</td><td><span class="kbd">/</span></td><td><span class="kbd">(x + y)/2</span></td></tr>
-            <tr><td>Power</td><td><span class="kbd">**</span></td><td><span class="kbd">x**2 + y**2</span></td></tr>
-            <tr><td>Grouping / precedence</td><td><span class="kbd">(...)</span></td><td><span class="kbd">(x + y)*(z - u)</span></td></tr>
-            <tr><td>Absolute value</td><td><span class="kbd">abs(...)</span></td><td><span class="kbd">abs(x - y)</span></td></tr>
-          </tbody>
-        </table>
+          <h3>Equation Syntax & Supported Notation</h3>
+          <table class="table">
+            <thead>
+              <tr><th>Description</th><th>Syntax</th><th>Example</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Addition / subtraction</td><td><span class="kbd">+</span>, <span class="kbd">-</span></td><td><span class="kbd">y - x</span></td></tr>
+              <tr><td>Multiplication</td><td><span class="kbd">*</span></td><td><span class="kbd">-x*z + u</span></td></tr>
+              <tr><td>Division</td><td><span class="kbd">/</span></td><td><span class="kbd">(x + y)/2</span></td></tr>
+              <tr><td>Power</td><td><span class="kbd">**</span></td><td><span class="kbd">x**2 + y**2</span></td></tr>
+              <tr><td>Grouping / precedence</td><td><span class="kbd">(...)</span></td><td><span class="kbd">(x + y)*(z - u)</span></td></tr>
+              <tr><td>Absolute value</td><td><span class="kbd">abs(...)</span></td><td><span class="kbd">abs(x - y)</span></td></tr>
+            </tbody>
+          </table>
 
-        <table class="table">
-          <thead>
-            <tr><th>Category</th><th>Function</th><th>Example</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Trigonometric</td><td><span class="kbd">sin, cos, tan</span></td><td><span class="kbd">sin(x) + cos(y)</span></td></tr>
-            <tr><td>Hyperbolic</td><td><span class="kbd">sinh, cosh, tanh</span></td><td><span class="kbd">tanh(z)</span></td></tr>
-            <tr><td>Exponential / logarithm</td><td><span class="kbd">exp, log</span></td><td><span class="kbd">exp(-x) + log(1+x**2)</span></td></tr>
-            <tr><td>Root / absolute value</td><td><span class="kbd">sqrt, abs</span></td><td><span class="kbd">sqrt(x**2 + y**2)</span></td></tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section class="card">
-        <h2>Numerical Integration Guide</h2>
-
-        <table class="table">
-          <thead>
-            <tr><th>Solver</th><th>Best for</th><th>Notes</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><strong>RK45</strong></td><td>General use</td><td>Adaptive step, reliable default for baseline runs.</td></tr>
-            <tr><td><strong>DOP853</strong></td><td>Non-stiff, smooth systems</td><td>High order, usually better accuracy for demanding trajectories.</td></tr>
-            <tr><td><strong>RK4 (fixed-step)</strong></td><td>Speed / sweeps</td><td>Fixed dt, predictable cost; recommended when you need many runs.</td></tr>
-            <tr><td><strong>Symplectic (Forest–Ruth / Verlet)</strong></td><td>Hamiltonian systems</td><td>State [q..., p...], even dimension; better long-term energy behavior.</td></tr>
-          </tbody>
-        </table>
-
-        <h3>How do I choose dt / tolerances?</h3>
-        <ul class="list">
-          <li><strong>Fixed-step (RK4):</strong> decrease the <span class="kbd">time step</span> until key features stabilize (attractor geometry, Poincare points).</li>
-          <li><strong>Adaptive (RK45/DOP853):</strong> start with “medium” <span class="kbd">rtol/atol</span> values and tighten only if needed (drift/artefacts).</li>
-          <li><strong>Chaos note:</strong> in chaotic systems trajectories diverge pointwise; judge with geometry/statistics/observables.</li>
-        </ul>
-
-        <div class="note">
-          <strong>Lyapunov (performance rule):</strong> For Lyapunov exponents, prefer a <strong>fixed-step solver strictly</strong>
-          (e.g. RK4), for performance (Numba).
+          <table class="table">
+            <thead>
+              <tr><th>Category</th><th>Function</th><th>Example</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Trigonometric</td><td><span class="kbd">sin, cos, tan</span></td><td><span class="kbd">sin(x) + cos(y)</span></td></tr>
+              <tr><td>Hyperbolic</td><td><span class="kbd">sinh, cosh, tanh</span></td><td><span class="kbd">tanh(z)</span></td></tr>
+              <tr><td>Exponential / logarithm</td><td><span class="kbd">exp, log</span></td><td><span class="kbd">exp(-x) + log(1+x**2)</span></td></tr>
+              <tr><td>Root / absolute value</td><td><span class="kbd">sqrt, abs</span></td><td><span class="kbd">sqrt(x**2 + y**2)</span></td></tr>
+            </tbody>
+          </table>
         </div>
-      </section>
+      </details>
 
-      <section class="card">
-        <h2>Tab 1 — Phase Portrait & Lyapunov Exponents</h2>
-        <ul class="list">
-          <li>Set <span class="kbd">initial time</span>, <span class="kbd">final time</span>, <span class="kbd">time step</span>, parameters and <span class="kbd">initial values</span>.</li>
-          <li>Choose 2D or 3D axes (for nD systems you see projections).</li>
-          <li>Use <strong>Transient cut (time to skip)</strong> to remove transients; equivalent steps are displayed automatically.</li>
-          <li>Use <strong>Axis limits (view window)</strong> under the plot to inspect a different region without rerunning integration.</li>
-          <li>In <strong>Configuration</strong>, you can upload and apply <span class="kbd">StaticParamsConfig.json</span>.</li>
-        </ul>
+      <details class="card" id="numerical">
+        <summary><h2>Numerical Integration Guide</h2></summary>
+        <div class="body">
+          <table class="table">
+            <thead>
+              <tr><th>Solver</th><th>Best for</th><th>Notes</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>RK45</strong></td><td>General use</td><td>Adaptive step, reliable default for baseline runs.</td></tr>
+              <tr><td><strong>DOP853</strong></td><td>Non-stiff, smooth systems</td><td>High order, usually better accuracy for demanding trajectories.</td></tr>
+              <tr><td><strong>RK4 (fixed-step)</strong></td><td>Speed / sweeps</td><td>Fixed dt, predictable cost; recommended when you need many runs.</td></tr>
+              <tr><td><strong>Symplectic (Forest–Ruth / Verlet)</strong></td><td>Hamiltonian systems</td><td>State [q..., p...], even dimension; better long-term energy behavior.</td></tr>
+            </tbody>
+          </table>
 
-        <h3>Lyapunov (Tab 1 / corresponding panel)</h3>
-        <ul class="list">
-          <li>Set <strong>Lyapunov transient fraction</strong> and <strong>QR interval</strong>.</li>
-          <li>Click <strong>Compute Lyapunov exponents</strong>.</li>
-        </ul>
+          <h3>How do I choose dt / tolerances?</h3>
+          <ul class="list">
+            <li><strong>Fixed-step (RK4):</strong> decrease the <span class="kbd">time step</span> until key features stabilize (attractor geometry, Poincare points).</li>
+            <li><strong>Adaptive (RK45/DOP853):</strong> start with “medium” <span class="kbd">rtol/atol</span> values and tighten only if needed (drift/artefacts).</li>
+            <li><strong>Chaos note:</strong> in chaotic systems trajectories diverge pointwise; judge with geometry/statistics/observables.</li>
+          </ul>
 
-        <div class="note">
-          <strong>Practical:</strong> A smaller QR interval (more frequent re-orthonormalization) usually helps stability.
-          Stable estimates require a sufficiently large <span class="kbd">final time</span> after the transient.
+          <div class="note">
+            <strong>Lyapunov (performance rule):</strong> For Lyapunov exponents, prefer a <strong>fixed-step solver strictly</strong>
+            (e.g. RK4), for performance (Numba).
+          </div>
         </div>
-      </section>
+      </details>
 
-      <section class="card">
-        <h2>Tab 2 — Time Series</h2>
-        <ul class="list">
-          <li>Plot any variable versus time.</li>
-          <li>Useful for checking stability, scales, transients and selecting a suitable <span class="kbd">final time</span>.</li>
-        </ul>
-      </section>
+      <details class="card" id="tab1">
+        <summary><h2>Tab 1 — Phase Portrait &amp; Lyapunov Exponents</h2></summary>
+        <div class="body">
+          <ul class="list">
+            <li>Set <span class="kbd">initial time</span>, <span class="kbd">final time</span>, <span class="kbd">time step</span>, parameters and <span class="kbd">initial values</span>.</li>
+            <li>Choose 2D or 3D axes (for nD systems you see projections).</li>
+            <li>Use <strong>Transient cut (time to skip)</strong> to remove transients; equivalent steps are displayed automatically.</li>
+            <li>Use <strong>Axis limits (view window)</strong> under the plot to inspect a different region without rerunning integration.</li>
+            <li>In <strong>Configuration</strong>, you can upload and apply <span class="kbd">StaticParamsConfig.json</span>.</li>
+          </ul>
 
-      <section class="card">
-        <h2>Tab 3 — Poincare Section & Parametric Sweeps</h2>
+          <h3>Lyapunov (Tab 1 / corresponding panel)</h3>
+          <ul class="list">
+            <li>Set <strong>Lyapunov transient fraction</strong> and <strong>QR interval</strong>.</li>
+            <li>Click <strong>Compute Lyapunov exponents</strong>.</li>
+          </ul>
 
-        <h3>Poincare Section</h3>
-        <ul class="list">
-          <li><strong>Plane section:</strong> select section variable and value.</li>
-          <li><strong>Equation section:</strong> enter an expression (overrides plane section).</li>
-          <li><strong>Method:</strong> <strong>crossing</strong> or <strong>slab</strong> (tolerance band).</li>
-        </ul>
-
-        <h3>Parameter sweeps</h3>
-        <ul class="list">
-          <li>Select sweep parameter, range and step.</li>
-          <li><strong>Mode:</strong> bifurcation (reset ICs) or continuation (warm start).</li>
-          <li>For faster bifurcation diagrams use RK4 and a suitable number of Poincare hits / early stop where available.</li>
-        </ul>
-
-        <h3>Study workflow (chaotic + parametric behavior)</h3>
-        <ul class="list">
-          <li>After setting up equations, choose integration settings that allow sufficient system evolution.</li>
-          <li>For Lyapunov at fixed parameter values, use a relatively long time horizon. Example: with time step 0.01, final time 10000 is often safe.</li>
-          <li>For parametric study (bifurcation diagrams and Lyapunov vs parameter), start with a few values and increase resolution gradually.</li>
-          <li>Based on time series, choose a suitable section equation for the Poincare cut to obtain valid crossing values. Use consistent settings when generating the Lyapunov diagram.</li>
-          <li>Use <strong>Axis limits (view window)</strong> under the Lyapunov plot to inspect local regions without recomputation.</li>
-          <li>At the bottom centered <strong>Configuration</strong> area, use <strong>Save configuration</strong> or upload/apply <span class="kbd">SweepParamConfig.json</span>.</li>
-          <li>Balance quality vs runtime by adjusting final time until behavior is captured without excessive cost.</li>
-          <li>If you are not using warm start (where each run starts from the final state of the previous), parallelize with the workers slider and reset ICs per parameter to reduce total time.</li>
-        </ul>
-
-        <div class="note">
-          <strong>Tip:</strong> If no sections are found, change section value or direction, increase tf (sweep),
-          or try slab with a slightly larger tolerance.
+          <div class="note">
+            <strong>Practical:</strong> A smaller QR interval (more frequent re-orthonormalization) usually helps stability.
+            Stable estimates require a sufficiently large <span class="kbd">final time</span> after the transient.
+          </div>
         </div>
-      </section>
+      </details>
 
-      <section class="card">
-        <h2>Tab 4 — Export & Reproducibility</h2>
-        <ul class="list">
-          <li>Download trajectories (CSV).</li>
-          <li>Download sweep results (CSV).</li>
-          <li>Export Lyapunov results and full configs/settings.</li>
-        </ul>
+      <details class="card" id="tab2">
+        <summary><h2>Tab 2 — Time Series</h2></summary>
+        <div class="body">
+          <ul class="list">
+            <li>Plot any variable versus time.</li>
+            <li>Useful for checking stability, scales, transients and selecting a suitable <span class="kbd">final time</span>.</li>
+          </ul>
+        </div>
+      </details>
 
-        <h3>For use in the notebooks</h3>
-        <ul class="list">
-          <li>Use <strong>Save/Export</strong> from the Export tab.</li>
-          <li>Load the configs in the corresponding notebook (A or B), depending on the workflow.</li>
-        </ul>
+      <details class="card" id="tab3">
+        <summary><h2>Tab 3 — Poincare Section &amp; Parametric Sweeps</h2></summary>
+        <div class="body">
+          <h3>Poincare Section</h3>
+          <ul class="list">
+            <li><strong>Plane section:</strong> select section variable and value.</li>
+            <li><strong>Equation section:</strong> enter an expression (overrides plane section).</li>
+            <li><strong>Method:</strong> <strong>crossing</strong> or <strong>slab</strong> (tolerance band).</li>
+          </ul>
 
-        <h3>Troubleshooting</h3>
-        <ul class="list">
-          <li><span class="badge">Slow</span> Reduce <span class="kbd">final time</span>, carefully increase <span class="kbd">time step</span> (i.e., fewer steps), or reduce <span class="kbd">max hits</span>.</li>
-          <li><span class="badge">No section hits</span> Change section value/direction or try slab.</li>
-          <li><span class="badge">Noisy</span> Increase <span class="kbd">final time</span>, reduce <span class="kbd">time step</span>, or use analytic Jacobian.</li>
-        </ul>
-      </section>
+          <h3>Parameter sweeps</h3>
+          <ul class="list">
+            <li>Select sweep parameter, range and step.</li>
+            <li><strong>Mode:</strong> bifurcation (reset ICs) or continuation (warm start).</li>
+            <li>For faster bifurcation diagrams use RK4 and a suitable number of Poincare hits / early stop where available.</li>
+          </ul>
+
+          <h3>Study workflow (chaotic + parametric behavior)</h3>
+          <ul class="list">
+            <li>After setting up equations, choose integration settings that allow sufficient system evolution.</li>
+            <li>For Lyapunov at fixed parameter values, use a relatively long time horizon. Example: with time step 0.01, final time 10000 is often safe.</li>
+            <li>For parametric study (bifurcation diagrams and Lyapunov vs parameter), start with a few values and increase resolution gradually.</li>
+            <li>Based on time series, choose a suitable section equation for the Poincare cut to obtain valid crossing values. Use consistent settings when generating the Lyapunov diagram.</li>
+            <li>Use <strong>Axis limits (view window)</strong> under the Lyapunov plot to inspect local regions without recomputation.</li>
+            <li>At the bottom centered <strong>Configuration</strong> area, use <strong>Save configuration</strong> or upload/apply <span class="kbd">SweepParamConfig.json</span>.</li>
+            <li>Balance quality vs runtime by adjusting final time until behavior is captured without excessive cost.</li>
+            <li>If you are not using warm start (where each run starts from the final state of the previous), parallelize with the workers slider and reset ICs per parameter to reduce total time.</li>
+          </ul>
+
+          <div class="note">
+            <strong>Tip:</strong> If no sections are found, change section value or direction, increase tf (sweep),
+            or try slab with a slightly larger tolerance.
+          </div>
+        </div>
+      </details>
+
+      <details class="card" id="tab4">
+        <summary><h2>Tab 4 — Export &amp; Reproducibility</h2></summary>
+        <div class="body">
+          <ul class="list">
+            <li>Download trajectories (CSV).</li>
+            <li>Download sweep results (CSV).</li>
+            <li>Export Lyapunov results and full configs/settings.</li>
+          </ul>
+
+          <h3>Troubleshooting</h3>
+          <ul class="list">
+            <li><span class="badge">Slow</span> Reduce <span class="kbd">final time</span>, carefully increase <span class="kbd">time step</span> (i.e., fewer steps), or reduce <span class="kbd">max hits</span>.</li>
+            <li><span class="badge">No section hits</span> Change section value/direction or try slab.</li>
+            <li><span class="badge">Noisy</span> Increase <span class="kbd">final time</span>, reduce <span class="kbd">time step</span>, or use analytic Jacobian.</li>
+          </ul>
+        </div>
+      </details>
 
       <div class="footer">
         dynaSim Manual · Non-linear Dynamical System Simulator · edit this file at
         <span class="kbd">docs/user-guide/manual.html</span>
       </div>
   </div>
+
+  <script>
+    (function(){
+      var search = document.getElementById("manual-search");
+      var emptyMsg = document.getElementById("empty-msg");
+      var cards = Array.prototype.slice.call(
+        document.querySelectorAll(".card[id], details.card[id]")
+      );
+
+      // Snapshot the open/closed state at load so we can restore it when the
+      // search box is cleared.
+      var initialOpen = new Map();
+      cards.forEach(function(c){
+        if (c.tagName === "DETAILS") initialOpen.set(c, c.open);
+      });
+
+      function applyFilter(query){
+        var q = (query || "").trim().toLowerCase();
+        var anyVisible = false;
+
+        cards.forEach(function(c){
+          if (!q){
+            c.classList.remove("is-hidden");
+            if (c.tagName === "DETAILS") c.open = initialOpen.get(c) || false;
+            anyVisible = true;
+            return;
+          }
+          var hit = c.textContent.toLowerCase().indexOf(q) !== -1;
+          if (hit){
+            c.classList.remove("is-hidden");
+            if (c.tagName === "DETAILS") c.open = true;
+            anyVisible = true;
+          } else {
+            c.classList.add("is-hidden");
+          }
+        });
+
+        emptyMsg.classList.toggle("show", !!q && !anyVisible);
+      }
+
+      if (search){
+        search.addEventListener("input", function(e){ applyFilter(e.target.value); });
+      }
+
+      // Clicking a TOC link should expand the target if it is collapsed.
+      document.querySelectorAll(".toc a").forEach(function(a){
+        a.addEventListener("click", function(){
+          var id = a.getAttribute("href").slice(1);
+          var target = document.getElementById(id);
+          if (target && target.tagName === "DETAILS") target.open = true;
+        });
+      });
+    })();
+  </script>
 </body>
 </html>
