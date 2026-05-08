@@ -1,0 +1,65 @@
+# --- VCS + editor noise ---
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+.codex
+*.swp
+*.swo
+
+# --- Python build / cache ---
+__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+build
+dist
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+.tox
+
+# --- Virtual envs ---
+.venv
+venv
+env
+
+# --- Notebooks + scratch ---
+*.ipynb_checkpoints
+tests/*.ipynb
+scripts
+
+# --- Docs are not needed at runtime ---
+docs
+
+# --- Thesis: huge LaTeX build outputs that have no business in the image ---
+docs/thesis
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.toc
+*.xdv
+*.aux
+*.log
+*.out
+*.synctex.gz
+random_stories.tex
+
+# --- Legacy / experimental code (not on the runtime path) ---
+legacy
+reference_pyhamsys.py
+
+# --- Example configs + saved runs ---
+examples
+tests/StaticParamsConfig*.json
+tests/lyapunov_*.png
+
+# --- Container / CI ---
+Dockerfile
+.dockerignore
+docker-compose*.yml
+.github
