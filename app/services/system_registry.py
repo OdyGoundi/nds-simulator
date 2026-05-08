@@ -24,9 +24,12 @@ class SystemAdapter:
     dimension: int
     supports_symplectic: bool
     param_names: Tuple[str, ...]
+    var_names: Tuple[str, ...]
     rhs_fn: Callable
     extract_params: Callable[[SystemConfig], Dict[str, float]]
     rhs_builder: Callable[[SystemConfig], Callable]
+    eq_lines: Optional[Tuple[str, ...]] = None
+    params_text: str = ""
     jac_builder: Optional[Callable[[SystemConfig], Callable]] = None
     dq_dp_builder: Optional[Callable[[SystemConfig], Tuple[Callable, Callable]]] = None
     rhs_from_dict: Optional[Callable[[Dict[str, float]], Callable]] = None
@@ -162,6 +165,7 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         dimension=3,
         supports_symplectic=False,
         param_names=("sigma", "rho", "beta"),
+        var_names=("x", "y", "z"),
         rhs_fn=lorenz_rhs,
         extract_params=_lorenz_params,
         rhs_builder=_lorenz_rhs_builder,
@@ -175,6 +179,7 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         dimension=3,
         supports_symplectic=False,
         param_names=("a", "b", "c"),
+        var_names=("x", "y", "z"),
         rhs_fn=rossler_rhs,
         extract_params=_rossler_params,
         rhs_builder=_rossler_rhs_builder,
@@ -188,6 +193,9 @@ BUILTIN_SYSTEMS: Dict[str, SystemAdapter] = {
         dimension=4,
         supports_symplectic=True,
         param_names=("lambda",),
+        var_names=("q1", "q2", "p1", "p2"),
+        eq_lines=("p1", "p2", "-q1 - 2*lambda*q1*q2", "-q2 - lambda*(q1**2 - q2**2)"),
+        params_text="lambda=1.0",
         rhs_fn=henon_heiles_rhs,
         extract_params=_henon_heiles_params,
         rhs_builder=_henon_heiles_rhs_builder,

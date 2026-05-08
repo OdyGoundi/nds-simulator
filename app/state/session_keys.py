@@ -171,3 +171,13 @@ class HelpPanelKeys:
     SHOW_INFO_POPUP = "show_info_popup"
     SHOW_QUICK_MANUAL_EL = "show_quick_manual_el"
     SHOW_QUICK_MANUAL_ENG = "show_quick_manual_eng"
+
+
+class PlotSettingsKeys:
+    """Per-plot ``PlotSettings`` values edited via the popup dialog.
+
+    One key per plot location — each lives independently.
+    """
+    PHASE_TAB1 = "plot_settings_phase_tab1"
+    BIFURCATION_TAB3 = "plot_settings_bif_tab3"
+    LYAPUNOV_TAB3 = "plot_settings_lya_tab3"

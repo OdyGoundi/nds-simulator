@@ -1,3 +1,31 @@
+"""
+dynaSim
+    A Streamlit app for simulating and analyzing non-linear dynamical systems.
+    Interactive Nonlinear Dynamics Laboratory for Simulation, Trajectory Plotting,
+    Strovoscopic Visualization, Lyapunov Exponent Calculation, Lyapunov Spectrum, 
+    and Bifurcation or Continuation Analysis.
+
+=====================================================================================
+
+@author: Odysseas Gkountinakos
+@for:             Postgraduate thesis project at Aristotle University of Thessaloniki, Greece
+                  Msc in Computational Physics, supervised by Prof. Christos Volos
+@created:         2026-06
+
+=====================================================================================
+overview:         https://nlds-simulator.streamlit.app/
+full source code: https://github.com/OdyGoundi/nds-simulator
+
+=====================================================================================
+Before exploring the code, fully reccommended to read and follow the documentation.
+
+=====================================================================================
+version: 1.0
+Gnu General Public License v3.0, Free Software
+@info:            ody.gkount@gmail.com
+"""
+
+
 import sys
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -14,6 +42,7 @@ from app.helpers import (
     build_custom_symbolic_jacobian_str,
     parse_params,
 )
+from app.services.system_registry import BUILTIN_SYSTEMS, get_builtin
 from app.state.apply_config import (
     apply_state_values,
     flush_pending_static_config_apply,
@@ -33,15 +62,6 @@ from app.ui.tabs.time_series_tab import render_time_series_tab
 
 APP_NAME = "DynaSim"
 APP_SUBTITLE = "Non-linear Dynamical Systems Simulator"
-HENON_HEILES_VAR_NAMES = ["q1", "q2", "p1", "p2"]
-HENON_HEILES_EQ_LINES = [
-    "p1",
-    "p2",
-    "-q1 - 2*lambda*q1*q2",
-    "-q2 - lambda*(q1**2 - q2**2)",
-]
-HENON_HEILES_PARAMS_TEXT = "lambda=1.0"
-
 
 
 st.set_page_config(page_title="dynaSim", layout="wide")
@@ -162,17 +182,18 @@ custom_auto_jac = False
 custom_use_jac = False
 
 # Variable names
-if system_key in ("lorenz", "rossler"):
-    var_names = ["x", "y", "z"]
-elif system_key == "henon_heiles":
-    var_names = list(HENON_HEILES_VAR_NAMES)
-    eq_lines = list(HENON_HEILES_EQ_LINES)
-    params_text = HENON_HEILES_PARAMS_TEXT
-    with st.sidebar:
-        st.header("Henon-Heiles definition")
-        st.caption("State order: q1, q2, p1, p2")
-        st.code("\n".join(eq_lines), language="text")
-        st.caption(f"Parameters: {HENON_HEILES_PARAMS_TEXT}")
+if system_key in BUILTIN_SYSTEMS:
+    _adapter = get_builtin(system_key)
+    var_names = list(_adapter.var_names)
+    eq_lines = list(_adapter.eq_lines) if _adapter.eq_lines else [""] * int(n_vars)
+    params_text = _adapter.params_text
+    if _adapter.eq_lines:
+        with st.sidebar:
+            st.header(f"{_adapter.display_name} definition")
+            st.caption(f"State order: {', '.join(_adapter.var_names)}")
+            st.code("\n".join(_adapter.eq_lines), language="text")
+            if _adapter.params_text:
+                st.caption(f"Parameters: {_adapter.params_text}")
 else:
     with st.sidebar:
         st.header("Custom definitions")
@@ -241,8 +262,11 @@ else:
 
 with st.sidebar:
     st.header("Symplectic preview")
-    if system_key not in ("custom", "henon_heiles"):
-        st.caption("Symplectic preview is available for custom or Henon-Heiles systems.")
+    _symplectic_eligible = system_key == "custom" or (
+        system_key in BUILTIN_SYSTEMS and get_builtin(system_key).supports_symplectic
+    )
+    if not _symplectic_eligible:
+        st.caption("Symplectic preview is available for custom or symplectic built-in systems.")
     elif int(n_vars) % 2 != 0:
         st.caption("Symplectic solvers require an even number of variables [q..., p...].")
     else:
@@ -268,8 +292,8 @@ with st.sidebar:
                 st.success("Symplectic check passed.")
             except Exception as exc:
                 st.error(f"Symplectic check failed: {exc}")
-        elif system_key == "henon_heiles":
-            st.success("Symplectic check passed (Henon-Heiles).")
+        elif system_key in BUILTIN_SYSTEMS:
+            st.success(f"Symplectic check passed ({get_builtin(system_key).display_name}).")
 
 
 # -------- Main layout: outputs only --------

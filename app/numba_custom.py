@@ -7,7 +7,7 @@ and code generation live in `app/parsing/numba_rhs_builder.py`.
 from __future__ import annotations
 
 import math
-from typing import Dict, Sequence, Tuple
+from typing import Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -27,8 +27,8 @@ from app.parsing.numba_rhs_builder import (
 
 
 _CacheKey = Tuple[Tuple[str, ...], Tuple[str, ...], Tuple[str, ...]]
-_CUSTOM_CACHE: Dict[_CacheKey, Tuple[object, object]] = {}
-_CUSTOM_SYMPLECTIC_CACHE: Dict[_CacheKey, Tuple[object, object]] = {}
+_CUSTOM_CACHE: Dict[_CacheKey, Tuple[Optional[Callable], Optional[Callable]]] = {}
+_CUSTOM_SYMPLECTIC_CACHE: Dict[_CacheKey, Tuple[Callable, Callable]] = {}
 
 
 def _cache_key(var_names: Sequence[str], eq_lines: Sequence[str], param_names: Sequence[str]) -> _CacheKey:
@@ -53,7 +53,7 @@ def _numpy_namespace() -> dict:
     }
 
 
-def _compile_and_jit(src: str, *names: str) -> Tuple[object, ...]:
+def _compile_and_jit(src: str, *names: str) -> Tuple[Callable, ...]:
     """exec the source and JIT-decorate each named function. Returns them in order."""
     nb_mod = _require_numba()
     ns = _numpy_namespace()
@@ -65,7 +65,7 @@ def build_custom_numba_rhs(
     var_names: Sequence[str],
     eq_lines: Sequence[str],
     param_names: Sequence[str],
-):
+) -> Callable:
     key = _cache_key(var_names, eq_lines, param_names)
     cached = _CUSTOM_CACHE.get(key)
     if cached is not None and cached[0] is not None:
@@ -83,7 +83,7 @@ def build_custom_numba_rhs_and_jacobian(
     var_names: Sequence[str],
     eq_lines: Sequence[str],
     param_names: Sequence[str],
-):
+) -> Tuple[Callable, Callable]:
     key = _cache_key(var_names, eq_lines, param_names)
     cached = _CUSTOM_CACHE.get(key)
     if cached is not None and cached[0] is not None and cached[1] is not None:
@@ -102,7 +102,7 @@ def build_custom_numba_symplectic_functions(
     var_names: Sequence[str],
     eq_lines: Sequence[str],
     param_names: Sequence[str],
-):
+) -> Tuple[Callable, Callable]:
     key = _cache_key(var_names, eq_lines, param_names)
     cached = _CUSTOM_SYMPLECTIC_CACHE.get(key)
     if cached is not None:

@@ -28,9 +28,13 @@ from app.params import (
     SystemConfig,
 )
 from app.plotting import (
+    PHASE_2D_DEFAULTS,
+    PHASE_3D_DEFAULTS,
     axis_bounds as _axis_bounds,
+    get_plot_settings,
     plot_phase_2d,
     plot_phase_3d,
+    render_plot_settings_button,
     square_xy_bounds as _square_xy_bounds,
 )
 from app.state import (
@@ -38,12 +42,12 @@ from app.state import (
     MAX_PLOT_POINTS_UI_MAX,
     MAX_STORE_STEPS_DEFAULT,
     PENDING_STATIC_CFG_KEY,
-    PHASE_LINEWIDTH_DEFAULT,
     STATIC_CFG_APPLY_ERROR_KEY,
     STATIC_CFG_APPLY_SUCCESS_KEY,
     IntegrationKeys,
     LyapunovTab1Keys,
     PhaseKeys,
+    PlotSettingsKeys,
     StaticConfigKeys,
     SystemParamKeys,
     TolKeys,
@@ -315,13 +319,9 @@ def render_phase_tab(
     effective_params_text = params_text
     if system_key == "henon_heiles":
         effective_params_text = f"lambda={float(hh_lambda)}"
-    phase_linewidth = max(
-        0.001,
-        to_float(
-            st.session_state.get(PhaseKeys.LINEWIDTH, PHASE_LINEWIDTH_DEFAULT),
-            PHASE_LINEWIDTH_DEFAULT,
-        ),
-    )
+    _phase_default = PHASE_2D_DEFAULTS if plot_mode == "2D phase plane" else PHASE_3D_DEFAULTS
+    phase_settings_initial = get_plot_settings(PlotSettingsKeys.PHASE_TAB1, _phase_default)
+    phase_linewidth = max(0.001, float(phase_settings_initial.linewidth))
     initial = InitialConditions(tuple(float(v) for v in y0))
     max_store_steps = int(max_store_steps_ui)
     if max_store_steps <= 0:
@@ -446,22 +446,20 @@ def render_phase_tab(
                 st.session_state[PhaseKeys.ZLIM_MIN] = float(z_view[0])
                 st.session_state[PhaseKeys.ZLIM_MAX] = float(z_view[1])
 
-        phase_square_axes = False
-        if plot_mode == "2D phase plane":
-            phase_square_axes = st.checkbox(
-                "Square axes (equal x/y scale)",
-                value=bool(st.session_state.get(PhaseKeys.SQUARE_AXES, False)),
-                key=PhaseKeys.SQUARE_AXES,
-                help="Use the same scale on both axes and keep the phase plot square.",
-            )
-            if phase_square_axes:
-                x_view, y_view = _square_xy_bounds(x_view, y_view)
-                st.session_state[PhaseKeys.XLIM_MIN] = float(x_view[0])
-                st.session_state[PhaseKeys.XLIM_MAX] = float(x_view[1])
-                st.session_state[PhaseKeys.YLIM_MIN] = float(y_view[0])
-                st.session_state[PhaseKeys.YLIM_MAX] = float(y_view[1])
+        is_2d = plot_mode == "2D phase plane"
+        phase_settings = render_plot_settings_button(
+            PlotSettingsKeys.PHASE_TAB1,
+            default=PHASE_2D_DEFAULTS if is_2d else PHASE_3D_DEFAULTS,
+            has_square=is_2d,
+        )
+        if is_2d and phase_settings.square_axis:
+            x_view, y_view = _square_xy_bounds(x_view, y_view)
+            st.session_state[PhaseKeys.XLIM_MIN] = float(x_view[0])
+            st.session_state[PhaseKeys.XLIM_MAX] = float(x_view[1])
+            st.session_state[PhaseKeys.YLIM_MIN] = float(y_view[0])
+            st.session_state[PhaseKeys.YLIM_MAX] = float(y_view[1])
 
-        if plot_mode == "2D phase plane":
+        if is_2d:
             title = f"{system_label} – {var_names[int(y_idx)]} vs {var_names[int(x_idx)]}"
             fig = plot_phase_2d(
                 y=y_plot_ds,
@@ -470,13 +468,11 @@ def render_phase_tab(
                 title=title,
                 xlabel=var_names[int(x_idx)],
                 ylabel=var_names[int(y_idx)],
-                linewidth=float(phase_linewidth),
+                settings=phase_settings,
             )
             ax = fig.axes[0]
             ax.set_xlim(float(x_view[0]), float(x_view[1]))
             ax.set_ylim(float(y_view[0]), float(y_view[1]))
-            if phase_square_axes:
-                ax.set_aspect("equal", adjustable="box")
             st.pyplot(fig, clear_figure=True)
         else:
             title = f"{system_label} – 3D phase ({var_names[int(x_idx)]}, {var_names[int(y_idx)]}, {var_names[int(z_idx)]})"
@@ -487,7 +483,7 @@ def render_phase_tab(
                 k=int(z_idx),
                 title=title,
                 labels=(var_names[int(x_idx)], var_names[int(y_idx)], var_names[int(z_idx)]),
-                linewidth=float(phase_linewidth),
+                settings=phase_settings,
             )
             ax3d = fig.axes[0]
             ax3d.set_xlim(float(x_view[0]), float(x_view[1]))
@@ -495,6 +491,7 @@ def render_phase_tab(
             if z_view is not None and hasattr(ax3d, "set_zlim"):
                 cast(Any, ax3d).set_zlim(float(z_view[0]), float(z_view[1]))
             st.pyplot(fig, clear_figure=True)
+        phase_linewidth = float(phase_settings.linewidth)
 
         preferred_poincare_axes = [int(x_idx), int(y_idx)]
         if plot_mode == "3D phase plot":
@@ -505,18 +502,6 @@ def render_phase_tab(
             var_names=var_names,
             preferred_axes=preferred_poincare_axes,
             title_prefix=system_label,
-        )
-
-        st.markdown("**Phase style**")
-        apply_state_values({PhaseKeys.LINEWIDTH: PHASE_LINEWIDTH_DEFAULT}, only_missing=True)
-        st.number_input(
-            "Phase line width",
-            min_value=0.01,
-            max_value=5.0,
-            step=0.01,
-            format="%.3f",
-            key=PhaseKeys.LINEWIDTH,
-            help="Controls the trajectory line thickness in the phase diagram.",
         )
 
         st.markdown("**Axis limits (view window)**")

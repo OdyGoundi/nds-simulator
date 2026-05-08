@@ -7,8 +7,21 @@ import streamlit as st
 from app.export_utils import build_sweep_config
 from app.helpers import decimate_indices, downsample_xy
 from app.logic.reservoir_sampling import ensure_xy_reservoir, get_xy_reservoir_points
-from app.plotting import axis_bounds as _axis_bounds, plot_bifurcation, plot_lyapunov_sweep
-from app.state import BifPlotKeys, LyaPlotKeys, LyapunovDataKeys, SweepDataKeys
+from app.plotting import (
+    BIFURCATION_DEFAULTS,
+    LYAPUNOV_DEFAULTS,
+    axis_bounds as _axis_bounds,
+    plot_bifurcation,
+    plot_lyapunov_sweep,
+    render_plot_settings_button,
+)
+from app.state import (
+    BifPlotKeys,
+    LyaPlotKeys,
+    LyapunovDataKeys,
+    PlotSettingsKeys,
+    SweepDataKeys,
+)
 from app.services.sweep_state_service import (
     MAX_BIF_RESERVOIR_POINTS,
     MAX_SWEEP_ROWS_IN_MEMORY,
@@ -196,6 +209,11 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                 else:
                     ylabel = f"{ctrl.out_var} on section ({ctrl.section_var}={ctrl.section_value})"
 
+            bif_settings = render_plot_settings_button(
+                PlotSettingsKeys.BIFURCATION_TAB3,
+                default=BIFURCATION_DEFAULTS,
+                has_square=False,
+            )
             fig = plot_bifurcation(
                 x_vals=x_vals,
                 y_vals=y_vals,
@@ -206,6 +224,7 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                 ylabel=ylabel,
                 x_view=x_view,
                 y_view=y_view,
+                settings=bif_settings,
             )
             st.pyplot(fig, clear_figure=True)
             total_plotted = int(x_hist_plot.size + x_vals.size)
@@ -292,6 +311,12 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                     st.session_state[LyaPlotKeys.YLIM_MIN] = float(y_auto[0])
                     st.session_state[LyaPlotKeys.YLIM_MAX] = float(y_auto[1])
 
+                lya_settings = render_plot_settings_button(
+                    PlotSettingsKeys.LYAPUNOV_TAB3,
+                    default=LYAPUNOV_DEFAULTS,
+                    has_color=False,
+                    has_square=False,
+                )
                 fig_lya = plot_lyapunov_sweep(
                     param_vals=param_vals_plot,
                     lambdas=plot_lambdas_plot,
@@ -299,6 +324,7 @@ def render_sweep_plots(ctrl: SweepControlsResult, df_plot) -> None:
                     xlabel=ctrl.sweep_param,
                     x_view=x_view,
                     y_view=y_view,
+                    settings=lya_settings,
                 )
                 st.pyplot(fig_lya, clear_figure=True)
                 st.caption(f"Plotted points: {len(param_vals_plot)}/{len(param_vals)}")

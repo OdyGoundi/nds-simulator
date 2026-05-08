@@ -1,4 +1,4 @@
-from typing import List
+from typing import Any, Dict, List, cast
 
 import concurrent.futures
 import itertools
@@ -29,7 +29,7 @@ def _run_bifurcation_chunk(
     extrema_kind: str,
     run_cfg: SweepRunConfig,
     solve_tols: SolverTolerances,
-) -> List[dict]:
+) -> List[Dict[str, Any]]:
     if param_vals.size == 0:
         return []
     sweep_run = SweepConfig(
@@ -52,8 +52,8 @@ def _run_bifurcation_chunk(
     if rows is None:
         return []
     if isinstance(rows, pd.DataFrame):
-        return rows.to_dict(orient="records")
-    return list(rows)
+        return cast(List[Dict[str, Any]], rows.to_dict(orient="records"))
+    return cast(List[Dict[str, Any]], list(rows))
 
 
 def _run_bifurcation_parallel(
@@ -68,7 +68,7 @@ def _run_bifurcation_parallel(
     run_cfg: SweepRunConfig,
     solve_tols: SolverTolerances,
     max_workers: int,
-) -> List[dict]:
+) -> List[Dict[str, Any]]:
     param_vals = _frange_inclusive(float(sweep.start), float(sweep.stop), float(sweep.step))
     param_chunks = _chunk_param_values(param_vals, max_workers)
     if not param_chunks:
@@ -91,7 +91,7 @@ def _run_bifurcation_parallel(
             itertools.repeat(solve_tols),
         ))
 
-    rows: List[dict] = []
+    rows: List[Dict[str, Any]] = []
     for chunk_rows in results:
         rows.extend(chunk_rows)
     return rows

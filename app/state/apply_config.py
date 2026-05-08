@@ -4,6 +4,8 @@ from typing import Any, Dict, List
 
 import streamlit as st
 
+from dataclasses import replace as _dc_replace
+
 from app.state import (
     MAX_STORE_STEPS_DEFAULT,
     PENDING_STATIC_CFG_KEY,
@@ -15,6 +17,7 @@ from app.state import (
     IntegrationKeys,
     LyapunovTab1Keys,
     PhaseKeys,
+    PlotSettingsKeys,
     SidebarKeys,
     StaticConfigKeys,
     SystemParamKeys,
@@ -166,11 +169,16 @@ def apply_static_config_to_state(cfg: Dict[str, object]) -> None:
         if plot_mode in ("2D phase plane", "3D phase plot"):
             st.session_state[PhaseKeys.PLOT_MODE] = plot_mode
         if "phase_linewidth" in plots_obj:
+            from app.plotting import PHASE_2D_DEFAULTS, get_plot_settings, set_plot_settings
             phase_linewidth_cfg = max(
                 0.001,
                 to_float(plots_obj.get("phase_linewidth", PHASE_LINEWIDTH_DEFAULT), PHASE_LINEWIDTH_DEFAULT),
             )
-            st.session_state[PhaseKeys.LINEWIDTH] = float(phase_linewidth_cfg)
+            current_phase_settings = get_plot_settings(PlotSettingsKeys.PHASE_TAB1, PHASE_2D_DEFAULTS)
+            set_plot_settings(
+                PlotSettingsKeys.PHASE_TAB1,
+                _dc_replace(current_phase_settings, linewidth=float(phase_linewidth_cfg)),
+            )
         phase_axes_obj = plots_obj.get("phase_axes")
         phase_axes = phase_axes_obj if isinstance(phase_axes_obj, dict) else {}
         x_idx_cfg = to_int(phase_axes.get("x_idx", 0), 0)
