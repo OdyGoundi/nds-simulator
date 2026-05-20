@@ -32,8 +32,10 @@ env
 tests/*.ipynb
 scripts
 
-# --- Docs are not needed at runtime ---
-docs
+# --- Docs are not needed at runtime, except the header logo assets ---
+docs/**
+!docs/assets
+!docs/assets/**
 
 # --- Thesis: huge LaTeX build outputs that have no business in the image ---
 docs/thesis
