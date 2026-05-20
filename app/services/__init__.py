@@ -9,6 +9,7 @@ from .lyapunov_service import (
     run_lyapunov_numba,
     run_lyapunov_scipy,
     compute_single_lyapunov,
+    compute_lyapunov_cached,
 )
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "LyapunovTimeWindow", "resolve_time_window", "build_numba_lyap_solver",
     "build_lyapunov_rhs_jac", "extract_lyapunov_params",
     "run_lyapunov_numba", "run_lyapunov_scipy", "compute_single_lyapunov",
+    "compute_lyapunov_cached",
 ]

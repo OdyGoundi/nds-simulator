@@ -38,6 +38,25 @@ env/
 *.out
 *.synctex.gz
 *.pdf
+*.fls
+*.fdb_latexmk
+*.toc
+*.xdv
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+*.nav
+*.snm
+*.lof
+*.lot
+
+# =========================
+# Recovery / backup snapshots
+# =========================
+*.tex.pre_*
+*.bak
+*.orig
 
 # =========================
 # IDE / OS
@@ -60,3 +79,7 @@ gitTokenForColab.txt
 # Temporary / misc
 # =========================
 output.csv
+
+# Large local archives (not for tracking)
+dynasim_local.zip
+*.zip

@@ -3,6 +3,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
+try:
+    import streamlit as st
+except Exception:  # pragma: no cover
+    st = None
+
 from app.helpers import build_custom_rhs, build_custom_rhs_and_jacobian, parse_params
 from app.params import (
     InitialConditions,
@@ -235,3 +240,35 @@ def compute_single_lyapunov(
         solve_options, solver_kind, auto_switch_rk4,
     )
     return lambdas
+
+
+def compute_lyapunov_cached(
+    system: SystemConfig,
+    integration: IntegrationConfig,
+    initial: InitialConditions,
+    lyapunov: LyapunovConfig,
+    solve_tols: SolverTolerances,
+) -> np.ndarray:
+    """Cached wrapper for compute_single_lyapunov using Streamlit cache when available."""
+    if st is None:
+        # Streamlit not available; return direct computation
+        return compute_single_lyapunov(system, integration, initial, lyapunov, solve_tols)
+
+    # Use Streamlit caching at the service boundary
+    @st.cache_data(show_spinner=False)
+    def _cached_impl(
+        sys_repr: str,
+        integ_repr: str,
+        init_repr: str,
+        lyap_repr: str,
+        tol_repr: str,
+    ) -> np.ndarray:
+        return compute_single_lyapunov(system, integration, initial, lyapunov, solve_tols)
+
+    return _cached_impl(
+        repr(system),
+        repr(integration),
+        repr(initial),
+        repr(lyapunov),
+        repr(solve_tols),
+    )

@@ -15,7 +15,7 @@ from app.helpers import (
     downsample_trajectory,
     parse_list_of_floats,
 )
-from app.logic.lyapunov_cached import compute_lyapunov_cached
+from app.services import compute_lyapunov_cached
 from app.params import (
     CustomSystemDefinition,
     HenonHeilesParams,

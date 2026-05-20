@@ -1,7 +1,36 @@
 import io
-from typing import List
+from typing import Dict, List
 
 import numpy as np
+
+try:
+    import pandas as pd
+except Exception:  # pragma: no cover
+    pd = None
+
+
+def export_csv(df_or_rows, filename: str) -> None:
+    """
+    Export sweep output to CSV.
+    Accepts either a pandas DataFrame or list-of-dicts rows.
+    """
+    if pd is not None and hasattr(df_or_rows, "to_csv"):
+        df_or_rows.to_csv(filename, index=False)
+        return
+
+    # fallback without pandas
+    rows: List[Dict[str, float]] = list(df_or_rows)
+    if not rows:
+        # create empty file with no content (or raise)
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write("")
+        return
+
+    cols = list(rows[0].keys())
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(",".join(cols) + "\n")
+        for r in rows:
+            f.write(",".join(str(r.get(c, "")) for c in cols) + "\n")
 
 
 def build_csv_bytes(
