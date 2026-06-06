@@ -91,6 +91,7 @@ params_out, t_hit, y_hit, count = sweep_nb(
     int(output_index),
     False,
     100,
+    False,
 )
 
 y_hit = np.asarray(y_hit[:count], dtype=float)

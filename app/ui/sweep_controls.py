@@ -85,6 +85,7 @@ class SweepControlsResult:
     transient_frac_lya: float
     transient_steps_lya: int
     warm_start: bool
+    descending: bool
     early_stop: bool
     max_hits: int
     chunk_time: float
@@ -219,10 +220,18 @@ def render_sweep_controls(
         with p2c3:
             sweep_mode = st.selectbox(
                 "Sweep mode",
-                ["Bifurcation (reset ICs)", "Continuation (warm start)"],
+                [
+                    "Bifurcation (reset ICs)",
+                    "Continuation (warm start, low->high)",
+                    "Continuation (warm start, high->low)",
+                ],
                 index=0,
                 key=SweepControlsKeys.MODE,
-                help="Reset ICs = bibliography-style. Warm start = faster continuation."
+                help=(
+                    "Reset ICs = bibliography-style. Warm start = faster continuation. "
+                    "high->low follows the attractor while decreasing the parameter "
+                    "(needed for some multistable/hidden-attractor diagrams)."
+                ),
             )
 
     with top_c3:
@@ -248,6 +257,7 @@ def render_sweep_controls(
             )
 
     warm_start = sweep_mode.startswith("Continuation")
+    descending = "high->low" in sweep_mode
     solve_tols_sweep = SolverTolerances(rtol=float(rtol_sweep), atol=float(atol_sweep))
     continue_stop = None
     continue_stop_lya = None
@@ -571,6 +581,7 @@ def render_sweep_controls(
         start=float(sweep_start),
         stop=float(sweep_stop),
         step=float(sweep_step),
+        descending=bool(descending),
     )
     poincare_cfg = PoincareConfig(
         section_index=int(section_index),
@@ -667,6 +678,7 @@ def render_sweep_controls(
         transient_frac_lya=float(transient_frac_lya),
         transient_steps_lya=int(transient_steps_lya),
         warm_start=bool(warm_start),
+        descending=bool(descending),
         early_stop=bool(early_stop),
         max_hits=int(max_hits),
         chunk_time=float(chunk_time),

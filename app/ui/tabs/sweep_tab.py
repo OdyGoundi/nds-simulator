@@ -54,6 +54,7 @@ def render_sweep_tab(
                 extrema_kind=ctrl.extrema_kind,
                 parallel_bif_enabled=ctrl.parallel_bif_enabled,
                 workers_bif=ctrl.workers_bif,
+                descending=ctrl.descending,
             )
 
         elif ctrl.run_cont:
@@ -79,6 +80,7 @@ def render_sweep_tab(
                 extrema_kind=ctrl.extrema_kind,
                 parallel_bif_enabled=ctrl.parallel_bif_enabled,
                 workers_bif=ctrl.workers_bif,
+                descending=ctrl.descending,
             )
 
         if ctrl.run_lya_cont:

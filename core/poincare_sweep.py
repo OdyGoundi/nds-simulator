@@ -120,6 +120,10 @@ class SweepConfig:
     start: float
     stop: float
     step: float
+    # If True, sweep the parameter from stop down to start (high->low).
+    # Only changes results together with warm-start (continuation); with
+    # reset-ICs it just reverses the order in which points are produced.
+    descending: bool = False
 
 
 def _validate_direction(direction: int) -> None:
@@ -324,6 +328,8 @@ def sweep_poincare_events_ivp(
     t_trans_end = min(tf, t0 + transient_time)
 
     param_vals = _frange_inclusive(sweep.start, sweep.stop, sweep.step)
+    if getattr(sweep, "descending", False):
+        param_vals = param_vals[::-1]
 
     y0_base = np.array(y0, dtype=float).copy()
     y0_curr = y0_base.copy()
@@ -481,9 +487,11 @@ def sweep_poincare(
     from core.solver import integrate_system, integrate_system_rk4  # type: ignore
 
     param_vals = _frange_inclusive(sweep.start, sweep.stop, sweep.step)
+    if getattr(sweep, "descending", False):
+        param_vals = param_vals[::-1]
 
     rows: List[Dict[str, float]] = []
-    
+
     y0_curr = np.array(y0, dtype=float).copy()
 
     for pv in param_vals:

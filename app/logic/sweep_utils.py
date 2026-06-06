@@ -65,6 +65,7 @@ def _sweep_settings_fingerprint(
         "system_key": system.key,
         "sweep_param": str(sweep.param_name),
         "sweep_step": float(sweep.step),
+        "descending": bool(getattr(sweep, "descending", False)),
         "observable": str(observable),
         "extrema_kind": str(extrema_kind),
         "section_index": int(poincare.section_index),

@@ -81,6 +81,7 @@ def _execute_new_bif_sweep_impl(
     extrema_kind: str,
     parallel_bif_enabled: bool,
     workers_bif: int,
+    descending: bool = False,
 ) -> tuple[pd.DataFrame, bool]:
     """Pure computation: run bifurcation sweep, return (df, clipped)."""
     sweep_run = SweepConfig(
@@ -88,6 +89,7 @@ def _execute_new_bif_sweep_impl(
         start=float(sweep_start),
         stop=float(sweep_stop),
         step=float(sweep_step),
+        descending=bool(descending),
     )
     observable = OBSERVABLE_EXTREMA if use_extrema else OBSERVABLE_POINCARE
 
@@ -129,6 +131,7 @@ def execute_new_bif_sweep(
     extrema_kind: str,
     parallel_bif_enabled: bool,
     workers_bif: int,
+    descending: bool = False,
 ) -> pd.DataFrame:
     """UI wrapper: orchestrates computation and manages session state."""
     st.session_state[SweepDataKeys.ACC_DF] = None
@@ -155,10 +158,13 @@ def execute_new_bif_sweep(
             extrema_kind=extrema_kind,
             parallel_bif_enabled=parallel_bif_enabled,
             workers_bif=workers_bif,
+            descending=bool(descending),
         )
 
     st.session_state[SweepDataKeys.ROWS_CLIPPED] = clipped
     st.session_state[SweepDataKeys.ACC_DF] = df_chunk
+    # High end of the swept grid — used as the x-axis upper bound (both directions).
+    # (Continue is disabled in descending mode, so this is never used to resume.)
     st.session_state[SweepDataKeys.LAST_PV] = float(sweep_stop)
     st.session_state[SweepDataKeys.LAST_DF] = df_chunk
     st.session_state[SweepDataKeys.LAST_META] = sweep_meta
@@ -185,8 +191,11 @@ def _execute_cont_bif_sweep_impl(
     acc_df: Optional[pd.DataFrame],
     last_pv: Optional[float],
     rows_clipped_prev: bool,
+    descending: bool = False,
 ) -> tuple[Optional[pd.DataFrame], bool, Optional[str]]:
     """Pure computation: validate state and continue sweep. Returns (df, clipped, error_msg)."""
+    if descending:
+        return None, False, "Continue is not supported in downward (high->low) sweep mode. Use 'Generate'."
     if acc_df is None or last_pv is None:
         return None, False, "No previous sweep found. Run 'Generate Bifurcation Diagram' first."
 
@@ -244,6 +253,7 @@ def execute_cont_bif_sweep(
     extrema_kind: str,
     parallel_bif_enabled: bool,
     workers_bif: int,
+    descending: bool = False,
 ) -> Optional[pd.DataFrame]:
     """UI wrapper: validates settings and manages session state."""
     prev_meta = st.session_state.get(SweepDataKeys.META, {})
@@ -276,6 +286,7 @@ def execute_cont_bif_sweep(
             extrema_kind=extrema_kind,
             parallel_bif_enabled=parallel_bif_enabled,
             workers_bif=workers_bif,
+            descending=bool(descending),
             acc_df=acc_df,
             last_pv=last_pv,
             rows_clipped_prev=rows_clipped_prev,

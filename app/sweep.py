@@ -104,7 +104,10 @@ def _param_values(sweep: SweepConfig) -> np.ndarray:
         raise ValueError("Sweep step must be > 0.")
     n = int(np.floor((float(sweep.stop) - float(sweep.start)) / float(sweep.step) + 1e-12)) + 1
     vals = float(sweep.start) + float(sweep.step) * np.arange(n, dtype=float)
-    return vals[vals <= float(sweep.stop) + 1e-12]
+    vals = vals[vals <= float(sweep.stop) + 1e-12]
+    if getattr(sweep, "descending", False):
+        vals = vals[::-1]
+    return vals
 
 
 def _clip_rows_result(rows_obj, max_rows: int = MAX_SWEEP_ROWS_BUDGET):
@@ -184,6 +187,99 @@ def _append_hit_rows(rows: deque, sweep: SweepConfig, pv: float, ycol: str, t_hi
         })
 
 
+def _try_custom_numba_poincare(
+    *,
+    system: SystemConfig,
+    integration: IntegrationConfig,
+    initial: InitialConditions,
+    sweep: SweepConfig,
+    poincare: PoincareConfig,
+    observable_lc: str,
+    run_cfg: SweepRunConfig,
+    sweep_solver_kind: str,
+    base_params: Dict[str, float],
+    max_hits_effective: int,
+):
+    """Fused JIT Poincaré sweep for custom systems. Return rows, or None if not applicable.
+
+    Mirrors the built-in fast path: integration + crossing detection + the parameter
+    loop all happen inside one compiled kernel, so we never store full trajectories or
+    run the Poincaré scan in Python. Falls back (None) for extrema observables,
+    section expressions, non-rk4 solvers, or when numba is unavailable.
+    """
+    if sweep_solver_kind != "rk4":
+        return None
+    if observable_lc != OBSERVABLE_POINCARE:
+        return None
+    if str(poincare.section_expr or "").strip() != "":
+        return None
+    method_lc = str(poincare.method or "").lower()
+    if method_lc not in ("crossing", "slab"):
+        return None
+    if int(poincare.direction) not in (-1, 0, 1):
+        return None
+
+    var_names = list(system.custom.var_names)
+    dim = len(var_names)
+    if not (0 <= int(poincare.section_index) < dim):
+        return None
+    if not (0 <= int(run_cfg.output_index) < dim):
+        return None
+
+    param_names = list(base_params.keys())
+    sweep_param_name = str(sweep.param_name)
+    if sweep_param_name not in param_names:
+        return None
+
+    try:
+        from core import numba_backend
+        if not numba_backend.numba_available():
+            return None
+        from app import numba_custom
+        rhs_nb = numba_custom.build_custom_numba_rhs(
+            var_names,
+            list(system.custom.eq_lines),
+            param_names,
+        )
+        base_params_arr = np.array([float(base_params[name]) for name in param_names], dtype=float)
+        param_index = param_names.index(sweep_param_name)
+        sweep_nb = numba_backend.build_poincare_sweep_rk4(rhs_nb)
+        method_id = 0 if method_lc == "crossing" else 1
+        max_keep = int(max_hits_effective)
+        params_out, t_hit, y_hit, count = sweep_nb(
+            np.asarray(initial.y0, dtype=float),
+            float(integration.t0),
+            float(integration.tf),
+            float(integration.dt),
+            base_params_arr,
+            int(param_index),
+            float(sweep.start),
+            float(sweep.stop),
+            float(sweep.step),
+            int(poincare.section_index),
+            float(poincare.section_value),
+            int(poincare.direction),
+            int(method_id),
+            float(poincare.tol),
+            int(poincare.transient_steps),
+            int(run_cfg.output_index),
+            bool(run_cfg.warm_start),
+            int(max_keep),
+            bool(getattr(sweep, "descending", False)),
+        )
+        params_out = np.asarray(params_out[:count], dtype=float)
+        t_hit = np.asarray(t_hit[:count], dtype=float)
+        y_hit = np.asarray(y_hit[:count], dtype=float)
+        ycol = f"y{int(run_cfg.output_index)}"
+        rows = [
+            {str(sweep.param_name): float(p), "t_hit": float(t), ycol: float(y)}
+            for p, t, y in zip(params_out, t_hit, y_hit)
+        ]
+        return _clip_rows_result(rows, MAX_SWEEP_ROWS_BUDGET)
+    except Exception:
+        return None
+
+
 def _run_custom_chunk(
     *,
     system: SystemConfig,
@@ -199,6 +295,22 @@ def _run_custom_chunk(
     max_hits_effective: int,
 ) -> List[dict]:
     base_params = parse_params(system.custom.params_text)
+
+    fast_rows = _try_custom_numba_poincare(
+        system=system,
+        integration=integration,
+        initial=initial,
+        sweep=sweep,
+        poincare=poincare,
+        observable_lc=observable_lc,
+        run_cfg=run_cfg,
+        sweep_solver_kind=sweep_solver_kind,
+        base_params=base_params,
+        max_hits_effective=max_hits_effective,
+    )
+    if fast_rows is not None:
+        return list(fast_rows)
+
     param_vals = _param_values(sweep)
 
     rows: deque = deque(maxlen=MAX_SWEEP_ROWS_BUDGET)
@@ -575,6 +687,7 @@ def _try_builtin_numba_poincare(
             int(run_cfg.output_index),
             bool(run_cfg.warm_start),
             int(max_keep),
+            bool(getattr(sweep, "descending", False)),
         )
         params_out = np.asarray(params_out[:count], dtype=float)
         t_hit = np.asarray(t_hit[:count], dtype=float)

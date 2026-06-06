@@ -37,6 +37,7 @@ def build_poincare_sweep_rk4(rhs_nb: Callable) -> Callable:
         output_index: int,
         warm_start: bool,
         max_hits: int,
+        descending: bool,
     ):
         if dt <= 0.0 or sweep_step <= 0.0:
             return (
@@ -73,8 +74,9 @@ def build_poincare_sweep_rk4(rhs_nb: Callable) -> Callable:
 
         y_init = y0.copy()
         for idx in range(n_vals):
-            pv = sweep_start + sweep_step * idx
-            if pv > sweep_stop + 1e-12:
+            idx_eff = (n_vals - 1 - idx) if descending else idx
+            pv = sweep_start + sweep_step * idx_eff
+            if not descending and pv > sweep_stop + 1e-12:
                 break
 
             params = base_params.copy()
