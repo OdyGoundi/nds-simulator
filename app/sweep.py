@@ -769,6 +769,7 @@ def _run_builtin_poincare_chunk(
         output_indices=[int(run_cfg.output_index)],
         include_all_state=False,
         warm_start=bool(run_cfg.warm_start),
+        max_hits=int(max_hits_effective),
     )
     return _clip_rows_result(rows_std, MAX_SWEEP_ROWS_BUDGET)
 

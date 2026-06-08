@@ -87,7 +87,9 @@ def build_poincare_sweep_rk4(rhs_nb: Callable) -> Callable:
             prev_y = y.copy()
             prev_t = t
             prev_ds = prev_y[section_index] - section_value
-            hits = 0
+            hit_t_buf = np.empty(max_hits_local, dtype=np.float64)
+            hit_y_buf = np.empty(max_hits_local, dtype=np.float64)
+            hits_total = 0
 
             for step in range(1, n_steps):
                 k1 = rhs_nb(t, y, params)
@@ -109,7 +111,7 @@ def build_poincare_sweep_rk4(rhs_nb: Callable) -> Callable:
                         else:
                             cond = (prev_ds == 0.0) or (curr_ds == 0.0) or (prev_ds * curr_ds < 0.0)
 
-                        if cond and hits < max_hits_local:
+                        if cond:
                             denom = curr_ds - prev_ds
                             if denom == 0.0:
                                 alpha = 1.0
@@ -123,11 +125,10 @@ def build_poincare_sweep_rk4(rhs_nb: Callable) -> Callable:
                             yh = prev_y[output_index] + alpha * (
                                 y_next[output_index] - prev_y[output_index]
                             )
-                            param_out[out_count] = pv
-                            t_out[out_count] = th
-                            y_out[out_count] = yh
-                            out_count += 1
-                            hits += 1
+                            slot = hits_total % max_hits_local
+                            hit_t_buf[slot] = th
+                            hit_y_buf[slot] = yh
+                            hits_total += 1
                     else:
                         # slab
                         if math.fabs(curr_ds) <= tol:
@@ -138,12 +139,11 @@ def build_poincare_sweep_rk4(rhs_nb: Callable) -> Callable:
                                     cond = deriv > 0.0
                                 else:
                                     cond = deriv < 0.0
-                            if cond and hits < max_hits_local:
-                                param_out[out_count] = pv
-                                t_out[out_count] = t_next
-                                y_out[out_count] = y_next[output_index]
-                                out_count += 1
-                                hits += 1
+                            if cond:
+                                slot = hits_total % max_hits_local
+                                hit_t_buf[slot] = t_next
+                                hit_y_buf[slot] = y_next[output_index]
+                                hits_total += 1
                     prev_ds = curr_ds
                 else:
                     prev_ds = y_next[section_index] - section_value
@@ -155,6 +155,18 @@ def build_poincare_sweep_rk4(rhs_nb: Callable) -> Callable:
 
             if warm_start:
                 y_init = y.copy()
+
+            hits_keep = hits_total if hits_total < max_hits_local else max_hits_local
+            if hits_keep > 0:
+                start_slot = 0
+                if hits_total > max_hits_local:
+                    start_slot = hits_total % max_hits_local
+                for hit_idx in range(hits_keep):
+                    slot = (start_slot + hit_idx) % max_hits_local
+                    param_out[out_count] = pv
+                    t_out[out_count] = hit_t_buf[slot]
+                    y_out[out_count] = hit_y_buf[slot]
+                    out_count += 1
 
         return param_out, t_out, y_out, out_count
 

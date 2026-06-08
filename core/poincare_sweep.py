@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import math
+from collections import deque
 
 try:
     from scipy.integrate import solve_ivp
@@ -297,7 +298,7 @@ def sweep_poincare_events_ivp(
 ):
     """
     Fast IVP sweep using solve_ivp EVENTS for Poincaré crossings.
-    Collects up to `max_hits` hits per parameter value and can early-stop.
+    Keeps the last `max_hits` hits per parameter value.
 
     Notes
     -----
@@ -376,9 +377,9 @@ def sweep_poincare_events_ivp(
                 continue
             y_start = np.array(sol_tr.y[:, -1], dtype=float).copy()
 
-        # --- 2) collect events in chunks until max_hits or tf ---
-        hits_t: List[float] = []
-        hits_y: List[np.ndarray] = []
+        # --- 2) collect events in chunks; keep the tail of the post-transient run ---
+        hits_t = deque(maxlen=max(1, int(max_hits)))
+        hits_y = deque(maxlen=max(1, int(max_hits)))
 
         t_cur = t_trans_end
         y_cur = y_start
@@ -386,7 +387,7 @@ def sweep_poincare_events_ivp(
         # fixed integration chunk for event detection
         ct = 2.0
 
-        while t_cur < tf and len(hits_t) < int(max_hits):
+        while t_cur < tf:
             t_next = min(tf, t_cur + ct)
 
             sol = solve_ivp(
@@ -409,8 +410,6 @@ def sweep_poincare_events_ivp(
                 for k in range(te.shape[0]):
                     hits_t.append(float(te[k]))
                     hits_y.append(np.array(ye[k], dtype=float))
-                    if len(hits_t) >= int(max_hits):
-                        break
 
             # advance
             t_cur = float(sol.t[-1])
@@ -425,14 +424,9 @@ def sweep_poincare_events_ivp(
         if len(hits_t) == 0:
             continue
 
-        # keep last max_hits (safety)
-        if len(hits_t) > int(max_hits):
-            hits_t = hits_t[-int(max_hits):]
-            hits_y = hits_y[-int(max_hits):]
-
         # stack to (d, m)
-        y_hits = np.stack(hits_y, axis=1)
-        t_hits = np.array(hits_t, dtype=float)
+        y_hits = np.stack(list(hits_y), axis=1)
+        t_hits = np.array(list(hits_t), dtype=float)
 
         # build rows
         for j in range(t_hits.size):
@@ -464,6 +458,7 @@ def sweep_poincare(
     output_indices: Optional[Sequence[int]] = None,
     include_all_state: bool = False,
     warm_start: bool = False, 
+    max_hits: int = 100,
 ):
     """
     Parametric sweep producing Poincaré hits suitable for plotting & CSV export.
@@ -512,10 +507,10 @@ def sweep_poincare(
 
         t_hits, y_hits = poincare_section(sol.t, sol.y, poincare, params=params)
 
-        MAX_HITS = 100
-        if t_hits.size > MAX_HITS:
-            t_hits = t_hits[-MAX_HITS:]
-            y_hits = y_hits[:, -MAX_HITS:]
+        max_hits_local = max(1, int(max_hits))
+        if t_hits.size > max_hits_local:
+            t_hits = t_hits[-max_hits_local:]
+            y_hits = y_hits[:, -max_hits_local:]
 
         if t_hits.size == 0:
             continue
@@ -540,5 +535,4 @@ def sweep_poincare(
         return rows
 
     return pd.DataFrame(rows)
-
 
