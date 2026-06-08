@@ -294,8 +294,6 @@ def sweep_poincare_events_ivp(
     include_all_state: bool = False,
     warm_start: bool = False,
     max_hits: int = 100,
-    chunk_time: float = 2.0,
-    early_stop: bool = True,
 ):
     """
     Fast IVP sweep using solve_ivp EVENTS for Poincaré crossings.
@@ -385,14 +383,8 @@ def sweep_poincare_events_ivp(
         t_cur = t_trans_end
         y_cur = y_start
 
-        # guard: chunk_time should be positive
-        ct = float(chunk_time)
-        if ct <= 0.0:
-            ct = max(1.0, 20.0 * float(t_step))
-        
-        # If early_stop is disabled, use a single chunk to tf and ignore max_hits stopping
-        if not bool(early_stop):
-            ct = max(0.0, tf - t_cur)
+        # fixed integration chunk for event detection
+        ct = 2.0
 
         while t_cur < tf and len(hits_t) < int(max_hits):
             t_next = min(tf, t_cur + ct)

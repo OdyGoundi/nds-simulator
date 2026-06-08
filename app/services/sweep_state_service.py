@@ -158,9 +158,7 @@ def _apply_sweep_config_to_state(
 
     run = sweep_settings.get("run")
     if isinstance(run, dict):
-        st.session_state[SweepControlsKeys.EARLY_STOP] = bool(run.get("early_stop", True))
         st.session_state[SweepControlsKeys.MAX_HITS] = max(10, _to_int(run.get("max_hits", 200), 200))
-        st.session_state[SweepControlsKeys.CHUNK_TIME] = max(0.1, _to_float(run.get("chunk_time", 2.0), 2.0))
 
     if isinstance(lyapunov_obj, dict):
         lyapunov_settings = lyapunov_obj.get("settings")

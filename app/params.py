@@ -67,8 +67,6 @@ class SweepRunConfig:
     output_index: int
     warm_start: bool
     max_hits: int
-    early_stop: bool
-    chunk_time: float
 
 
 @dataclass(frozen=True)

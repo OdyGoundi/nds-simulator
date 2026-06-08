@@ -86,9 +86,7 @@ class SweepControlsResult:
     transient_steps_lya: int
     warm_start: bool
     descending: bool
-    early_stop: bool
     max_hits: int
-    chunk_time: float
     rtol_sweep: float
     atol_sweep: float
     qr_interval_lya: float
@@ -229,8 +227,7 @@ def render_sweep_controls(
                 key=SweepControlsKeys.MODE,
                 help=(
                     "Reset ICs = bibliography-style. Warm start = faster continuation. "
-                    "high->low follows the attractor while decreasing the parameter "
-                    "(needed for some multistable/hidden-attractor diagrams)."
+                    "high->low follows the attractor while decreasing the parameter."
                 ),
             )
 
@@ -394,14 +391,6 @@ def render_sweep_controls(
 
         r3c1, r3c2, r3c3 = st.columns([1, 1, 1], gap="small")
         with r3c1:
-            early_stop = st.checkbox(
-                "Early stop (events)",
-                value=True,
-                key=SweepControlsKeys.EARLY_STOP,
-                disabled=use_extrema,
-                help="Stop each run after collecting enough Poincaré hits."
-            )
-        with r3c2:
             max_hits = st.number_input(
                 "Max hits kept",
                 min_value=10,
@@ -409,20 +398,12 @@ def render_sweep_controls(
                 value=200,
                 step=10,
                 key=SweepControlsKeys.MAX_HITS,
-                disabled=(not early_stop) and (not use_extrema),
                 help="Maximum number of hits kept per parameter value."
             )
+        with r3c2:
+            st.empty()
         with r3c3:
-            chunk_time = st.number_input(
-                "Chunk time",
-                min_value=0.1,
-                value=2.0,
-                step=0.5,
-                format="%.2f",
-                key=SweepControlsKeys.CHUNK_TIME,
-                disabled=use_extrema or (not early_stop),
-                help="Integration time window for event detection."
-            )
+            st.empty()
 
         st.markdown("**Bifurcation discard (not plotted)**")
         r4c1, r4c2 = st.columns([1, 1], gap="small")
@@ -603,8 +584,6 @@ def render_sweep_controls(
         output_index=int(output_index),
         warm_start=bool(warm_start),
         max_hits=int(max_hits),
-        early_stop=bool(early_stop),
-        chunk_time=float(chunk_time),
     )
     lyapunov_cfg = LyapunovConfig(
         transient_steps=int(transient_steps_lya),
@@ -679,9 +658,7 @@ def render_sweep_controls(
         transient_steps_lya=int(transient_steps_lya),
         warm_start=bool(warm_start),
         descending=bool(descending),
-        early_stop=bool(early_stop),
         max_hits=int(max_hits),
-        chunk_time=float(chunk_time),
         rtol_sweep=float(rtol_sweep),
         atol_sweep=float(atol_sweep),
         qr_interval_lya=float(qr_interval_lya),

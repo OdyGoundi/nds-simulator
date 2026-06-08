@@ -753,8 +753,6 @@ def _run_builtin_poincare_chunk(
             include_all_state=False,
             warm_start=bool(run_cfg.warm_start),
             max_hits=int(max_hits_effective),
-            early_stop=bool(run_cfg.early_stop),
-            chunk_time=float(run_cfg.chunk_time),
         )
         return _clip_rows_result(rows_ivp, MAX_SWEEP_ROWS_BUDGET)
 

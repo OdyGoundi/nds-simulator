@@ -80,8 +80,6 @@ def _sweep_settings_fingerprint(
         "solver_kind": str(getattr(integration, "solver_kind", "ivp")),
         "transient_frac": float(transient_frac),
         "max_hits": int(run_cfg.max_hits),
-        "early_stop": bool(run_cfg.early_stop),
-        "chunk_time": float(run_cfg.chunk_time),
         "warm_start": bool(run_cfg.warm_start),
         "rtol": float(solve_tols.rtol),
         "atol": float(solve_tols.atol),

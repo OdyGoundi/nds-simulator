@@ -193,9 +193,7 @@ def build_sweep_config(
     transient_frac: float,
     transient_steps_est: int,
     warm_start: bool,
-    early_stop: bool,
     max_hits: int,
-    chunk_time: float,
     parallel_bif: bool,
     workers_bif: int,
     rtol_sweep: float,
@@ -251,9 +249,7 @@ def build_sweep_config(
             "steps_est": int(transient_steps_est),
         },
         "run": {
-            "early_stop": bool(early_stop),
             "max_hits": int(max_hits),
-            "chunk_time": float(chunk_time),
         },
     }
 
