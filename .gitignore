@@ -79,7 +79,34 @@ gitTokenForColab.txt
 # Temporary / misc
 # =========================
 output.csv
+SQUASH_MESSAGES.txt
+texput.log
 
 # Large local archives (not for tracking)
 dynasim_local.zip
 *.zip
+
+# =========================
+# Local-only files excluded from the public remote
+# =========================
+docs/README.md
+docs/greek/
+docs/thesis/
+docs/developer/code-reader-guide.md
+docs/developer/refactoring.md
+docs/user-guide/overview.md
+examples/
+legacy/
+scripts/
+pyproject.toml
+run.sh
+run.bat
+
+# Keep only thesis-referenced benchmark material under tests.
+tests/*
+!tests/StaticParamsConfig_5.json
+!tests/benchmark_lorenz_longruns_ram_vs_steps.ipynb
+!tests/benchmark_lyapunov_analytic_vs_fd.py
+!tests/benchmark_lyapunov_cpp_vs_python.py
+!tests/lyapunov_benchmark_StaticParamsConfig_5_accuracy.png
+!tests/lyapunov_benchmark_StaticParamsConfig_5_runtime.png

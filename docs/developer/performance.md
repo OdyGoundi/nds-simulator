@@ -22,68 +22,19 @@ identify Poincaré crossings *during* integration.
 ### How
 - Uses `solve_ivp` with event functions
 - Each event corresponds to a Poincaré crossing
-- Integration stops or continues based on event count
+- Integration covers the full `t0 → tf` window; internally it runs in
+  short fixed chunks (an implementation detail, not a user setting),
+  carrying the state from one chunk to the next
+- Only the **last** `max_hits` crossings per parameter value are kept
+  (bounded deque)
 
 **Result:**  
-Cost scales with number of crossings, not number of time steps.
+Memory scales with the number of kept crossings, not the number of
+time steps — no dense trajectory is ever stored.
 
 ---
 
-## 2. Chunked integration (`chunk_time`)
-
-### What
-Instead of integrating from `t0 → tf` in a single solver call, the
-integration is split into **time chunks** of fixed duration.
-
-Example:
-
-t ∈ [0, 2] → [2, 4] → [4, 6] → …
-
-### Why
-
-- Allows early stopping once enough hits are collected
-
-- Prevents runaway integrations in chaotic regimes
-
-- Improves responsiveness in Streamlit
-
-### How
-
-- Each chunk is an independent IVP call
-
-- Final state of one chunk is initial state of the next
-
-- Controlled by chunk_time parameter
-
-### Rule of thumb:
-
-- Small chunk_time → more solver calls, finer control
-
-- Large chunk_time → fewer solver calls, faster but less reactive
-
-## 3. Early Stopping 
-
-### What 
-
-Stop integrating as soon as enough Poincaré hits are collected.
-
-### Why
-
-- Bifurcation diagrams only need the asymptotic regime
-
-- Integrating past that gives no new information
-
-- Prevents wasting time in long chaotic transients
-
-### How
-
-- Track number of detected events
-
-- Stop when hits >= max_hits
-
-- Enabled via early_stop=True
-
-## 4. Capped Poincaré hits (`max_hits`)
+## 2. Capped Poincaré hits (`max_hits`)
 
 ### What
 
@@ -103,8 +54,12 @@ Limit the number of Poincaré points stored per parameter value.
     hits = hits[-max_hits:]"
 
 This keeps only the last crossings, i.e. closest to the attractor.
+The same tail-keeping semantics hold on every path: bounded deque in
+`sweep_poincare_events_ivp`, ring buffer in the Numba kernel. The
+effective cap is also clipped against the in-memory row budget
+(`_effective_max_hits` in `app/sweep.py`).
 
-## 5. Warm start (continuation mode)
+## 3. Warm start (continuation mode)
 
 ### What
 
@@ -125,9 +80,11 @@ for pᵢ₊₁.
 
 - Use it as y0 for the next run
 
-- Enabled via Sweep mode → Continuation
+- Enabled via Sweep mode → Continuation (low->high or high->low; the
+  descending variant reverses the parameter grid and always starts
+  fresh — Continue is disabled there)
 
-## 6. Parallel workers (independent mode)
+## 4. Parallel workers (independent mode)
 
 ### What
 
@@ -146,7 +103,7 @@ is **independent** (reset ICs, no warm start).
 - Disabled automatically for continuation (warm start)
 - Typically limited to local runs (Streamlit Cloud disables it)
 
-## 7. Transient removal (sweep-only)
+## 5. Transient removal (sweep-only)
 
 ### What
 
@@ -166,7 +123,7 @@ Ignore an initial fraction of each sweep integration.
 
 - Applied before event collection
 
-## 8. Bounded plotting memory in Tab 3
+## 6. Bounded plotting memory in Tab 3
 
 ### What
 
@@ -187,38 +144,34 @@ rows into a bounded reservoir sample.
 - Recent and reservoir points now use the same black marker styling; the
   distinction is internal storage, not color coding
 
-## 9. Computational complexity (qualitative)
+## 7. Computational complexity (qualitative)
 
 Let:
 
-- *P* = number of sweep parameter values  
-- *H* = `max_hits`  
-- *C* = number of time chunks per run  
+- *P* = number of sweep parameter values
+- *N* = integration steps per parameter value (`≈ (tf − t0) / dt`)
+- *H* = `max_hits`
 
 Then, approximately:
 
-> **Cost ≈** `O(P × C × cost(IVP_chunk))`
-
-Instead of the classical approach:
-
-> **Cost ≈** `O(P × N_steps)`
-
-where:
-
-- `N_steps ≫ H`
+> **Compute cost ≈** `O(P × N)`
+> **Memory ≈** `O(P × H)`, with `H ≪ N`
 
 ---
 
 **Key insight**
 
-Because event-based integration detects only *relevant crossings* and
-terminates early, the computational cost depends on the number of
-*events* rather than the number of *time samples*.
+Integration time still scales with the full time window — what the
+design bounds is *storage*. No dense trajectory is kept; each parameter
+value contributes only its last `H` crossings, and Tab 3 plotting state
+is further bounded by the row budget plus reservoir (section 6).
 
--> This is the key reason why sweeps that originally took **tens of minutes**
-now complete in **a few minutes**.
+The speedups come from three places: event detection (no dense output
+to scan), warm start (shorter transients per parameter value), and the
+Numba JIT kernels (cheaper per-step cost). Combined, sweeps that
+originally took **tens of minutes** complete in **a few minutes**.
 
-## 10. Numba acceleration (fixed-step)
+## 8. Numba acceleration (fixed-step)
 
 ### What
 When the user selects **RK4** or **Symplectic Forest-Ruth**, the app attempts to
@@ -234,12 +187,10 @@ use the Numba backend for the fixed-step integrators.
 - The Numba-vs-Python decision is centralised in `app/cache.py` (single
   trajectories) and `app/sweep.py` (sweeps); system and solver dispatch
   go through `app/services/system_registry.py` and
-  `app/services/solver_policy.py`. See
-  [`code-reader-guide.md`](./code-reader-guide.md) §7.8 for the
-  builder-based Numba flow.
+  `app/services/solver_policy.py`.
 
 
-## 11. Practical tuning guidelines
+## 9. Practical tuning guidelines
 
 Rules of thumb for **Lorenz bifurcation sweeps**. Express integration length as total steps:
 
@@ -251,10 +202,10 @@ Smaller `dt_sweep` means larger `N_steps` (slower) but more accurate crossings.
 | ------------------- | ------------------------------------------------------------------------------ |
 | Fast preview        | `N_steps` in the low thousands, `max_hits ~ 50`                                |
 | Publication-quality | Increase `N_steps` and `max_hits` vs preview until the diagram stabilizes      |
-| Very large sweeps   | Enable warm start + early stop; for independent mode, enable parallel workers  |
-| Chaotic regimes     | Smaller `chunk_time`; increase `N_steps` if crossings are sparse or missing    |
+| Very large sweeps   | Use warm start (continuation); for independent mode, enable parallel workers   |
+| Chaotic regimes     | Increase `N_steps` if crossings are sparse; raise `max_hits` for a longer tail |
 
-## 12. Why this design fits Streamlit
+## 10. Why this design fits Streamlit
 
 - No long blocking calls
 
@@ -264,16 +215,16 @@ Smaller `dt_sweep` means larger `N_steps` (slower) but more accurate crossings.
 
 - Safe for cloud deployment limits
 
-## 13. Summary
+## 11. Summary
 
 
 ### Core performance principle
 
-> **Compute only what you will actually plot.**
+> **Store only what you will actually plot.**
 
-Event detection, chunked integration, and capped Poincaré hits transform
-bifurcation diagrams from a **brute-force numerical task** into a
-**scalable and efficient workflow**.
+Event detection, capped Poincaré hits, and Numba-compiled kernels
+transform bifurcation diagrams from a **brute-force numerical task**
+into a **scalable and efficient workflow**.
 
 As a result, **NLDS remains interactive**, even for large parameter
 sweeps and chaotic regimes.

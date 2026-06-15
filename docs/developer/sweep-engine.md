@@ -5,7 +5,6 @@ Tab 3 is no longer a single monolithic file. After refactor 4.5, it is
 that run the actual numerics and own the accumulated state.
 
 Companion docs: [architecture.md](./architecture.md),
-[code-reader-guide.md](./code-reader-guide.md),
 [session-state.md](./session-state.md).
 
 ---
@@ -32,8 +31,8 @@ sweep services need:
   `integration_sweep`, `run_cfg`, `lyapunov_cfg`,
   `solve_tols_sweep`, `sweep_meta`, `lya_meta`)
 - raw widget values (`sweep_param`, `ycol`, `use_extrema`,
-  `extrema_kind`, `transient_frac`, `warm_start`, `early_stop`,
-  `max_hits`, `chunk_time`, `qr_interval_lya`, …)
+  `extrema_kind`, `transient_frac`, `warm_start`, `descending`,
+  `max_hits`, `qr_interval_lya`, …)
 - button states (`run_new`, `run_cont`, `run_lya`, `run_lya_cont`,
   `continue_stop`, `continue_stop_lya`)
 
@@ -69,17 +68,32 @@ The two bifurcation entry points share a private helper
 deciding observable (`OBSERVABLE_POINCARE` vs `OBSERVABLE_EXTREMA`)
 and parallel-worker setup.
 
+### Direction (ascending / descending)
+
+The sweep mode radio has three options: `Bifurcation (reset ICs)`,
+`Continuation (warm start, low->high)`, and
+`Continuation (warm start, high->low)`. The third one sets
+`SweepConfig.descending = True` — the step itself stays positive; the
+parameter grid is built as usual and then reversed. The reversal
+happens in `_param_values` (`app/sweep.py`), in `sweep_poincare` /
+`sweep_poincare_events_ivp` (`core/poincare_sweep.py`), and inside the
+Numba Poincaré kernel, which iterates the grid in reverse without
+leaving JIT. Direction is part of the settings fingerprint, and
+**Continue is disabled in descending mode** — a high->low run always
+starts fresh.
+
 ---
 
 ## 3. Per-path runners (6)
 
 [`app/sweep.py`](../../app/sweep.py) is now a thin dispatcher
-(`run_sweep_chunk`, ~88 lines) on top of five per-path helpers. Each
+(`run_sweep_chunk`) on top of six per-path helpers. Each
 helper handles one (system × solver × observable) combination:
 
 | Runner | Path |
 |---|---|
-| `_run_custom_chunk` | Custom systems (any solver). |
+| `_try_custom_numba_poincare` | Fused JIT Poincaré sweep for custom systems: feeds the compiled custom RHS into the same `build_poincare_sweep_rk4` kernel used by built-ins. Returns `None` if Numba isn't available, the observable is extrema, the section is expression-based, or the solver isn't RK4 + crossing — the caller falls through. |
+| `_run_custom_chunk` | Custom systems (any solver): tries the fused Numba path above, then per-value integration. |
 | `_run_symplectic_builtin_chunk` | Built-in Hénon-Heiles, symplectic Forest-Ruth. |
 | `_run_builtin_extrema_chunk` | Built-in systems with the `extrema` observable. |
 | `_try_builtin_numba_poincare` | Fast JIT Poincaré sweep for built-in systems. Returns `None` if Numba isn't available, the section is expression-based, or the solver isn't RK4 + crossing — the caller falls through. |
@@ -90,6 +104,8 @@ A `dispatch` table for `run_sweep_chunk`:
 
 ```
 custom system                  → _run_custom_chunk
+                                   ├─ _try_custom_numba_poincare  (if RK4 + crossing + plane)
+                                   └─ per-value integration       (fallback)
 built-in + symplectic_fr       → _run_symplectic_builtin_chunk
 built-in + extrema             → _run_builtin_extrema_chunk
 built-in + poincare            → _run_builtin_poincare_chunk
@@ -127,8 +143,8 @@ All session-state access goes through typed constants from
 
 | Mode | Trigger | Path |
 |---|---|---|
-| **Event-based IVP** | `solver_kind ∈ {rk45, dop853}` + `crossing` | `core/poincare_sweep.sweep_poincare_events_ivp`, with `early_stop`. |
-| **Numba Poincaré sweep** | RK4 + `crossing` + plane section + built-in system | `core/numba_backend/sweep.build_poincare_sweep_rk4`. |
+| **Event-based IVP** | `solver_kind ∈ {rk45, dop853}` + `crossing` | `core/poincare_sweep.sweep_poincare_events_ivp` — keeps the last `max_hits` hits per parameter value. |
+| **Numba Poincaré sweep** | RK4 + `crossing` + plane section + built-in or custom system | `core/numba_backend/sweep.build_poincare_sweep_rk4`. |
 | **Fixed-step sweep** | RK4 / Symplectic FR | `core/solver.integrate_system_rk4` or `core/symplectic_solver`; Numba when available. |
 | **Generic fallback** | Anything else | `core/poincare_sweep.sweep_poincare` with dense scanning. |
 | **Lyapunov sweep** | `execute_*_lya_sweep` | `app/logic/lyapunov_sweep._run_lyapunov_sweep` → `app/services/lyapunov_service` → `core/lyapunov`. Optional `parallel_lya`. |
@@ -137,11 +153,13 @@ All session-state access goes through typed constants from
 
 ## 6. Performance knobs
 
-- `chunk_time`, `early_stop`, `max_hits` — control the event loop cost.
+- `max_hits` — caps the stored Poincaré hits per parameter value (the
+  **last** `max_hits` crossings are kept); further clipped against the
+  row budget via `_effective_max_hits` in `app/sweep.py`.
 - `tf_sweep`, `dt_sweep`, `transient_frac` — integration effort per
   parameter value.
 - `qr_interval` — Lyapunov re-orthonormalisation period.
-- `warm_start` (continuation) vs reset ICs.
+- `warm_start` (continuation, low->high or high->low) vs reset ICs.
 - `parallel_bif` / `parallel_lya` + `workers` — only honoured when
   `warm_start` is off.
 

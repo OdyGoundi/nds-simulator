@@ -3,8 +3,7 @@
 This file documents the execution flow of the app with emphasis on the Numba and Python paths.
 
 For the higher-level shape of the codebase, see
-[architecture.md](./architecture.md) and
-[code-reader-guide.md](./code-reader-guide.md). For Tab 3 specifically,
+[architecture.md](./architecture.md) . For Tab 3 specifically,
 see [sweep-engine.md](./sweep-engine.md). For session state,
 [session-state.md](./session-state.md).
 

@@ -4,10 +4,7 @@
 dynamical systems. The codebase is organized around a strict one-direction
 dependency rule and a small set of typed contracts between layers.
 
-This document describes the shape of the code today (post-refactor on
-`refactor/codebase-cleanup`). Companion documents:
-- [code-reader-guide.md](./code-reader-guide.md) — file-by-file reading map
-- [refactoring.md](./refactoring.md) — what changed and why
+This document describes the current shape of the code. Companion documents:
 - [performance.md](./performance.md), [sweep-engine.md](./sweep-engine.md), [session-state.md](./session-state.md)
 
 ---
@@ -245,7 +242,6 @@ For the full Numba decision tree, see [README.md](./README.md).
 | A plot's exact shape | `app/plotting/<kind>.py` |
 | A session-state key | `app/state/session_keys.py` |
 | Pure math | `core/<topic>.py` |
-| Notebook-era prototypes | `legacy/` (not on the runtime path) |
 
 ---
 

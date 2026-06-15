@@ -30,12 +30,17 @@ env
 # --- Notebooks + scratch ---
 *.ipynb_checkpoints
 tests/*.ipynb
+tests
 scripts
 
-# --- Docs are not needed at runtime, except the header logo assets ---
+# --- Docs are not needed at runtime, except assets and app-loaded HTML manuals ---
 docs/**
-!docs/assets
+!docs/assets/
 !docs/assets/**
+!docs/user-guide/
+!docs/user-guide/manual.html
+!docs/user-guide/manual-el.html
+!docs/user-guide/info.html
 
 # --- Thesis: huge LaTeX build outputs that have no business in the image ---
 docs/thesis
@@ -57,8 +62,6 @@ reference_pyhamsys.py
 
 # --- Example configs + saved runs ---
 examples
-tests/StaticParamsConfig*.json
-tests/lyapunov_*.png
 
 # --- Container / CI ---
 Dockerfile

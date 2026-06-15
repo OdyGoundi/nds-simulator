@@ -4,17 +4,18 @@
 
 # dynaSim (NLDS Simulator)
 
-### Interactive Nonlinear Dynamics Laboratory for Simulation, Lyapunov Analysis, and Poincare Sweeps
+### Interactive Nonlinear Dynamical Systems Laboratory
 
 <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white"/>
 <img alt="Streamlit" src="https://img.shields.io/badge/Streamlit-App-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white"/>
 <img alt="Numba" src="https://img.shields.io/badge/Numba-JIT-00A877?style=for-the-badge"/>
+<img alt="Version" src="https://img.shields.io/badge/Version-1.1%20%7C%20June%202026-4FD1C5?style=for-the-badge"/>
 <img alt="License" src="https://img.shields.io/badge/License-GPLv3-1E3A8A?style=for-the-badge"/>
 
 </div>
 
 dynaSim is a Streamlit-based platform for nonlinear dynamical systems.
-It supports system simulation, Lyapunov spectrum estimation, and Poincare-driven parameter sweeps with continuation and optional local parallelism.
+It supports system simulation, Lyapunov spectrum estimation, and Poincare-driven parameter sweeps with continuation and optional parallelism.
 
 ## Why This Project
 
@@ -40,24 +41,44 @@ It supports system simulation, Lyapunov spectrum estimation, and Poincare-driven
 
 ## Visual Snapshot
 
-<div align="center">
-
-<img src="docs/thesis/lorenz_bif_rho.png" alt="Lorenz bifurcation" width="48%"/>
-<img src="tests/lyapunov_benchmark_StaticParamsConfig_5_accuracy.png" alt="Lyapunov benchmark accuracy" width="48%"/>
-
-</div>
+The Lorenz attractor, reconstructed from a single nD initial-value run:
 
 <div align="center">
 
-<img src="tests/lyapunov_benchmark_StaticParamsConfig_5_runtime.png" alt="Lyapunov benchmark runtime" width="58%"/>
+<img src="docs/assets/readme/lorenz_3d_phase_space.png" alt="Lorenz 3D phase portrait" width="58%"/>
 
 </div>
 
-## Run Locally
+A strange attractor on a Poincaré section (Duffing) next to a bifurcation diagram
+built from Poincaré crossings (4D hyperchaotic Lorenz-type system, reproducing
+Volos et al. 2016):
 
-```bash
-streamlit run app/nlds_app.py
-```
+<div align="center">
+
+<img src="docs/assets/readme/duffing_poincare_attractor.png" alt="Duffing strange attractor on a Poincaré section" width="48%"/>
+<img src="docs/assets/readme/hyperchaotic4d_bifurcation.png" alt="4D hyperchaotic bifurcation diagram" width="48%"/>
+
+</div>
+
+Bifurcation (reset ICs) vs continuation (warm start) for the same Duffing sweep —
+the continuation branch follows a single attractor and misses the period doubling
+the reset sweep exposes:
+
+<div align="center">
+
+<img src="docs/assets/readme/duffing_bifurcation_mode.png" alt="Duffing bifurcation mode" width="48%"/>
+<img src="docs/assets/readme/duffing_continuation_mode.png" alt="Duffing continuation mode" width="48%"/>
+
+</div>
+
+Why solver choice matters: energy drift of a symplectic integrator vs RK45 on the
+Hénon–Heiles Hamiltonian — the symplectic curve stays flat while RK45 leaks energy:
+
+<div align="center">
+
+<img src="docs/assets/readme/henon_heiles_energy_drift.png" alt="Hénon-Heiles energy drift: symplectic vs RK45" width="70%"/>
+
+</div>
 
 ## Architecture (High Level)
 
@@ -73,34 +94,47 @@ flowchart LR
 ```
 
 For the layer rules and contracts, see [docs/developer/architecture.md](docs/developer/architecture.md).
-For a file-by-file map, see [docs/developer/code-reader-guide.md](docs/developer/code-reader-guide.md).
 
 ## Ways To Use dynaSim
 
-1. **Cloud (online)**
-   - `https://nlds-simulator.streamlit.app`
-   - `dynasim.streamlit.app`
-   - Best for overview, teaching, and quick experiments without setup.
+### Local (recommended)
 
-2. **Local Streamlit**
-   - Recommended for heavier runs and to avoid cloud runtime limits.
-   - Command:
-   ```bash
-   streamlit run app/nlds_app.py
-   ```
+Best for heavy runs — long integration horizons, dense parameter sweeps, or
+Lyapunov spectra over many parameter values — where cloud runtime limits get in
+the way.
 
-3. **Jupyter Notebook A: trajectories / phase / Lyapunov / time series**
-   - Use exported configs from Tab 4 and run deeper custom analysis.
-   - Link: `NOTEBOOK_A_LINK_PENDING`
+**Option A — Docker** (cleanest; isolates dependencies from your system):
 
-4. **Jupyter Notebook B: param sweeps / bifurcation / Lyapunov vs parameter**
-   - Use exported sweep configs for batch and research workflows.
-   - Link: `NOTEBOOK_B_LINK_PENDING`
+```bash
+git clone https://github.com/OdyGoundi/nds-simulator.git
+cd nds-simulator
+docker build -t dynasim .
+docker run --rm -p 8501:8501 dynasim
+```
 
-Recommended workflow:
-- Cloud for quick exploration.
-- Local for unrestricted compute.
-- Notebooks for research-grade parameterization and post-processing.
+Then open `http://localhost:8501` in a browser.
+
+**Option B — Python + pip** (use this if you want to edit the code or call the
+numerical core outside Streamlit):
+
+```bash
+git clone https://github.com/OdyGoundi/nds-simulator.git
+cd nds-simulator
+python3 -m venv .venv
+source .venv/bin/activate            # Windows (PowerShell): .\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+streamlit run app/nlds_app.py
+```
+
+### Cloud (online)
+
+For quick demos, trying the interface, and small simulations:
+
+- `https://nlds-simulator.streamlit.app`
+
+Not recommended for demanding sweeps, very long integration horizons, or
+memory-heavy computations — use a local run for those.
 
 ## Large Runs (Streamlit Cloud)
 
@@ -116,24 +150,21 @@ When running very large `tf/dt` combinations:
 ## Documentation Map
 
 - User guide: `docs/user-guide/`
+  - Custom systems (equation syntax): `docs/user-guide/custom-systems.md`
 - Manuals (HTML):
   - English: `docs/user-guide/manual.html`
   - Greek: `docs/user-guide/manual-el.html`
 - Theory notes: `docs/theory/`
 - Developer docs: `docs/developer/`
-  - Code reader guide (file-by-file map): `docs/developer/code-reader-guide.md`
   - Architecture (layers + contracts): `docs/developer/architecture.md`
-  - Refactoring notes (what changed and why): `docs/developer/refactoring.md`
   - Sweep engine (Tab 3): `docs/developer/sweep-engine.md`
   - Session state (typed keys): `docs/developer/session-state.md`
-- Greek quick guides: `docs/greek/`
-- Docs index: `docs/README.md`
 
 ## Project Info
 
 - Developed as part of the master thesis of **Odysseas Gkountinakos**.
 - MSc Program in Computational Physics, Department of Physics, Aristotle University of Thessaloniki.
-- Supervisor: **Christos Volos**.
+- Supervisor: **Christos Volos**, Professor.
 - Source: `https://github.com/OdyGoundi/nds-simulator`
 - Contact: `ody.gkount@gmail.com`
 
@@ -141,5 +172,5 @@ When running very large `tf/dt` combinations:
 
 This project is free software under the **GNU GPL v3.0**.
 
-- License text: GNU GPL v3.0
+- Full license text: [LICENSE](LICENSE)
 - © 2026 Odysseas Gkountinakos
